@@ -1,0 +1,16 @@
+# Développement local complet : web + workers.
+# La base est fournie par `npx supabase start` (hors compose, outillage officiel).
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    env_file: ../.env.local
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    env_file: ../.env.local
+    restart: unless-stopped

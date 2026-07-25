@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design system — « terminal calme ».
+  Le dark mode est le mode natif du produit (référence : terminaux de marché) ;
+  le light mode est une projection fidèle. Une seule couleur d'accent : l'ambre
+  signal, réservée à l'information qui demande une décision.
+*/
+:root {
+  --ink: 246 247 249;        /* fond */
+  --surface: 255 255 255;    /* cartes */
+  --raised: 249 250 252;
+  --line: 226 230 238;
+  --body: 24 30 40;
+  --muted: 100 110 128;
+  --signal: 191 122 22;      /* ambre signal (contraste AA sur clair) */
+  --up: 21 128 88;
+  --down: 190 42 48;
+}
+
+.dark {
+  --ink: 13 16 23;
+  --surface: 22 27 36;
+  --raised: 28 34 45;
+  --line: 47 55 69;
+  --body: 226 230 238;
+  --muted: 139 148 163;
+  --signal: 232 163 61;
+  --up: 63 182 139;
+  --down: 229 82 87;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-ink text-body antialiased;
+}
+
+::selection {
+  background: rgb(var(--signal) / 0.25);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--signal));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

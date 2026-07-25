@@ -1,0 +1,19 @@
+project_id = "dealradar"
+
+[db]
+port = 54322
+major_version = 15
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+
+[auth.external.google]
+enabled = false
+
+[auth.external.apple]
+enabled = false

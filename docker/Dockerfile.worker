@@ -1,0 +1,16 @@
+FROM node:20-slim AS builder
+RUN corepack enable
+WORKDIR /app
+COPY pnpm-workspace.yaml package.json ./
+COPY packages ./packages
+COPY apps/workers ./apps/workers
+RUN pnpm install --frozen-lockfile=false
+RUN pnpm --filter @dealradar/workers build
+
+FROM node:20-slim AS runner
+RUN corepack enable
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app ./
+USER node
+CMD ["node", "apps/workers/dist/index.js"]

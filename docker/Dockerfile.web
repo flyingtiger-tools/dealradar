@@ -1,0 +1,19 @@
+# ── Build ────────────────────────────────────────────────────
+FROM node:20-slim AS builder
+RUN corepack enable
+WORKDIR /app
+COPY pnpm-workspace.yaml package.json ./
+COPY packages ./packages
+COPY apps/web ./apps/web
+RUN pnpm install --frozen-lockfile=false
+RUN pnpm --filter @dealradar/web build
+
+# ── Runtime ──────────────────────────────────────────────────
+FROM node:20-slim AS runner
+RUN corepack enable
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app ./
+USER node
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@dealradar/web", "start"]
