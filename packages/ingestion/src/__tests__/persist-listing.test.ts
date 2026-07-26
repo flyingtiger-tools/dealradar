@@ -72,4 +72,27 @@ describe("persistListing", () => {
     await persistListing(supabase as never, SOURCE_ID, listing({ meta: { ...listing().meta, externalId: "ext-2" } }));
     expect(supabase.table("listings")).toHaveLength(2);
   });
+
+  it("persiste les images du connecteur dans listing_media (correction du gap Lot 4)", async () => {
+    const supabase = new FakeSupabase();
+    await persistListing(
+      supabase as never,
+      SOURCE_ID,
+      listing({
+        images: [
+          { url: "https://i.ebayimg.com/1.jpg", position: 0 },
+          { url: "https://i.ebayimg.com/2.jpg", position: 1 },
+        ],
+      }),
+    );
+    expect(supabase.table("listing_media")).toHaveLength(2);
+  });
+
+  it("un rerun identique n'insère jamais de doublon d'image (upsert par listing_id+source_url)", async () => {
+    const supabase = new FakeSupabase();
+    const withImages = listing({ images: [{ url: "https://i.ebayimg.com/1.jpg", position: 0 }] });
+    await persistListing(supabase as never, SOURCE_ID, withImages);
+    await persistListing(supabase as never, SOURCE_ID, withImages);
+    expect(supabase.table("listing_media")).toHaveLength(1);
+  });
 });

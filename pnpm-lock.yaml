@@ -75,6 +75,9 @@ importers:
 
   apps/workers:
     dependencies:
+      '@dealradar/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@dealradar/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
@@ -190,9 +193,15 @@ importers:
 
   packages/ingestion:
     dependencies:
+      '@dealradar/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@dealradar/connectors':
         specifier: workspace:*
         version: link:../connectors
+      '@dealradar/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@dealradar/core':
         specifier: workspace:*
         version: link:../core

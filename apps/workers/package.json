@@ -15,6 +15,7 @@
     "@dealradar/core": "workspace:*",
     "@dealradar/connectors": "workspace:*",
     "@dealradar/ingestion": "workspace:*",
+    "@dealradar/ai": "workspace:*",
     "@supabase/supabase-js": "^2.47.10",
     "pg-boss": "^10.1.5",
     "pino": "^9.5.0",

@@ -21,7 +21,7 @@ export interface SoldListingRow {
 }
 
 /** Sépare le `categorySlug` (métadonnée DealRadar) du reste des attributs (aspects source). */
-function splitAttributes(raw: Record<string, unknown>): {
+export function splitAttributes(raw: Record<string, unknown>): {
   categorySlug: string | null;
   attributes: Record<string, string | number | boolean>;
 } {

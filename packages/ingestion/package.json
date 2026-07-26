@@ -14,6 +14,8 @@
   "dependencies": {
     "@dealradar/core": "workspace:*",
     "@dealradar/connectors": "workspace:*",
+    "@dealradar/ai": "workspace:*",
+    "@dealradar/contracts": "workspace:*",
     "@supabase/supabase-js": "^2.47.10",
     "zod": "^3.24.1"
   },

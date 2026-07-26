@@ -9,12 +9,13 @@ type Row = Record<string, unknown>;
 
 interface QueryState {
   table: string;
-  operation: "select" | "insert" | "update";
+  operation: "select" | "insert" | "update" | "upsert";
   filters: { column: string; value: unknown }[];
   notFilters: { column: string; value: unknown }[];
   inFilters: { column: string; values: unknown[] }[];
   containsFilters: { column: string; value: Row }[];
   payload?: Row | Row[];
+  onConflict?: string[];
   orderBy?: { column: string; ascending: boolean };
   limitCount?: number;
   single?: boolean;
@@ -35,6 +36,28 @@ export class FakeSupabase {
   /** Accès sûr pour les assertions de test (évite noUncheckedIndexedAccess ailleurs). */
   table(name: string): Row[] {
     return this.tables[name] ?? [];
+  }
+
+  /** Enregistrements de fonctions RPC simulées (reserve_ai_budget, etc.) — voir `registerRpc`. */
+  private rpcHandlers: Record<string, (params: Row) => { data: unknown; error: unknown }> = {};
+
+  registerRpc(name: string, handler: (params: Row) => { data: unknown; error: unknown }): void {
+    this.rpcHandlers[name] = handler;
+  }
+
+  rpc(name: string, params: Row) {
+    const handler = this.rpcHandlers[name];
+    const result = handler ? handler(params) : { data: null, error: { message: `RPC non simulée : ${name}` } };
+    return {
+      then(onFulfilled: (value: { data: unknown; error: unknown }) => unknown, onRejected?: (reason: unknown) => unknown) {
+        try {
+          return Promise.resolve(onFulfilled(result));
+        } catch (error) {
+          if (onRejected) return Promise.resolve(onRejected(error));
+          throw error;
+        }
+      },
+    };
   }
 
   from(table: string) {
@@ -61,6 +84,12 @@ export class FakeSupabase {
       update(payload: Row) {
         state.operation = "update";
         state.payload = payload;
+        return builder;
+      },
+      upsert(payload: Row | Row[], opts?: { onConflict?: string }) {
+        state.operation = "upsert";
+        state.payload = payload;
+        state.onConflict = opts?.onConflict?.split(",");
         return builder;
       },
       eq(column: string, value: unknown) {
@@ -133,6 +162,24 @@ export class FakeSupabase {
       const targets = rows.filter(matches);
       for (const row of targets) Object.assign(row, state.payload);
       return { data: targets, error: null };
+    }
+
+    if (state.operation === "upsert") {
+      const payloads = Array.isArray(state.payload) ? state.payload : [state.payload!];
+      const onConflict = state.onConflict ?? ["id"];
+      const upserted: Row[] = [];
+      for (const p of payloads) {
+        const existing = rows.find((row) => onConflict.every((col) => row[col] === p[col]));
+        if (existing) {
+          Object.assign(existing, p);
+          upserted.push(existing);
+        } else {
+          const inserted = { id: p.id ?? randomId(), ...p };
+          rows.push(inserted);
+          upserted.push(inserted);
+        }
+      }
+      return { data: upserted, error: null };
     }
 
     let result = rows.filter(matches);

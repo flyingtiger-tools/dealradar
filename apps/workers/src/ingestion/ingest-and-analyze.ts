@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MarketplaceConnector } from "@dealradar/connectors";
 import type { CostInputs } from "@dealradar/core";
-import { runIngestion, analyzeListing } from "@dealradar/ingestion";
+import { runIngestion, analyzeListing, extractListing } from "@dealradar/ingestion";
 import { logger } from "../logger";
+import { buildAiExtractionConfigFromEnv } from "./ai-provider-config";
 
 /**
  * Hypothèses de coût par défaut, documentées comme telles (ADR 0008) — pas
@@ -42,9 +43,26 @@ export async function ingestAndAnalyze(params: {
   const summary = await runIngestion(params);
   const asOf = new Date().toISOString();
   let analyzed = 0;
+  const aiConfig = buildAiExtractionConfigFromEnv();
 
   for (const listingId of summary.listingIds) {
     try {
+      try {
+        await extractListing({
+          supabase: params.supabase,
+          listingId,
+          provider: aiConfig?.provider,
+          maxImages: aiConfig?.maxImages,
+          imageDomainAllowlist: aiConfig?.imageDomainAllowlist,
+          aiDailyBudgetUsd: aiConfig?.dailyBudgetUsd,
+        });
+      } catch (error) {
+        logger.warn(
+          { listingId, error: error instanceof Error ? error.message : "erreur inconnue" },
+          "Extraction IA impossible pour cette annonce — analyse poursuivie avec les données existantes",
+        );
+      }
+
       const { data: row } = await params.supabase
         .from("listings")
         .select("price_cents")

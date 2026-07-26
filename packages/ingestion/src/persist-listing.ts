@@ -64,6 +64,7 @@ export async function persistListing(
     }
     const insertedRow = inserted as { id: string };
     await insertPriceObservation(supabase, insertedRow.id, listing.price.amountCents, listing.price.currency, "active");
+    await upsertListingMedia(supabase, insertedRow.id, listing.images);
     return { listingId: insertedRow.id, outcome: "inserted" };
   }
 
@@ -84,7 +85,33 @@ export async function persistListing(
     );
   }
 
+  await upsertListingMedia(supabase, existingRow.id, listing.images);
+
   return { listingId: existingRow.id, outcome: priceChanged ? "updated" : "skipped" };
+}
+
+/**
+ * Upsert idempotent par (listing_id, source_url) — correction du gap Lot 4
+ * (les images du connecteur n'étaient jamais persistées). Volontairement
+ * pas un delete-then-insert : une écriture qui échoue au milieu ne laisse
+ * jamais une annonce sans aucune image (migration 0011).
+ */
+async function upsertListingMedia(
+  supabase: SupabaseClient,
+  listingId: string,
+  images: ValidatedNormalizedListing["images"],
+): Promise<void> {
+  if (images.length === 0) return;
+  const rows = images.map((image) => ({
+    listing_id: listingId,
+    source_url: image.url,
+    position: image.position,
+    kind: "image",
+  }));
+  const { error } = await supabase.from("listing_media").upsert(rows, { onConflict: "listing_id,source_url" });
+  if (error) {
+    throw new Error(`Persistance des images impossible : ${(error as { message?: string }).message ?? "erreur inconnue"}`);
+  }
 }
 
 async function insertPriceObservation(
