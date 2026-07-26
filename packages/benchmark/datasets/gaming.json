@@ -1,0 +1,399 @@
+{
+  "categorySlug": "gaming",
+  "provenance": "synthetic",
+  "note": "Dataset synthétique — structure fidèle à EbayRawItem. Aucun champ hors de ce sous-ensemble. Remplaçable par un export réel de l'API Browse sans changement de code.",
+  "items": [
+    {
+      "raw": {
+        "itemId": "bench-game-001",
+        "title": "PS5 God of War Ragnarök",
+        "shortDescription": "Boîtier et notice inclus, disque sans rayure.",
+        "price": {
+          "value": "39.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game001/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-01T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-002",
+        "title": "Nintendo Switch The Legend of Zelda Tears of the Kingdom",
+        "shortDescription": "Neuf, encore sous blister.",
+        "price": {
+          "value": "54.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game002/s-l500.jpg"
+        },
+        "condition": "New",
+        "itemCreationDate": "2026-06-10T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-003",
+        "title": "Xbox Series X Forza Horizon 5",
+        "shortDescription": "Très bon état, boîte légèrement usée.",
+        "price": {
+          "value": "29.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game003/s-l500.jpg"
+        },
+        "condition": "Very good",
+        "itemCreationDate": "2026-05-20T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-004",
+        "title": "PS4 Marvel's Spider-Man",
+        "shortDescription": "Complet, testé et fonctionnel.",
+        "price": {
+          "value": "19.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game004/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-04-15T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-005",
+        "title": "Nintendo Switch OLED Mario Kart 8 Deluxe",
+        "shortDescription": "Console + jeu, très bon état général.",
+        "price": {
+          "value": "279.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game005/s-l500.jpg"
+        },
+        "condition": "Very good",
+        "itemCreationDate": "2026-05-05T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-006",
+        "title": "Wii U Super Mario 3D World",
+        "shortDescription": "Occasion, disque rayé mais fonctionnel.",
+        "price": {
+          "value": "24.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game006/s-l500.jpg"
+        },
+        "condition": "Acceptable",
+        "itemCreationDate": "2026-02-18T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "fair"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-007",
+        "title": "PS Vita Persona 4 Golden",
+        "shortDescription": "Boîte complète, rare.",
+        "price": {
+          "value": "89.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game007/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-01-25T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-008",
+        "title": "GameCube Metroid Prime",
+        "shortDescription": "Notice manquante, disque en bon état.",
+        "price": {
+          "value": "34.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game008/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-03-08T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-009",
+        "title": "Jeu vidéo occasion complet",
+        "shortDescription": "Titre non précisé dans l'annonce, photo disponible sur demande.",
+        "price": {
+          "value": "9.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game009/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-14T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-010",
+        "title": "Console de jeu rétro à identifier",
+        "shortDescription": "Trouvée au grenier, marque inconnue.",
+        "price": {
+          "value": "15.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game010/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-01-05T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-011",
+        "title": "Lot de jeux vidéo divers",
+        "shortDescription": "5 jeux mélangés, plateformes variées.",
+        "price": {
+          "value": "40.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game011/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-05-25T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-012",
+        "title": "PS5 God of War Ragnarök — aspect contradictoire (cas de test)",
+        "shortDescription": "Le titre annonce PS5 mais l'aspect vendeur indique une autre plateforme — exercice délibéré du cas de contradiction.",
+        "price": {
+          "value": "35.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game012/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-19T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS4"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-013",
+        "title": "",
+        "price": {
+          "value": "5.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/game013/s-l500.jpg"
+        }
+      },
+      "expected": {}
+    }
+  ],
+  "comparables": [
+    {
+      "raw": {
+        "itemId": "bench-game-comp-001",
+        "title": "PS5 God of War Ragnarök vendu",
+        "price": {
+          "value": "37.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS5"
+          },
+          {
+            "name": "productName",
+            "value": "God of War Ragnarök"
+          },
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "soldAt": "2026-06-09T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-comp-002",
+        "title": "PS5 God of War Ragnarök vendu",
+        "price": {
+          "value": "41.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS5"
+          },
+          {
+            "name": "productName",
+            "value": "God of War Ragnarök"
+          },
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "soldAt": "2026-06-03T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-comp-003",
+        "title": "PS5 God of War Ragnarök vendu",
+        "price": {
+          "value": "36.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS5"
+          },
+          {
+            "name": "productName",
+            "value": "God of War Ragnarök"
+          },
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "soldAt": "2026-05-27T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-comp-004",
+        "title": "PS5 God of War Ragnarök vendu",
+        "price": {
+          "value": "43.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS5"
+          },
+          {
+            "name": "productName",
+            "value": "God of War Ragnarök"
+          },
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "soldAt": "2026-05-19T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-game-comp-005",
+        "title": "PS5 God of War Ragnarök vendu",
+        "price": {
+          "value": "38.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "platform",
+            "value": "PS5"
+          },
+          {
+            "name": "productName",
+            "value": "God of War Ragnarök"
+          },
+          {
+            "name": "region",
+            "value": "PAL"
+          }
+        ]
+      },
+      "soldAt": "2026-05-11T00:00:00.000Z"
+    }
+  ]
+}

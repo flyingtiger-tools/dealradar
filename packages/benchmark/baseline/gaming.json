@@ -1,0 +1,10 @@
+{
+  "categorySlug": "gaming",
+  "savedAt": "2026-07-26T17:30:42.376Z",
+  "quality": {
+    "precisionAnnotee": 1,
+    "tauxExtractionInvalide": 0,
+    "tauxContradictionMajeure": 0.08333333333333333,
+    "tauxInsufficientData": 0.9166666666666666
+  }
+}

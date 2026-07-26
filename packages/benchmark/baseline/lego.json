@@ -1,0 +1,10 @@
+{
+  "categorySlug": "lego",
+  "savedAt": "2026-07-26T17:30:37.806Z",
+  "quality": {
+    "precisionAnnotee": 1,
+    "tauxExtractionInvalide": 0,
+    "tauxContradictionMajeure": 0.07142857142857142,
+    "tauxInsufficientData": 0.9285714285714286
+  }
+}

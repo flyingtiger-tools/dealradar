@@ -1,0 +1,10 @@
+{
+  "categorySlug": "apple",
+  "savedAt": "2026-07-26T17:30:40.739Z",
+  "quality": {
+    "precisionAnnotee": 1,
+    "tauxExtractionInvalide": 0,
+    "tauxContradictionMajeure": 0.07692307692307693,
+    "tauxInsufficientData": 1
+  }
+}

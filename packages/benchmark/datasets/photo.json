@@ -1,0 +1,398 @@
+{
+  "categorySlug": "photo",
+  "provenance": "synthetic",
+  "note": "Dataset synthétique — structure fidèle à EbayRawItem. Aucun champ hors de ce sous-ensemble. Remplaçable par un export réel de l'API Browse sans changement de code.",
+  "items": [
+    {
+      "raw": {
+        "itemId": "bench-photo-001",
+        "title": "Canon EOS R6",
+        "shortDescription": "Boîtier nu, compteur de déclenchements bas.",
+        "price": {
+          "value": "1490.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo001/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-01T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-002",
+        "title": "Nikon D850 boîtier nu",
+        "shortDescription": "Très bon état, capot d'objectif inclus.",
+        "price": {
+          "value": "1690.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo002/s-l500.jpg"
+        },
+        "condition": "Very good",
+        "itemCreationDate": "2026-05-15T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-003",
+        "title": "Sony A7 III",
+        "shortDescription": "Avec deux batteries et chargeur.",
+        "price": {
+          "value": "1290.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo003/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-04-20T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-004",
+        "title": "Fujifilm X-T4 très bon état",
+        "shortDescription": "Quelques marques d'usage sur le boîtier.",
+        "price": {
+          "value": "990.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo004/s-l500.jpg"
+        },
+        "condition": "Very good",
+        "itemCreationDate": "2026-03-10T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-005",
+        "title": "Olympus OM-D E-M10",
+        "shortDescription": "Reconditionné par le vendeur, testé.",
+        "price": {
+          "value": "349.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo005/s-l500.jpg"
+        },
+        "condition": "Seller refurbished",
+        "itemCreationDate": "2026-02-14T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-006",
+        "title": "Panasonic Lumix GH5",
+        "shortDescription": "Boîtier + poignée d'alimentation.",
+        "price": {
+          "value": "890.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo006/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-05-01T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-007",
+        "title": "Leica Q2 comme neuf",
+        "shortDescription": "Peu utilisé, garantie constructeur encore active.",
+        "price": {
+          "value": "4290.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo007/s-l500.jpg"
+        },
+        "condition": "Like new",
+        "itemCreationDate": "2026-06-05T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-008",
+        "title": "Canon objectif 50mm f/1.8",
+        "shortDescription": "Optique claire, aucune trace de champignon.",
+        "price": {
+          "value": "89.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo008/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-04-08T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-009",
+        "title": "Vieil appareil photo argentique de collection",
+        "shortDescription": "Marque effacée, à identifier par un connaisseur.",
+        "price": {
+          "value": "25.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo009/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-01-20T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-010",
+        "title": "Sacoche photo compatible plusieurs marques",
+        "shortDescription": "Accessoire uniquement, aucun boîtier inclus.",
+        "price": {
+          "value": "15.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo010/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-11T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-011",
+        "title": "Lot d'accessoires photo divers",
+        "shortDescription": "Filtres, bandoulières, sans boîtier ni objectif de marque identifiée.",
+        "price": {
+          "value": "30.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo011/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-05-22T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-012",
+        "title": "Canon EOS R6 — aspect contradictoire (cas de test)",
+        "shortDescription": "Le titre annonce un boîtier Canon mais l'aspect vendeur indique un autre type d'équipement — exercice délibéré du cas de contradiction.",
+        "price": {
+          "value": "1390.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo012/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-20T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "lens"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-013",
+        "title": "",
+        "price": {
+          "value": "5.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/photo013/s-l500.jpg"
+        }
+      },
+      "expected": {}
+    }
+  ],
+  "comparables": [
+    {
+      "raw": {
+        "itemId": "bench-photo-comp-001",
+        "title": "Canon EOS R6 vendu",
+        "price": {
+          "value": "1420.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "camera_body"
+          },
+          {
+            "name": "model",
+            "value": "EOS R6"
+          },
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "soldAt": "2026-06-07T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-comp-002",
+        "title": "Canon EOS R6 vendu",
+        "price": {
+          "value": "1460.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "camera_body"
+          },
+          {
+            "name": "model",
+            "value": "EOS R6"
+          },
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "soldAt": "2026-05-31T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-comp-003",
+        "title": "Canon EOS R6 vendu",
+        "price": {
+          "value": "1400.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "camera_body"
+          },
+          {
+            "name": "model",
+            "value": "EOS R6"
+          },
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "soldAt": "2026-05-24T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-comp-004",
+        "title": "Canon EOS R6 vendu",
+        "price": {
+          "value": "1480.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "camera_body"
+          },
+          {
+            "name": "model",
+            "value": "EOS R6"
+          },
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "soldAt": "2026-05-16T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-photo-comp-005",
+        "title": "Canon EOS R6 vendu",
+        "price": {
+          "value": "1440.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "gearType",
+            "value": "camera_body"
+          },
+          {
+            "name": "model",
+            "value": "EOS R6"
+          },
+          {
+            "name": "mount",
+            "value": "RF"
+          }
+        ]
+      },
+      "soldAt": "2026-05-09T00:00:00.000Z"
+    }
+  ]
+}

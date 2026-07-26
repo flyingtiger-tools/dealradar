@@ -22,4 +22,12 @@ export default [
       "@typescript-eslint/no-unused-vars": "error",
     },
   },
+  {
+    // Entrypoints CLI : sortie terminal humaine, jamais un service qui
+    // journalise en continu — exception standard à no-console.
+    files: ["packages/**/src/cli.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
 ];

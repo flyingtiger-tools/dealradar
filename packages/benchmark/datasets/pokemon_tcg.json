@@ -1,0 +1,386 @@
+{
+  "categorySlug": "pokemon_tcg",
+  "provenance": "synthetic",
+  "note": "Dataset synthétique — structure fidèle à EbayRawItem. Aucun champ hors de ce sous-ensemble. Remplaçable par un export réel de l'API Browse sans changement de code.",
+  "items": [
+    {
+      "raw": {
+        "itemId": "bench-poke-001",
+        "title": "Pokémon Dracaufeu VMAX 020/189",
+        "shortDescription": "Carte near mint, jamais jouée.",
+        "price": {
+          "value": "89.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke001/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-01T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "Game",
+            "value": "Pokémon TCG"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-002",
+        "title": "Pokémon Pikachu Illustrator 001/001",
+        "shortDescription": "Reproduction, non officielle, à but décoratif.",
+        "price": {
+          "value": "25.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke002/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-05-15T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-003",
+        "title": "Pokémon Mewtwo GX 039/147",
+        "shortDescription": "Excellent état.",
+        "price": {
+          "value": "34.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke003/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-08T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-004",
+        "title": "Carte Pokémon Rayquaza VMAX 111/203",
+        "shortDescription": "Sous étui rigide, non gradée.",
+        "price": {
+          "value": "45.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke004/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-04-22T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-005",
+        "title": "Pokémon Lugia Legend 106/113",
+        "shortDescription": "Carte double, les deux moitiés incluses.",
+        "price": {
+          "value": "19.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke005/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-03-11T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-006",
+        "title": "Pokémon Sylveon VMAX 076/203",
+        "shortDescription": "Sortie de booster, jamais manipulée.",
+        "price": {
+          "value": "29.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke006/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-11T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-007",
+        "title": "Pokémon Umbreon Gold Star 17/17",
+        "shortDescription": "Coin légèrement plié.",
+        "price": {
+          "value": "1200.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke007/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-02-01T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-008",
+        "title": "Pokémon Célébi ex 006/165",
+        "shortDescription": "Carte japonaise, texte en japonais.",
+        "price": {
+          "value": "15.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke008/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-05-28T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-009",
+        "title": "Lot de cartes Pokémon vrac dépareillées",
+        "shortDescription": "Environ 200 cartes communes non triées.",
+        "price": {
+          "value": "20.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke009/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-13T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-010",
+        "title": "Belle carte Pokémon rare à identifier",
+        "shortDescription": "Je ne connais pas le nom exact, photo disponible.",
+        "price": {
+          "value": "10.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke010/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-01-30T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-011",
+        "title": "Coffret Pokémon complet, cartes variées",
+        "shortDescription": "Coffret cadeau, plusieurs cartes incluses, détail non précisé.",
+        "price": {
+          "value": "55.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke011/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-02T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-012",
+        "title": "Pokémon Dracaufeu VMAX 020/189 — aspect contradictoire (cas de test)",
+        "shortDescription": "Le titre annonce le set 020/189 mais l'aspect vendeur indique un autre set — exercice délibéré du cas de contradiction.",
+        "price": {
+          "value": "79.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke012/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-17T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "999/999"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-013",
+        "title": "",
+        "price": {
+          "value": "5.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/poke013/s-l500.jpg"
+        }
+      },
+      "expected": {}
+    }
+  ],
+  "comparables": [
+    {
+      "raw": {
+        "itemId": "bench-poke-comp-001",
+        "title": "Pokémon Dracaufeu VMAX 020/189 vendu",
+        "price": {
+          "value": "85.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "020/189"
+          },
+          {
+            "name": "cardName",
+            "value": "Dracaufeu VMAX"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "soldAt": "2026-06-06T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-comp-002",
+        "title": "Pokémon Dracaufeu VMAX 020/189 vendu",
+        "price": {
+          "value": "92.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "020/189"
+          },
+          {
+            "name": "cardName",
+            "value": "Dracaufeu VMAX"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "soldAt": "2026-05-30T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-comp-003",
+        "title": "Pokémon Dracaufeu VMAX 020/189 vendu",
+        "price": {
+          "value": "80.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "020/189"
+          },
+          {
+            "name": "cardName",
+            "value": "Dracaufeu VMAX"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "soldAt": "2026-05-22T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-comp-004",
+        "title": "Pokémon Dracaufeu VMAX 020/189 vendu",
+        "price": {
+          "value": "95.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "020/189"
+          },
+          {
+            "name": "cardName",
+            "value": "Dracaufeu VMAX"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "soldAt": "2026-05-14T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-poke-comp-005",
+        "title": "Pokémon Dracaufeu VMAX 020/189 vendu",
+        "price": {
+          "value": "88.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "setCode",
+            "value": "020/189"
+          },
+          {
+            "name": "cardName",
+            "value": "Dracaufeu VMAX"
+          },
+          {
+            "name": "grade",
+            "value": "raw"
+          }
+        ]
+      },
+      "soldAt": "2026-05-08T00:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,462 @@
+{
+  "categorySlug": "lego",
+  "provenance": "synthetic",
+  "note": "Dataset synthétique — structure fidèle à EbayRawItem (packages/connectors/src/ebay/raw-types.ts). Aucun champ hors de ce sous-ensemble. Remplaçable par un export réel de l'API Browse sans changement de code.",
+  "items": [
+    {
+      "raw": {
+        "itemId": "bench-lego-001",
+        "title": "LEGO Star Wars 75313 AT-AT",
+        "shortDescription": "Set complet avec boîte et notice, très bon état.",
+        "price": {
+          "value": "849.99",
+          "currency": "CHF"
+        },
+        "itemWebUrl": "https://www.ebay.com/itm/bench-lego-001",
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego001/s-l500.jpg"
+        },
+        "additionalImages": [
+          {
+            "imageUrl": "https://i.ebayimg.com/images/g/lego001b/s-l500.jpg"
+          }
+        ],
+        "condition": "New",
+        "seller": {
+          "username": "brickseller_ch",
+          "feedbackScore": 4210,
+          "feedbackPercentage": "99.6"
+        },
+        "itemLocation": {
+          "country": "CH",
+          "postalCode": "8000",
+          "city": "Zürich"
+        },
+        "shippingOptions": [
+          {
+            "shippingCost": {
+              "value": "15.00",
+              "currency": "CHF"
+            }
+          }
+        ],
+        "categories": [
+          {
+            "categoryId": "19006",
+            "categoryName": "LEGO Complete Sets & Packs"
+          }
+        ],
+        "itemCreationDate": "2026-06-01T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "Brand",
+            "value": "LEGO"
+          },
+          {
+            "name": "Theme",
+            "value": "Star Wars"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-002",
+        "title": "LEGO Technic 42115 Lamborghini Sian",
+        "shortDescription": "Occasion, monté une fois, boîte conservée.",
+        "price": {
+          "value": "329.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego002/s-l500.jpg"
+        },
+        "condition": "Used",
+        "seller": {
+          "username": "techbricks",
+          "feedbackScore": 980,
+          "feedbackPercentage": "98.2"
+        },
+        "itemLocation": {
+          "country": "CH",
+          "postalCode": "1000",
+          "city": "Lausanne"
+        },
+        "itemCreationDate": "2026-05-20T10:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "Brand",
+            "value": "LEGO"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-003",
+        "title": "LEGO Creator Expert 10294 Titanic",
+        "shortDescription": "Neuf, scellé, jamais ouvert.",
+        "price": {
+          "value": "699.90",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego003/s-l500.jpg"
+        },
+        "condition": "New with tags",
+        "seller": {
+          "username": "brickseller_ch",
+          "feedbackScore": 4210,
+          "feedbackPercentage": "99.6"
+        },
+        "itemCreationDate": "2026-06-10T09:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "Brand",
+            "value": "LEGO"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-004",
+        "title": "LEGO City 60292 Le centre-ville",
+        "shortDescription": "Très bon état, quelques marques sur la boîte.",
+        "price": {
+          "value": "119.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego004/s-l500.jpg"
+        },
+        "condition": "Very Good",
+        "itemCreationDate": "2026-05-15T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-005",
+        "title": "LEGO Harry Potter 71043 Château de Poudlard",
+        "shortDescription": "Complet, occasion, quelques pièces remplacées par équivalents.",
+        "price": {
+          "value": "389.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego005/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-04-28T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-006",
+        "title": "LEGO Ninjago 71741 Le temple ninja",
+        "shortDescription": "Neuf avec étiquettes.",
+        "price": {
+          "value": "249.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego006/s-l500.jpg"
+        },
+        "condition": "New with tags",
+        "itemCreationDate": "2026-06-05T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-007",
+        "title": "LEGO Friends 41715 La maison de l'arbre",
+        "shortDescription": "Neuf, autre (sans étiquettes d'origine).",
+        "price": {
+          "value": "89.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego007/s-l500.jpg"
+        },
+        "condition": "New other",
+        "itemCreationDate": "2026-05-01T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-008",
+        "title": "LEGO Icons 10276 Colisée",
+        "shortDescription": "État correct, boîte abîmée, notice manquante.",
+        "price": {
+          "value": "429.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego008/s-l500.jpg"
+        },
+        "condition": "Acceptable",
+        "itemCreationDate": "2026-03-20T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "fair"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-009",
+        "title": "Grand lot de pièces LEGO en vrac",
+        "shortDescription": "Environ 5kg de pièces variées, non triées.",
+        "price": {
+          "value": "45.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego009/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-15T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-010",
+        "title": "LEGO Star Wars véhicule vintage rare collector",
+        "shortDescription": "Pièce de collection, référence inconnue, à identifier.",
+        "price": {
+          "value": "199.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego010/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-02-14T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-011",
+        "title": "Boîte de LEGO Duplo pour bébé",
+        "shortDescription": "Très bon état, lavé et désinfecté.",
+        "price": {
+          "value": "29.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego011/s-l500.jpg"
+        },
+        "condition": "Very Good",
+        "itemCreationDate": "2026-05-30T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-012",
+        "title": "LEGO 75313 AT-AT — aspect contradictoire (cas de test)",
+        "shortDescription": "Titre annonce le set 75313 mais l'aspect vendeur indique une référence différente — exercice délibéré du cas de contradiction majeure.",
+        "price": {
+          "value": "799.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego012/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-18T09:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "10294"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-013",
+        "title": "LEGO Marvel 76178 Sanctum Santorum",
+        "shortDescription": "Reconditionné par le fabricant, testé et complet.",
+        "price": {
+          "value": "259.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego013/s-l500.jpg"
+        },
+        "condition": "Manufacturer refurbished",
+        "itemCreationDate": "2026-04-10T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-014",
+        "title": "",
+        "price": {
+          "value": "50.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego014/s-l500.jpg"
+        }
+      },
+      "expected": {}
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-015",
+        "title": "LEGO Speed Champions 76914 Porsche 963",
+        "shortDescription": "Neuf, jamais ouvert, encore sous film.",
+        "price": {
+          "value": "22.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/lego015/s-l500.jpg"
+        },
+        "condition": "New",
+        "itemCreationDate": "2026-06-20T09:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    }
+  ],
+  "comparables": [
+    {
+      "raw": {
+        "itemId": "bench-lego-comp-001",
+        "title": "LEGO Star Wars 75313 AT-AT vendu",
+        "price": {
+          "value": "780.00",
+          "currency": "CHF"
+        },
+        "condition": "New",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "75313"
+          }
+        ]
+      },
+      "soldAt": "2026-06-10T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-comp-002",
+        "title": "LEGO Star Wars 75313 AT-AT vendu",
+        "price": {
+          "value": "810.00",
+          "currency": "CHF"
+        },
+        "condition": "New",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "75313"
+          }
+        ]
+      },
+      "soldAt": "2026-06-05T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-comp-003",
+        "title": "LEGO Star Wars 75313 AT-AT vendu",
+        "price": {
+          "value": "760.00",
+          "currency": "CHF"
+        },
+        "condition": "New",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "75313"
+          }
+        ]
+      },
+      "soldAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-comp-004",
+        "title": "LEGO Star Wars 75313 AT-AT vendu",
+        "price": {
+          "value": "830.00",
+          "currency": "CHF"
+        },
+        "condition": "New",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "75313"
+          }
+        ]
+      },
+      "soldAt": "2026-05-20T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-lego-comp-005",
+        "title": "LEGO Star Wars 75313 AT-AT vendu",
+        "price": {
+          "value": "795.00",
+          "currency": "CHF"
+        },
+        "condition": "New",
+        "localizedAspects": [
+          {
+            "name": "setNumber",
+            "value": "75313"
+          }
+        ]
+      },
+      "soldAt": "2026-05-10T00:00:00.000Z"
+    }
+  ]
+}

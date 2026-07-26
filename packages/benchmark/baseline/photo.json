@@ -1,0 +1,10 @@
+{
+  "categorySlug": "photo",
+  "savedAt": "2026-07-26T17:30:44.024Z",
+  "quality": {
+    "precisionAnnotee": 1,
+    "tauxExtractionInvalide": 0,
+    "tauxContradictionMajeure": 0.08333333333333333,
+    "tauxInsufficientData": 1
+  }
+}

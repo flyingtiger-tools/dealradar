@@ -1,0 +1,10 @@
+{
+  "categorySlug": "pokemon_tcg",
+  "savedAt": "2026-07-26T17:30:39.479Z",
+  "quality": {
+    "precisionAnnotee": 1,
+    "tauxExtractionInvalide": 0,
+    "tauxContradictionMajeure": 0.08333333333333333,
+    "tauxInsufficientData": 0.9166666666666666
+  }
+}

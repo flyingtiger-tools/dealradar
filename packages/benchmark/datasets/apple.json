@@ -1,0 +1,416 @@
+{
+  "categorySlug": "apple",
+  "provenance": "synthetic",
+  "note": "Dataset synthétique — structure fidèle à EbayRawItem. Aucun champ hors de ce sous-ensemble. Remplaçable par un export réel de l'API Browse sans changement de code.",
+  "items": [
+    {
+      "raw": {
+        "itemId": "bench-apple-001",
+        "title": "Apple iPhone 13 Pro Max 256GB",
+        "shortDescription": "Débloqué tout opérateur, batterie 91%.",
+        "price": {
+          "value": "649.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple001/s-l500.jpg"
+        },
+        "condition": "Used",
+        "seller": {
+          "username": "swiss_ifix",
+          "feedbackScore": 3100,
+          "feedbackPercentage": "99.1"
+        },
+        "itemLocation": {
+          "country": "CH",
+          "postalCode": "3000",
+          "city": "Bern"
+        },
+        "itemCreationDate": "2026-06-01T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "Brand",
+            "value": "Apple"
+          },
+          {
+            "name": "Storage Capacity",
+            "value": "256 GB"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-002",
+        "title": "Apple MacBook Air M2 512Go",
+        "shortDescription": "Neuf, scellé.",
+        "price": {
+          "value": "1290.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple002/s-l500.jpg"
+        },
+        "condition": "New",
+        "itemCreationDate": "2026-06-05T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-003",
+        "title": "Apple iPad Pro 128GB",
+        "shortDescription": "Reconditionné certifié, comme neuf.",
+        "price": {
+          "value": "549.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple003/s-l500.jpg"
+        },
+        "condition": "Certified - Refurbished",
+        "itemCreationDate": "2026-05-20T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "like_new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-004",
+        "title": "Apple iPhone 15 256 Go comme neuf",
+        "shortDescription": "Aucune rayure, boîte incluse.",
+        "price": {
+          "value": "799.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple004/s-l500.jpg"
+        },
+        "condition": "Excellent - Refurbished",
+        "itemCreationDate": "2026-06-12T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "like_new"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-005",
+        "title": "Apple MacBook Pro 1TB",
+        "shortDescription": "Très bon état, quelques micro-rayures sous le clavier.",
+        "price": {
+          "value": "2190.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple005/s-l500.jpg"
+        },
+        "condition": "Very good",
+        "itemCreationDate": "2026-04-18T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "very_good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-006",
+        "title": "Apple iMac 256Go bon état",
+        "shortDescription": "Fonctionne parfaitement, quelques traces d'usage.",
+        "price": {
+          "value": "699.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple006/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-03-30T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-007",
+        "title": "Apple AirPods Pro 64GB",
+        "shortDescription": "Avec boîtier de charge, embouts neufs.",
+        "price": {
+          "value": "159.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple007/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-05-02T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-008",
+        "title": "Apple iPad mini 64Go état correct",
+        "shortDescription": "Écran fonctionnel, coin légèrement cabossé.",
+        "price": {
+          "value": "199.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple008/s-l500.jpg"
+        },
+        "condition": "Acceptable",
+        "itemCreationDate": "2026-02-25T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "fair"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-009",
+        "title": "iPhone ancien modèle, état à voir",
+        "shortDescription": "Modèle non précisé, vendu pour pièces ou réparation.",
+        "price": {
+          "value": "45.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple009/s-l500.jpg"
+        },
+        "condition": "For parts or not working",
+        "itemCreationDate": "2026-01-15T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "for_parts"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-010",
+        "title": "Accessoire de charge compatible Apple",
+        "shortDescription": "Câble et chargeur compatibles, marque non Apple.",
+        "price": {
+          "value": "12.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple010/s-l500.jpg"
+        },
+        "itemCreationDate": "2026-06-14T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": false
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-011",
+        "title": "Apple Watch 64GB",
+        "shortDescription": "Bracelet supplémentaire inclus.",
+        "price": {
+          "value": "229.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple011/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-05-10T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-012",
+        "title": "Apple iPhone 13 Pro Max — aspect contradictoire (cas de test)",
+        "shortDescription": "Le titre annonce 256GB mais l'aspect vendeur indique une capacité différente — exercice délibéré du cas de contradiction.",
+        "price": {
+          "value": "639.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple012/s-l500.jpg"
+        },
+        "condition": "Used",
+        "itemCreationDate": "2026-06-16T08:00:00.000Z",
+        "localizedAspects": [
+          {
+            "name": "storageGb",
+            "value": "512"
+          }
+        ]
+      },
+      "expected": {
+        "sufficientDeterministic": false,
+        "condition": "good"
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-013",
+        "title": "Apple iPhone SE 128 Go reconditionné usine",
+        "shortDescription": "Reconditionné par le fabricant.",
+        "price": {
+          "value": "289.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple013/s-l500.jpg"
+        },
+        "condition": "Manufacturer refurbished",
+        "itemCreationDate": "2026-03-05T08:00:00.000Z"
+      },
+      "expected": {
+        "sufficientDeterministic": true
+      }
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-014",
+        "title": "",
+        "price": {
+          "value": "10.00",
+          "currency": "CHF"
+        },
+        "image": {
+          "imageUrl": "https://i.ebayimg.com/images/g/apple014/s-l500.jpg"
+        }
+      },
+      "expected": {}
+    }
+  ],
+  "comparables": [
+    {
+      "raw": {
+        "itemId": "bench-apple-comp-001",
+        "title": "Apple iPhone 13 Pro Max 256GB vendu",
+        "price": {
+          "value": "660.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "model",
+            "value": "iPhone 13 Pro Max"
+          },
+          {
+            "name": "storageGb",
+            "value": "256"
+          }
+        ]
+      },
+      "soldAt": "2026-06-08T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-comp-002",
+        "title": "Apple iPhone 13 Pro Max 256GB vendu",
+        "price": {
+          "value": "635.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "model",
+            "value": "iPhone 13 Pro Max"
+          },
+          {
+            "name": "storageGb",
+            "value": "256"
+          }
+        ]
+      },
+      "soldAt": "2026-06-02T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-comp-003",
+        "title": "Apple iPhone 13 Pro Max 256GB vendu",
+        "price": {
+          "value": "610.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "model",
+            "value": "iPhone 13 Pro Max"
+          },
+          {
+            "name": "storageGb",
+            "value": "256"
+          }
+        ]
+      },
+      "soldAt": "2026-05-25T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-comp-004",
+        "title": "Apple iPhone 13 Pro Max 256GB vendu",
+        "price": {
+          "value": "670.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "model",
+            "value": "iPhone 13 Pro Max"
+          },
+          {
+            "name": "storageGb",
+            "value": "256"
+          }
+        ]
+      },
+      "soldAt": "2026-05-18T00:00:00.000Z"
+    },
+    {
+      "raw": {
+        "itemId": "bench-apple-comp-005",
+        "title": "Apple iPhone 13 Pro Max 256GB vendu",
+        "price": {
+          "value": "645.00",
+          "currency": "CHF"
+        },
+        "condition": "Used",
+        "localizedAspects": [
+          {
+            "name": "model",
+            "value": "iPhone 13 Pro Max"
+          },
+          {
+            "name": "storageGb",
+            "value": "256"
+          }
+        ]
+      },
+      "soldAt": "2026-05-12T00:00:00.000Z"
+    }
+  ]
+}
