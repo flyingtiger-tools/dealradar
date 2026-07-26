@@ -1,4 +1,5 @@
 import type { ItemCondition } from "../types/domain";
+import type { CategorySlug as CategoryProfileSlug } from "@dealradar/contracts";
 
 /**
  * Vocabulaire du cœur d'intelligence (Lot 3).
@@ -78,7 +79,8 @@ export function hasCapability(
   return connector.capabilities.includes(capability);
 }
 
-export type CategoryProfileSlug = "lego" | "pokemon_tcg" | "apple" | "gaming" | "photo";
+/** Source de vérité : @dealradar/contracts (`CategorySlug`). Nom historique conservé ici pour ne casser aucun import existant. */
+export type { CategoryProfileSlug };
 
 export interface RiskSignal {
   id: string;

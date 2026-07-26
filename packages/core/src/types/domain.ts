@@ -4,16 +4,12 @@
  * Toute évolution du schéma SQL doit être répercutée ici (et inversement).
  */
 import type { SearchQuery } from "../validation/schemas";
+import type { ItemCondition } from "@dealradar/contracts";
 
 export type UserRole = "free" | "premium" | "admin";
 
-export type ItemCondition =
-  | "new"
-  | "like_new"
-  | "very_good"
-  | "good"
-  | "fair"
-  | "for_parts";
+/** Source de vérité : @dealradar/contracts. Ré-exporté ici pour ne casser aucun import existant. */
+export type { ItemCondition };
 
 export type ListingStatus = "active" | "sold" | "expired" | "removed" | "flagged";
 

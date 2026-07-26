@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { itemConditionSchema } from "@dealradar/contracts";
 
 /**
  * Schémas Zod : validation aux frontières (API, jobs, env).
@@ -19,9 +20,8 @@ export const rawListingSchema = z.object({
   raw: z.unknown(),
 });
 
-export const itemConditionSchema = z.enum([
-  "new", "like_new", "very_good", "good", "fair", "for_parts",
-]);
+/** Source de vérité : @dealradar/contracts. Ré-exporté ici pour ne casser aucun import existant. */
+export { itemConditionSchema };
 
 export const searchQuerySchema = z.object({
   q: z.string().max(200).default(""),
