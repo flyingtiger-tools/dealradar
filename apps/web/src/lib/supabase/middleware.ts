@@ -1,5 +1,7 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 const PROTECTED_PREFIXES = [
   "/dashboard", "/search", "/alerts", "/watchlists", "/portfolio",
@@ -17,7 +19,7 @@ export async function updateSession(request: NextRequest) {
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: (all) => {
+        setAll: (all: CookieToSet[]) => {
           all.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           all.forEach(({ name, value, options }) =>
