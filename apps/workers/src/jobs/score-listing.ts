@@ -1,7 +1,6 @@
-import { dealScoreV1, type ComparableSet } from "@dealradar/core";
+import { dealScoreV1, type ComparableSet, type ListingPayload } from "@dealradar/core";
 import { createServiceClient } from "../db";
 import { logger } from "../logger";
-import type { ListingPayload } from "../queues";
 
 /**
  * Job : recalculer le Deal Score d'une annonce.
