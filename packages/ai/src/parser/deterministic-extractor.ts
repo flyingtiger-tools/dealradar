@@ -109,7 +109,12 @@ function extractGaming(title: string, description: string, product: ExtractedPro
   if (!platform) return;
   product.attributes.platform = field(platform, 0.95);
 
-  const remaining = text
+  // Correction Lot 6 (bug mesuré via packages/benchmark) : `productName` ne
+  // doit jamais être dérivé du texte concaténé titre+description — une
+  // description non vide polluait systématiquement le nom du produit avec
+  // des phrases entières, cassant le matching de comparables en aval. Seul
+  // le titre est une source fiable pour cette extraction, comme pour Apple/LEGO.
+  const remaining = title
     .replace(new RegExp(escapeRegExp(platform), "i"), "")
     .replace(/\bjeu\b|\bgame\b|\bconsole\b|\boccasion\b|\bcomplet\b|\bCIB\b/gi, "")
     .replace(/\s+/g, " ")

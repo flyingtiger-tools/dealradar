@@ -43,6 +43,16 @@ describe("runDeterministicExtractor", () => {
     expect(isSufficientForIdentification(product.attributes, "gaming")).toBe(true);
   });
 
+  it("ne pollue jamais productName avec le texte de la description (bug mesuré via packages/benchmark, Lot 6)", () => {
+    const { product } = runDeterministicExtractor({
+      title: "PS5 God of War Ragnarök",
+      description: "Boîtier et notice inclus, disque sans rayure.",
+      categorySlug: "gaming",
+    });
+    expect(product.attributes.productName?.value).toBe("God of War Ragnarök");
+    expect(product.attributes.productName?.value).not.toContain("Boîtier");
+  });
+
   it("identifie une marque et un modèle photo, en distinguant objectif et boîtier", () => {
     const { product } = runDeterministicExtractor({ title: "Canon EOS R6", categorySlug: "photo" });
     expect(product.brand?.value).toBe("Canon");
