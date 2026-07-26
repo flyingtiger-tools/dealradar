@@ -3,6 +3,7 @@
  * Source de vérité TypeScript, alignée sur supabase/migrations.
  * Toute évolution du schéma SQL doit être répercutée ici (et inversement).
  */
+import type { SearchQuery } from "../validation/schemas";
 
 export type UserRole = "free" | "premium" | "admin";
 
@@ -74,4 +75,79 @@ export interface Score {
   engineVersion: string;
   comparableSetId: string | null;
   explanation: Record<string, unknown>;
+}
+
+export interface Category {
+  id: string;
+  parentId: string | null;
+  slug: string;
+  name: string;
+  path: string;
+  depth: number;
+}
+
+export interface Brand {
+  id: string;
+  slug: string;
+  name: string;
+  aliases: string[];
+}
+
+export interface Watchlist {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Présent uniquement quand la ligne vient d'une requête avec l'embed `watchlist_items(count)`. */
+  itemCount?: number;
+}
+
+export interface WatchlistItem {
+  watchlistId: string;
+  listingId: string;
+  note: string | null;
+  addedAt: string;
+}
+
+export type AlertKind = "price_below" | "new_match" | "verdict_change" | "back_in_market";
+
+export interface SavedSearch {
+  id: string;
+  userId: string;
+  name: string;
+  query: Partial<SearchQuery>;
+  createdAt: string;
+}
+
+export interface Alert {
+  id: string;
+  userId: string;
+  kind: AlertKind;
+  listingId: string | null;
+  savedSearchId: string | null;
+  params: { thresholdCents?: number };
+  isActive: boolean;
+  lastFiredAt: string | null;
+  createdAt: string;
+}
+
+export type PortfolioStatus = "held" | "listed" | "sold";
+
+export interface PortfolioPosition {
+  id: string;
+  userId: string;
+  title: string;
+  categoryId: string | null;
+  brandId: string | null;
+  condition: ItemCondition | null;
+  acquiredAt: string | null;
+  acquiredPriceCents: number | null;
+  currency: string;
+  sourceListingId: string | null;
+  status: PortfolioStatus;
+  soldAt: string | null;
+  soldPriceCents: number | null;
+  createdAt: string;
+  updatedAt: string;
 }

@@ -9,3 +9,5 @@ dist/
 .turbo/
 coverage/
 supabase/.temp/
+next-env.d.ts
+*.tsbuildinfo

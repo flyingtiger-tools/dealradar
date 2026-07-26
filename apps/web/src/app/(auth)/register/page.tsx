@@ -38,7 +38,7 @@ export default function RegisterPage() {
   if (sent) {
     return (
       <p className="text-center text-sm text-muted">
-        Un e-mail de confirmation vient d'être envoyé à <span className="text-body">{email}</span>.
+        Un e-mail de confirmation vient d&apos;être envoyé à <span className="text-body">{email}</span>.
         Ouvrez le lien pour activer votre compte.
       </p>
     );
