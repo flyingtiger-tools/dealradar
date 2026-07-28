@@ -1,0 +1,27 @@
+diff --git a/build/reactNativeConfig/config.js b/build/reactNativeConfig/config.js
+index 65ef8980f00d2a6e071021e61c5de85cb2c00358..260e45ca66e7222f8f1b4e2093d9c655f669ba12 100644
+--- a/build/reactNativeConfig/config.js
++++ b/build/reactNativeConfig/config.js
+@@ -15,6 +15,22 @@ const mockedNativeModules = path_1.default.join(__dirname, '..', '..', 'node_mod
+  * Load the `react-native.config.js` or `react-native.config.ts` from the package.
+  */
+ async function loadConfigAsync(packageRoot) {
++    // DealRadar patch (pnpm patch, see patches/expo-modules-autolinking@2.0.8.patch):
++    // packageRoot is handed in here as the *apparent* pnpm symlink path (e.g.
++    // apps/mobile/node_modules/expo), not its realpath. require-from-string
++    // below builds its module-resolution search path from that apparent
++    // directory, which under pnpm's strict (non-hoisted) node_modules layout
++    // does not contain the package's own dependencies (e.g. expo's
++    // react-native.config.js requiring 'expo-modules-autolinking/exports', or
++    // react-native's requiring '@react-native/community-cli-plugin') — those
++    // only exist as siblings inside the real .pnpm virtual store directory.
++    // require-from-string's require() then throws Cannot find module, which
++    // requireConfig()'s catch swallows, and the caller falls back to a wrong
++    // guessed packageImportPath (e.g. "expo.core.ExpoModulesPackage" instead
++    // of "expo.modules.ExpoModulesPackage"), breaking the Android Gradle
++    // build. Resolving to the realpath first makes the search path walk
++    // through the actual pnpm store, where sibling dependencies are found.
++    packageRoot = await promises_1.default.realpath(packageRoot).catch(() => packageRoot);
+     const configJsPath = path_1.default.join(packageRoot, 'react-native.config.js');
+     if (await (0, fileUtils_1.fileExistsAsync)(configJsPath)) {
+         return requireConfig(configJsPath, await promises_1.default.readFile(configJsPath, 'utf8'));

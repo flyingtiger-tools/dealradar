@@ -1,3 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# hoist-pattern exclusions for @types/react / @types/react-dom live in
+# .npmrc. patchedDependencies lives in the root package.json's "pnpm" field
+# -- despite pnpm 9.15.0's CLI warning that this field is "no longer read",
+# it is empirically the only location this pnpm version actually honors for
+# patchedDependencies (verified across several full node_modules wipe +
+# reinstall cycles); the same key placed here in pnpm-workspace.yaml is
+# silently ignored (no warning, no effect). See docs/mobile/readiness-audit.md.
