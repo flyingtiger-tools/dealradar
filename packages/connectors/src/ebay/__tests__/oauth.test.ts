@@ -60,4 +60,46 @@ describe("createOAuthTokenProvider", () => {
       return true;
     });
   });
+
+  it("refait un appel automatiquement une fois le token expiré, sans forceRefresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ access_token: "tok-1", expires_in: 7200 }))
+        .mockResolvedValueOnce(jsonResponse({ access_token: "tok-2", expires_in: 7200 }));
+      const provider = createOAuthTokenProvider(CONFIG, fetchImpl);
+
+      const first = await provider.getAccessToken();
+      expect(first).toBe("tok-1");
+
+      // expires_in=7200s moins la marge de 60s appliquée par le provider —
+      // avancer de 7200s dépasse cette marge, le token doit être considéré expiré.
+      vi.advanceTimersByTime(7200_000);
+
+      const second = await provider.getAccessToken();
+      expect(second).toBe("tok-2");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("réutilise le token tant que la marge de 60s avant expiration n'est pas atteinte", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ access_token: "tok-1", expires_in: 7200 }));
+      const provider = createOAuthTokenProvider(CONFIG, fetchImpl);
+
+      await provider.getAccessToken();
+      // Juste avant la marge de 60s (7200s - 60s = 7140s) : encore valide.
+      vi.advanceTimersByTime(7140_000 - 1000);
+
+      const second = await provider.getAccessToken();
+      expect(second).toBe("tok-1");
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
