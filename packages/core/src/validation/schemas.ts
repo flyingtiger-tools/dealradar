@@ -1,6 +1,26 @@
 import { z } from "zod";
 import { itemConditionSchema } from "@dealradar/contracts";
 
+/** Source de vérité : @dealradar/contracts (ADR 0010). Ré-exporté ici, même convention qu'`itemConditionSchema`. */
+export {
+  analysisSourceTypeSchema,
+  analysisImageReferenceSchema,
+  analysisRequestSchema,
+  analysisDecisionSchema,
+  marketDataProvenanceSchema,
+  analysisMoneySchema,
+  analysisStatusSchema,
+  analysisResultSchema,
+  analysisResponseSchema,
+} from "@dealradar/contracts";
+export type {
+  AnalysisSourceType,
+  AnalysisRequest,
+  AnalysisStatus,
+  AnalysisResult,
+  AnalysisResponse,
+} from "@dealradar/contracts";
+
 /**
  * Schémas Zod : validation aux frontières (API, jobs, env).
  * Règle : aucune donnée externe n'entre dans le système sans passer ici.

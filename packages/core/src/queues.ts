@@ -19,6 +19,8 @@ export const QUEUES = {
   scoreListing: "score.listing",
   /** Évaluer les alertes utilisateur impactées par une annonce. */
   evaluateAlerts: "alerts.evaluate",
+  /** Traiter une analyse mobile/universelle soumise via POST /v1/analyses (ADR 0010). */
+  processAnalysis: "analysis.process",
 } as const;
 
 export const ingestSourcePayload = z.object({
@@ -31,3 +33,7 @@ export type IngestSourcePayload = z.infer<typeof ingestSourcePayload>;
 
 export const listingPayload = z.object({ listingId: z.string().uuid() });
 export type ListingPayload = z.infer<typeof listingPayload>;
+
+/** Le job ne reçoit qu'un id — il relit la requête depuis `analysis_requests`, jamais son contenu via la queue (ADR 0010). */
+export const analysisProcessPayload = z.object({ analysisRequestId: z.string().uuid() });
+export type AnalysisProcessPayload = z.infer<typeof analysisProcessPayload>;
