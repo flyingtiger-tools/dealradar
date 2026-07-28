@@ -1,8 +1,9 @@
 import PgBoss from "pg-boss";
-import { QUEUES, listingPayload, ingestSourcePayload } from "@dealradar/core";
+import { QUEUES, listingPayload, ingestSourcePayload, analysisProcessPayload } from "@dealradar/core";
 import { createServiceClient } from "./db";
 import { logger } from "./logger";
 import { scoreListing } from "./jobs/score-listing";
+import { processAnalysis } from "./jobs/process-analysis";
 import { buildEbayConnectorFromEnv } from "./ingestion/connector-config";
 import { ingestAndAnalyze } from "./ingestion/ingest-and-analyze";
 
@@ -46,7 +47,15 @@ async function main() {
     logger.info(result, "Ingestion (file) terminée");
   });
 
-  logger.info("Workers démarrés — files actives : score.listing, ingest.source");
+  await boss.createQueue(QUEUES.processAnalysis);
+  await boss.work(QUEUES.processAnalysis, async ([job]) => {
+    if (!job) return;
+    const payload = analysisProcessPayload.parse(job.data);
+    const supabase = createServiceClient();
+    await processAnalysis(payload, supabase);
+  });
+
+  logger.info("Workers démarrés — files actives : score.listing, ingest.source, analysis.process");
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Arrêt des workers");
