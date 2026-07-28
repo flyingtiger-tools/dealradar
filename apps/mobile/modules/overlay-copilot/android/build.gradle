@@ -1,0 +1,44 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+  namespace "com.dealradar.overlaycopilot"
+  compileSdkVersion safeExtGet('compileSdkVersion', 34)
+
+  defaultConfig {
+    minSdkVersion safeExtGet('minSdkVersion', 24)
+    targetSdkVersion safeExtGet('targetSdkVersion', 34)
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+}
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+dependencies {
+  // Manquant à l'origine : le module compile contre `expo.modules.kotlin.*`
+  // (Module/ModuleDefinition/Promise/Exceptions/CodedException) mais rien
+  // ne déclarait cette dépendance explicitement — ça compilait quand même
+  // par accident tant qu'un cache Gradle d'un build précédent avait déjà
+  // `expo-modules-core:compileDebugKotlin` prêt. Sur un premier build
+  // propre (aucun cache), Gradle n'a alors aucune arête d'ordonnancement
+  // entre les deux tâches et peut compiler ce module avant
+  // `expo-modules-core` — bug réel rencontré et corrigé en construisant
+  // dans un répertoire neuf (voir docs/mobile/readiness-audit.md).
+  implementation project(':expo-modules-core')
+  implementation 'com.facebook.react:react-android'
+  // Pas de version de kotlin-stdlib fixée ici : le plugin 'kotlin-android'
+  // l'apporte déjà, alignée sur `rootProject.ext.kotlinVersion` (1.9.25).
+  // Une version différente ici avait cassé la compatibilité Compose Compiler
+  // ailleurs dans le graphe de build (expo-modules-core) — corrigé.
+  implementation "androidx.localbroadcastmanager:localbroadcastmanager:1.1.0"
+}

@@ -1,0 +1,21 @@
+# Généré par `expo prebuild` (Continuous Native Generation) — jamais édité
+# à la main, jamais commité. Régénérer via `pnpm --filter @dealradar/mobile
+# prebuild`. Ancré à la racine (`/android`) — un motif non ancré (`android/`)
+# masquerait aussi `modules/overlay-copilot/android/` (module natif écrit à
+# la main), ce qu'`expo-doctor` signale à juste titre comme une erreur de
+# configuration.
+/android
+.expo/
+node_modules/
+*.log
+
+# Sortie de build Gradle du module natif local (modules/overlay-copilot) —
+# classes compilées, dex, manifestes fusionnés générés. Motif non ancré
+# volontairement : doit s'appliquer à n'importe quelle profondeur sous
+# modules/*/android/, jamais au fichier build.gradle (une extension
+# différente, jamais capturée par un motif de dossier `build/`).
+build/
+.cxx/
+.gradle/
+*.keystore
+*.jks

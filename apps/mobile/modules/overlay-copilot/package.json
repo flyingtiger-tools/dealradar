@@ -1,0 +1,7 @@
+{
+  "name": "overlay-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "description": "Module natif Android local (autolinké via expo-module.config.json) — overlay, MediaProjection, foreground service. Voir ADR 0010, docs/mobile/android-permissions.md."
+}

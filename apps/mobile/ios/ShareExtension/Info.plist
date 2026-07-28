@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Non compilé, non exécuté dans ce lot (aucun Xcode/macOS disponible sur
+  cette machine — voir ADR 0010, docs/mobile/ios-share-extension.md).
+  Déclare volontairement des maximums de 1 : "une annonce à la fois",
+  jamais un partage multiple qui mélangerait plusieurs objets.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionAttributes</key>
+    <dict>
+      <key>NSExtensionActivationRule</key>
+      <dict>
+        <key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+        <integer>1</integer>
+        <key>NSExtensionActivationSupportsImageWithMaxCount</key>
+        <integer>1</integer>
+        <key>NSExtensionActivationSupportsText</key>
+        <true/>
+      </dict>
+    </dict>
+    <key>NSExtensionMainStoryboard</key>
+    <string>MainInterface</string>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.share-services</string>
+  </dict>
+  <key>CFBundleDisplayName</key>
+  <string>DealRadar</string>
+</dict>
+</plist>
