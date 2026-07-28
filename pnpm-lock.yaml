@@ -80,6 +80,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@dealradar/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@dealradar/core':
         specifier: workspace:*
         version: link:../../packages/core

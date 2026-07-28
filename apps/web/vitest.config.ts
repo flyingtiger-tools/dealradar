@@ -12,4 +12,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  test: {
+    // `src/env.ts` valide ces variables au chargement du module — sans elles,
+    // tout fichier de test qui importe (transitivement) `@/env` échoue dès la
+    // collecte, avant même d'exécuter un test. Valeurs factices, jamais de
+    // vraie URL/clé.
+    env: {
+      NEXT_PUBLIC_SUPABASE_URL: "https://test.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    },
+  },
 });
