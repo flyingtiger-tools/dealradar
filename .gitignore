@@ -12,3 +12,6 @@ supabase/.temp/
 next-env.d.ts
 *.tsbuildinfo
 packages/benchmark/reports/
+
+.vercel
+.env*

@@ -127,7 +127,15 @@ export async function verifyEbaySignature(
   let pem: string;
   try {
     pem = await fetchPublicKey(decoded.kid, config);
-  } catch {
+  } catch (error) {
+    // Diagnostic sûr : ni kid, ni signature, ni identifiants — seulement
+    // l'environnement ciblé et le message d'erreur (déjà dépourvu de
+    // secrets, voir fetchPublicKey/fetchNewToken : uniquement des codes
+    // HTTP ou des messages réseau génériques).
+    console.error("eBay account-deletion : échec de récupération de la clé publique —", {
+      environment: config.environment,
+      message: error instanceof Error ? error.message : "erreur inconnue",
+    });
     return { valid: false, reason: "public_key_fetch_failed" };
   }
 
