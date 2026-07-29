@@ -79,6 +79,15 @@ async function fetchPublicKey(kid: string, config: SignatureVerificationConfig):
   if (cached && Date.now() - cached.fetchedAtMs < KEY_CACHE_TTL_MS) return cached.pem;
 
   const fetchImpl = config.fetchImpl ?? fetch;
+  // Diagnostic sûr (longueur + espaces superflus uniquement, jamais la
+  // valeur) : un copier-coller incluant un espace ou un retour à la ligne
+  // invisible casse le Basic Auth sans que rien ne le laisse deviner.
+  console.error("eBay account-deletion : identifiants OAuth (diagnostic, aucune valeur) —", {
+    clientIdLength: config.clientId.length,
+    clientIdHasWhitespace: config.clientId !== config.clientId.trim(),
+    clientSecretLength: config.clientSecret.length,
+    clientSecretHasWhitespace: config.clientSecret !== config.clientSecret.trim(),
+  });
   const tokenProvider = createOAuthTokenProvider(
     { clientId: config.clientId, clientSecret: config.clientSecret, environment: config.environment },
     fetchImpl,
