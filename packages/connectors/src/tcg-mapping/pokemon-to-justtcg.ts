@@ -1,6 +1,8 @@
 import type { CatalogMatch, NormalizedPriceObservation, PricingQuery } from "../types";
 import type { TcgCatalogHints } from "../catalogs/tcg/types";
 import type { TcgCanonicalIdentity, TcgCrossMatchResult } from "./types";
+import { setNamesMatch } from "./set-name-matching";
+import { collectorNumbersMatch } from "./collector-number-matching";
 
 /**
  * Mapping Pokémon TCG API (Catalog) ↔ JustTCG (Pricing) — ADR 0012, LOT 3.
@@ -21,6 +23,7 @@ function sameText(a: string | null | undefined, b: string | null | undefined): b
   if (!a || !b) return false;
   return normalizeForCompare(a) === normalizeForCompare(b);
 }
+
 
 /**
  * `CatalogMatch` (déjà résolu par le Catalog Connector Pokémon) + indices
@@ -91,9 +94,16 @@ type CorroborationResult = { ok: true } | { ok: false; reason: string };
  * autre, ou une langue pour une autre ne sont jamais tolérés.
  */
 function corroborates(identity: TcgCanonicalIdentity, obs: NormalizedPriceObservation): CorroborationResult {
-  if (identity.setName && obs.setName && !sameText(identity.setName, obs.setName)) return { ok: false, reason: "set" };
-  if (identity.setCode && obs.setId && !sameText(identity.setCode, obs.setId)) return { ok: false, reason: "set" };
-  if (identity.cardNumber && obs.number && !sameText(identity.cardNumber, obs.number)) return { ok: false, reason: "number" };
+  // Jamais une égalité brute sur le nom de set : "Base" (Pokémon TCG API) et
+  // "Base Set" (TCGdex/JustTCG) désignent le même set réel — démontré par
+  // test réel, LOT 7C. Voir `set-name-matching.ts` pour les règles exactes.
+  if (identity.setName && obs.setName && !setNamesMatch(identity.setName, obs.setName).matched) return { ok: false, reason: "set" };
+  // `identity.setCode`/`obs.setId` sont chacun un identifiant interne à leur
+  // propre source (ex. "base1" chez Pokémon TCG API, "base-set-pokemon" chez
+  // JustTCG) — jamais comparables entre fournisseurs, confirmé par appel
+  // réel (LOT 7B/7C, même principe déjà appliqué à TCGdex). Seul `setName`
+  // (normalisé ci-dessus) corrobore le set.
+  if (identity.cardNumber && obs.number && !collectorNumbersMatch(identity.cardNumber, obs.number)) return { ok: false, reason: "number" };
   if (identity.variant && obs.variant && !sameText(identity.variant, obs.variant)) return { ok: false, reason: "variant" };
 
   const obsIsGraded = obs.gradingCompany !== null;
@@ -118,10 +128,54 @@ function corroborates(identity: TcgCanonicalIdentity, obs: NormalizedPriceObserv
 }
 
 /**
+ * `marketSlotKey` — segment tarifaire, SANS la source (devise, condition,
+ * variante, langue, société de grading, grade). Sert à comparer plusieurs
+ * sources sur le même segment (ex. JustTCG USD/NM vs. un autre fournisseur
+ * USD/NM) — jamais à décider d'une fusion : deux sources sur le même
+ * segment restent toujours deux observations distinctes, jamais moyennées.
+ */
+function marketSlotKey(obs: NormalizedPriceObservation): string {
+  return [
+    normalizeForCompare(obs.currency),
+    normalizeForCompare(obs.condition ?? ""),
+    normalizeForCompare(obs.variant ?? ""),
+    normalizeForCompare(obs.language ?? ""),
+    normalizeForCompare(obs.gradingCompany ?? ""),
+    normalizeForCompare(obs.grade ?? ""),
+  ].join("||");
+}
+
+/**
+ * `observationKey` — `marketSlotKey` + source. Deux observations avec la
+ * même clé prétendent occuper EXACTEMENT le même emplacement chez la MÊME
+ * source. Volontairement pas l'identité canonique elle-même :
+ * `classifyCrossMatch` n'est appelée que pour une seule identité à la fois,
+ * donc l'identité est déjà constante sur tout l'appel.
+ *
+ * Ce n'est pas un identifiant cross-provider (jamais comparé entre
+ * fournisseurs, voir `corroborates`) : c'est purement un regroupement des
+ * résultats déjà corroborés par cette même fonction, pour cette même
+ * identité.
+ */
+function observationKey(obs: NormalizedPriceObservation): string {
+  return `${marketSlotKey(obs)}||${normalizeForCompare(obs.source)}`;
+}
+
+/**
  * Classification explicite de la correspondance croisée — `exact_match` est
  * la seule issue destinée à alimenter le moteur plus tard (pas encore
  * branché dans ce lot). `ambiguous`/`no_match` ne produisent jamais de prix
  * exploitable automatiquement.
+ *
+ * LOT 7C — correctif : plusieurs observations valides pour UNE SEULE
+ * identité confirmée (EUR + USD, NM + LP + MP, Holo + Reverse Holo quand la
+ * variante n'est pas fixée par l'identité, etc.) ne sont jamais une
+ * ambiguïté — ce sont des dimensions indépendantes du même prix réel,
+ * conservées séparément, jamais moyennées, jamais fusionnées. Seules des
+ * observations qui prétendent occuper EXACTEMENT la même combinaison
+ * (devise/condition/variante/langue/grade/société/source identiques) tout
+ * en étant des candidats différents constituent une vraie ambiguïté
+ * d'identité : aucune décision automatique n'est alors possible.
  */
 export function classifyCrossMatch(identity: TcgCanonicalIdentity, observations: NormalizedPriceObservation[]): TcgCrossMatchResult {
   const warnings = [...identity.warnings];
@@ -174,41 +228,75 @@ export function classifyCrossMatch(identity: TcgCanonicalIdentity, observations:
     };
   }
 
-  if (corroborated.length > 1) {
+  // Regroupement déterministe par `observationKey` (segment + source) —
+  // jamais de fusion, jamais de moyenne. Une identité confirmée peut
+  // légitimement porter plusieurs observations (devises différentes,
+  // conditions différentes, sources différentes...).
+  const groups = new Map<string, NormalizedPriceObservation[]>();
+  for (const obs of corroborated) {
+    const key = observationKey(obs);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(obs);
+    else groups.set(key, [obs]);
+  }
+
+  // Un groupe à plusieurs entrées n'est pas automatiquement une ambiguïté :
+  // si toutes les entrées portent EXACTEMENT le même montant, il s'agit d'un
+  // doublon (ex. re-fetch idempotent d'une même source) — dédupliqué en une
+  // seule observation, jamais compté comme un désaccord. Seul un DÉSACCORD
+  // réel (même source, même segment exact, montants différents) constitue
+  // une vraie ambiguïté : rien ne permet de trancher automatiquement entre
+  // deux prix contradictoires annoncés par la même source pour le même
+  // emplacement exact.
+  const conflicting = [...groups.values()].filter((bucket) => new Set(bucket.map((o) => o.amountCents)).size > 1);
+  if (conflicting.length > 0) {
+    const allCandidates = [...groups.values()].flat();
     return {
       outcome: "ambiguous",
       identity,
-      priceObservations: corroborated,
-      confidence: Math.max(...corroborated.map((o) => o.confidence)),
-      warnings: [...warnings, "Refus : correspondance ambiguë — plusieurs candidats JustTCG équivalents après corroboration stricte, décision automatique impossible."],
+      priceObservations: allCandidates,
+      confidence: Math.max(...allCandidates.map((o) => o.confidence)),
+      warnings: [
+        ...warnings,
+        "Refus : correspondance ambiguë — plusieurs candidats distincts occupent exactement la même combinaison (devise/condition/variante/langue/grade/source) avec des montants différents, décision automatique impossible.",
+      ],
     };
   }
 
-  const match = corroborated[0]!;
+  // Un groupe (dédupliqué) = une observation acceptée. Jamais fusionnées
+  // entre groupes — chaque `marketSlotKey`/source distinct reste sa propre
+  // observation, jamais moyennée avec une autre.
+  const accepted = [...groups.values()].map((bucket) => bucket[0]!);
 
-  // Langue : avertissement explicite (jamais un refus) quand une seule des deux sources la fournit.
-  let languageWarning: string | null = null;
-  if (identity.language && !match.language) {
-    languageWarning = `Langue "${identity.language}" demandée, non fournie par JustTCG pour cette variante — non vérifiable.`;
-  } else if (!identity.language && match.language) {
-    languageWarning = `Langue JustTCG ("${match.language}") non confirmée côté catalogue — non vérifiable.`;
-  }
-  if (languageWarning) warnings.push(languageWarning);
+  const assessments = accepted.map((obs) => {
+    // Langue : avertissement explicite (jamais un refus) quand une seule des deux sources la fournit.
+    let languageWarning: string | null = null;
+    if (identity.language && !obs.language) {
+      languageWarning = `Langue "${identity.language}" demandée, non fournie par ${obs.source} pour cette variante — non vérifiable.`;
+    } else if (!identity.language && obs.language) {
+      languageWarning = `Langue ${obs.source} ("${obs.language}") non confirmée côté catalogue — non vérifiable.`;
+    }
 
-  const strongMatch =
-    hasSet &&
-    hasNumber &&
-    identity.confidence === 1 &&
-    match.confidence === 1 &&
-    !match.warnings.some((w) => w.toLowerCase().includes("ambig"));
+    const isStrong =
+      hasSet &&
+      hasNumber &&
+      identity.confidence === 1 &&
+      obs.confidence === 1 &&
+      !obs.warnings.some((w) => w.toLowerCase().includes("ambig")) &&
+      !languageWarning;
 
-  const confidence = strongMatch ? 1 : Math.min(match.confidence, identity.confidence);
+    return { obs, languageWarning, isStrong };
+  });
+
+  const allStrong = assessments.every((a) => a.isStrong);
+  const languageWarnings = assessments.map((a) => a.languageWarning).filter((w): w is string => w !== null);
+  const confidence = allStrong ? 1 : Math.min(identity.confidence, ...accepted.map((o) => o.confidence));
 
   return {
-    outcome: strongMatch && !languageWarning ? "exact_match" : "probable_match",
+    outcome: allStrong ? "exact_match" : "probable_match",
     identity,
-    priceObservations: [match],
+    priceObservations: accepted,
     confidence,
-    warnings,
+    warnings: [...warnings, ...languageWarnings],
   };
 }

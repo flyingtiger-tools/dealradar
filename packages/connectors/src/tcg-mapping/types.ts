@@ -39,7 +39,15 @@ export type TcgMatchOutcome = "exact_match" | "probable_match" | "ambiguous" | "
 export interface TcgCrossMatchResult {
   outcome: TcgMatchOutcome;
   identity: TcgCanonicalIdentity;
-  /** Vide sauf `exact_match`/`probable_match` (une seule entrée) ou `ambiguous` (plusieurs). */
+  /**
+   * Vide seulement pour `no_match`. Pour `exact_match`/`probable_match`,
+   * contient une observation par combinaison distincte (devise, condition,
+   * variante, langue, société de grading, grade, source) rattachée à la
+   * MÊME identité canonique confirmée — jamais moyennées, jamais fusionnées
+   * entre elles (LOT 7C). `ambiguous` contient tous les candidats en
+   * conflit (plusieurs identités distinctes prétendant occuper la même
+   * combinaison), pour audit — aucun n'est exploitable automatiquement.
+   */
   priceObservations: NormalizedPriceObservation[];
   confidence: number;
   warnings: string[];

@@ -1,6 +1,7 @@
 import type { CatalogItem, CatalogMatch } from "../../types";
 import type { TcgCatalogHints } from "../tcg/types";
 import type { TcgdexCard } from "./raw-types";
+import { setNamesMatch } from "../../tcg-mapping/set-name-matching";
 
 /**
  * TCGdex expose un catalogue multilingue — la langue interrogée détermine
@@ -61,7 +62,13 @@ export function matchTcgdexCard(raw: TcgdexCard, hints: TcgCatalogHints, languag
   }
   if (hints.setName) {
     comparableHints += 1;
-    if (normalizeForCompare(raw.set.name) === normalizeForCompare(hints.setName)) matchedOn.push("setName");
+    // Jamais une égalité brute : Pokémon TCG API nomme ce set "Base" quand
+    // TCGdex le nomme "Base Set" — même principe déjà appliqué en pricing
+    // (LOT 7C, `set-name-matching.ts`). Une égalité brute laissait ce set
+    // non crédité, ce qui désactivait le filtre de set côté JustTCG en aval
+    // (repli `single_catalog_source`) et produisait de faux candidats
+    // d'autres sets partageant le même numéro (démontré par test réel).
+    if (setNamesMatch(hints.setName, raw.set.name).matched) matchedOn.push("setName");
   }
   // `hints.setCode` n'est jamais comparé à `raw.set.id` : cet id est interne
   // à TCGdex, pas un code de set comparable entre catalogues (confirmé par

@@ -73,10 +73,11 @@ describe("persistTcgPriceObservation — refus des correspondances non exactes",
     const supabase = new FakeSupabase();
     const result: TcgCrossMatchResult = { outcome: "probable_match", identity: identity(), priceObservations: [observation()], confidence: 0.8, warnings: ["Langue non confirmée"] };
 
-    const outcome = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
+    const outcomes = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
 
-    expect(outcome.outcome).toBe("refused");
-    expect(outcome.reason).toMatch(/probable_match/);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.outcome).toBe("refused");
+    expect(outcomes[0]!.reason).toMatch(/probable_match/);
     expect(supabase.table("tcg_price_observations")).toHaveLength(0);
   });
 
@@ -90,10 +91,11 @@ describe("persistTcgPriceObservation — refus des correspondances non exactes",
       warnings: ["Plusieurs candidats équivalents"],
     };
 
-    const outcome = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
+    const outcomes = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
 
-    expect(outcome.outcome).toBe("refused");
-    expect(outcome.reason).toMatch(/ambiguous/);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.outcome).toBe("refused");
+    expect(outcomes[0]!.reason).toMatch(/ambiguous/);
     expect(supabase.table("tcg_price_observations")).toHaveLength(0);
   });
 
@@ -101,10 +103,11 @@ describe("persistTcgPriceObservation — refus des correspondances non exactes",
     const supabase = new FakeSupabase();
     const result: TcgCrossMatchResult = { outcome: "no_match", identity: identity(), priceObservations: [], confidence: 0, warnings: ["Refus : mauvais set"] };
 
-    const outcome = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
+    const outcomes = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
 
-    expect(outcome.outcome).toBe("refused");
-    expect(outcome.reason).toMatch(/no_match/);
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.outcome).toBe("refused");
+    expect(outcomes[0]!.reason).toMatch(/no_match/);
     expect(supabase.table("tcg_price_observations")).toHaveLength(0);
   });
 });
@@ -113,9 +116,10 @@ describe("persistTcgPriceObservation — persistance d'un exact_match", () => {
   it("insère une nouvelle observation", async () => {
     const supabase = new FakeSupabase();
 
-    const outcome = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, exactMatch());
+    const outcomes = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, exactMatch());
 
-    expect(outcome.outcome).toBe("inserted");
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]!.outcome).toBe("inserted");
     expect(supabase.table("tcg_price_observations")).toHaveLength(1);
     const row = supabase.table("tcg_price_observations")[0]!;
     expect(row.source).toBe("justtcg");
@@ -131,7 +135,8 @@ describe("persistTcgPriceObservation — persistance d'un exact_match", () => {
     await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, exactMatch());
     const second = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, exactMatch());
 
-    expect(second.outcome).toBe("unchanged");
+    expect(second).toHaveLength(1);
+    expect(second[0]!.outcome).toBe("unchanged");
     expect(supabase.table("tcg_price_observations")).toHaveLength(1);
   });
 
@@ -144,7 +149,8 @@ describe("persistTcgPriceObservation — persistance d'un exact_match", () => {
       exactMatch({ observation: { amountCents: 175 } }),
     );
 
-    expect(second.outcome).toBe("inserted");
+    expect(second).toHaveLength(1);
+    expect(second[0]!.outcome).toBe("inserted");
     expect(supabase.table("tcg_price_observations")).toHaveLength(2);
     expect(supabase.table("tcg_price_observations").map((r) => r.amount_cents).sort()).toEqual([150, 175]);
   });
@@ -242,5 +248,29 @@ describe("persistTcgPriceObservation — persistance d'un exact_match", () => {
 
     const row = supabase.table("tcg_price_observations")[0]!;
     expect(row.warnings).toEqual([warning]);
+  });
+
+  it("LOT 7C — un seul exact_match avec plusieurs observations (EUR + USD) : chacune persistée séparément en un seul appel", async () => {
+    const supabase = new FakeSupabase();
+    const result: TcgCrossMatchResult = {
+      outcome: "exact_match",
+      identity: identity(),
+      priceObservations: [
+        observation({ source: "tcgdex", externalProductId: "tcgdex-eur", currency: "EUR", amountCents: 500, provenance: "tcgdex-cardmarket" }),
+        observation({ source: "tcgdex", externalProductId: "tcgdex-usd", currency: "USD", amountCents: 650, provenance: "tcgdex-tcgplayer" }),
+      ],
+      confidence: 1,
+      warnings: [],
+    };
+
+    const outcomes = await persistTcgPriceObservation(supabase as never, CATEGORY_SLUG, result);
+
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes.every((o) => o.outcome === "inserted")).toBe(true);
+    const rows = supabase.table("tcg_price_observations");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.currency).sort()).toEqual(["EUR", "USD"]);
+    expect(rows.map((r) => r.amount_cents).sort()).toEqual([500, 650]);
+    expect(rows.every((r) => r.amount_cents !== 575)).toBe(true);
   });
 });

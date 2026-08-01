@@ -57,4 +57,15 @@ describe("matchTcgdexCard", () => {
     expect(match.confidence).toBe(0.5);
     expect(match.matchedOn).toEqual(["name"]);
   });
+
+  it("set nommé différemment par Pokémon TCG API (\"Base\") que par TCGdex (\"Base Set\") : corroboré, jamais une égalité brute (LOT 7C — démontré par test réel)", () => {
+    // Avant ce correctif, une égalité brute sur `set.name` ne créditait
+    // jamais "setName" ici quand les hints venaient du catalogue principal
+    // (Pokémon TCG API, qui nomme ce set "Base") — désactivant silencieusement
+    // le filtre de set côté pricing en aval (repli `single_catalog_source`)
+    // et laissant passer de faux candidats d'autres sets.
+    const match = matchTcgdexCard(PIKACHU_BASE1_EN, { name: "Pikachu", setName: "Base", setCode: "base1", collectorNumber: "58", language: "en" }, "en");
+    expect(match.matchedOn).toContain("setName");
+    expect(match.confidence).toBe(1);
+  });
 });

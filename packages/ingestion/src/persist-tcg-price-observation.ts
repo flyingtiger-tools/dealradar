@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TcgCrossMatchResult } from "@dealradar/connectors";
+import type { NormalizedPriceObservation, TcgCanonicalIdentity, TcgCrossMatchResult } from "@dealradar/connectors";
 import { tcgPriceObservationInputSchema } from "./tcg-price-schemas";
 
 export type PersistTcgPriceOutcome = "inserted" | "unchanged" | "refused";
@@ -33,31 +33,50 @@ const IDENTITY_COLUMNS = [
 const ON_CONFLICT_COLUMNS = [...IDENTITY_COLUMNS, "amount_cents"].join(",");
 
 /**
- * Persiste un `TcgCrossMatchResult` comme observation de prix exploitable —
- * uniquement si `outcome === "exact_match"` (LOT 3 : la seule issue jamais
- * destinée à alimenter quoi que ce soit derrière elle). `probable_match`,
- * `ambiguous` et `no_match` sont refusés ici, jamais persistés comme prix,
- * même partiellement. Aucune conversion de devise, aucune décision
- * BUY/REVIEW/PASS modifiée par cette fonction.
+ * Persiste un `TcgCrossMatchResult` comme observation(s) de prix
+ * exploitable(s) — uniquement si `outcome === "exact_match"` (LOT 3 : la
+ * seule issue jamais destinée à alimenter quoi que ce soit derrière elle).
+ * `probable_match`, `ambiguous` et `no_match` sont refusés ici, jamais
+ * persistés comme prix, même partiellement. Aucune conversion de devise,
+ * aucune décision BUY/REVIEW/PASS modifiée par cette fonction.
+ *
+ * Une identité confirmée peut légitimement porter plusieurs observations
+ * (devises différentes, conditions différentes, sources différentes — LOT
+ * 7C) : chacune est persistée comme sa propre ligne, jamais fusionnée ni
+ * moyennée. Une entrée du résultat par observation, dans le même ordre.
  */
 export async function persistTcgPriceObservation(
   supabase: SupabaseClient,
   categorySlug: string,
   result: TcgCrossMatchResult,
-): Promise<PersistTcgPriceResult> {
+): Promise<PersistTcgPriceResult[]> {
   if (result.outcome !== "exact_match") {
-    return {
-      outcome: "refused",
-      reason: `Correspondance "${result.outcome}" — seul un exact_match peut être persisté comme prix exploitable.`,
-    };
+    return [
+      {
+        outcome: "refused",
+        reason: `Correspondance "${result.outcome}" — seul un exact_match peut être persisté comme prix exploitable.`,
+      },
+    ];
   }
-  if (result.priceObservations.length !== 1) {
-    return { outcome: "refused", reason: "Un exact_match doit porter exactement une observation de prix." };
+  if (result.priceObservations.length === 0) {
+    return [{ outcome: "refused", reason: "Un exact_match doit porter au moins une observation de prix." }];
   }
 
-  const observation = result.priceObservations[0]!;
-  const identity = result.identity;
+  const results: PersistTcgPriceResult[] = [];
+  for (const observation of result.priceObservations) {
+    results.push(await persistOneObservation(supabase, categorySlug, result.identity, observation, result.confidence, result.warnings));
+  }
+  return results;
+}
 
+async function persistOneObservation(
+  supabase: SupabaseClient,
+  categorySlug: string,
+  identity: TcgCanonicalIdentity,
+  observation: NormalizedPriceObservation,
+  confidence: number,
+  warnings: string[],
+): Promise<PersistTcgPriceResult> {
   const parsed = tcgPriceObservationInputSchema.safeParse({
     categorySlug,
     source: observation.source,
@@ -81,8 +100,8 @@ export async function persistTcgPriceObservation(
     priceType: observation.priceType,
     region: observation.region,
     provenance: observation.provenance,
-    confidence: result.confidence,
-    warnings: result.warnings,
+    confidence,
+    warnings,
     sourceUpdatedAt: observation.updatedAt,
   });
 

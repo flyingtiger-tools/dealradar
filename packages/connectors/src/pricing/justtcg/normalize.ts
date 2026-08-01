@@ -1,6 +1,8 @@
 import type { NormalizedPriceObservation } from "../../types";
 import type { TcgCatalogHints } from "../../catalogs/tcg/types";
 import type { JustTcgRawCard, JustTcgRawVariant, JustTcgRawMarket } from "./raw-types";
+import { setNamesMatch } from "../../tcg-mapping/set-name-matching";
+import { collectorNumbersMatch } from "../../tcg-mapping/collector-number-matching";
 
 /**
  * JustTCG ne dessert aujourd'hui que la région NA/US (confirmé dans le code
@@ -24,22 +26,35 @@ function centsFromDollars(amount: number): number {
   return Math.round(amount * 100);
 }
 
-/** Score de confiance honnête — même logique que `catalogs/pokemon-tcg/normalize.ts` (le nom seul, déjà utilisé pour filtrer côté API, ne suffit jamais à une confiance totale). */
+/**
+ * Score de confiance honnête — même logique que
+ * `catalogs/pokemon-tcg/normalize.ts` (le nom seul, déjà utilisé pour
+ * filtrer côté API, ne suffit jamais à une confiance totale).
+ *
+ * `setName` utilise `setNamesMatch` (normalisation déterministe, jamais une
+ * égalité brute) : Pokémon TCG API nomme un set "Base" quand JustTCG nomme
+ * le même set réel "Base Set" (confirmé par appel réel, LOT 7C).
+ * `collectorNumber` utilise `collectorNumbersMatch` pour la même raison :
+ * JustTCG renvoie "058/102" (zéro de tête + dénominateur) là où le
+ * catalogue renvoie "58". Aucun `setCode`/id de set n'est comparé ici :
+ * l'id interne JustTCG ("base-set-pokemon") n'est jamais comparable à
+ * celui d'un autre fournisseur (même principe déjà appliqué à TCGdex).
+ */
 function scoreMatch(card: JustTcgRawCard, variant: JustTcgRawVariant, hints: TcgCatalogHints): { confidence: number; matchedOn: string[] } {
   const matchedOn: string[] = [];
   let comparableHints = 0;
 
-  const checks: [provided: string | undefined, label: string, rawValue: string | null | undefined][] = [
-    [hints.name, "name", card.name],
-    [hints.setName, "setName", card.set.name],
-    [hints.setCode, "setCode", card.set.id],
-    [hints.collectorNumber, "collectorNumber", card.number],
-  ];
-
-  for (const [hintValue, label, rawValue] of checks) {
-    if (!hintValue) continue;
+  if (hints.name) {
     comparableHints += 1;
-    if (rawValue && normalizeForCompare(rawValue) === normalizeForCompare(hintValue)) matchedOn.push(label);
+    if (normalizeForCompare(card.name) === normalizeForCompare(hints.name)) matchedOn.push("name");
+  }
+  if (hints.setName) {
+    comparableHints += 1;
+    if (card.set.name && setNamesMatch(hints.setName, card.set.name).matched) matchedOn.push("setName");
+  }
+  if (hints.collectorNumber) {
+    comparableHints += 1;
+    if (collectorNumbersMatch(hints.collectorNumber, card.number)) matchedOn.push("collectorNumber");
   }
 
   // La variante/condition n'entre jamais dans le ratio de confiance générique :

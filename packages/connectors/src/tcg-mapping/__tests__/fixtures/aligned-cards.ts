@@ -47,6 +47,18 @@ export const JUSTTCG_PIKACHU_MULTI_VARIANT: JustTcgRawCard = {
   ],
 };
 
+/** Numéro au format réel JustTCG ("058/102", zéro de tête + dénominateur) — pour la corroboration cross-source de `number`. */
+export const JUSTTCG_PIKACHU_PADDED_NUMBER: JustTcgRawCard = {
+  id: "jt_pikachu_base4_padded",
+  name: "Pikachu",
+  game: { id: "pokemon", name: "Pokémon" },
+  set: { id: "base-set-pokemon", name: "Base Set" },
+  number: "058/102",
+  variants: [
+    { id: "v_normal_padded", type: "raw", condition: "Near Mint", printing: "Normal", language: "English", markets: [{ region: "US", currency: "USD", price: 7.68 }] },
+  ],
+};
+
 export const JUSTTCG_CHARIZARD_GRADED: JustTcgRawCard = {
   id: "jt_charizard_base4",
   name: "Charizard",
