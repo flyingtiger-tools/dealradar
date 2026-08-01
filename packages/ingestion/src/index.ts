@@ -4,6 +4,8 @@ export * from "./tcg-price-schemas";
 export * from "./persist-tcg-price-observation";
 export * from "./fx-rate-schemas";
 export * from "./persist-fx-rate";
+export * from "./corroborate-catalog-identity";
+export * from "./orchestrate-pokemon-pipeline";
 export * from "./run-ingestion";
 export * from "./map-to-intelligence";
 export * from "./analyze-listing";

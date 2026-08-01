@@ -14,7 +14,22 @@ commerciale.
 | Pokémon TCG API | `packages/connectors/src/catalogs/pokemon-tcg` | Gratuit, clé optionnelle (1 000→20 000 req/jour). `license.allowsCommercialUse: false` déclaré honnêtement (CGU inaccessibles au moment de l'implémentation) | Revérifier les CGU actuelles avant un usage commercial élargi ; si toujours bloquantes, chercher une alternative catalogue TCG ou négocier un accès |
 | JustTCG | `packages/connectors/src/pricing/justtcg` | Palier gratuit (100 req/jour) suffisant pour valider le mapping catalogue↔pricing | Passer sur un palier payant (dès $19/mois) une fois le volume réel dépassant le quota gratuit — même connecteur, juste une clé API différente |
 | Taux de change (USD→CHF/EUR) | `packages/connectors/src/fx/frankfurter` (défaut MVP) | **Frankfurter** — gratuit, aucune clé API, 84 banques centrales, taux BCE inclus | Basculer vers `packages/connectors/src/fx/openexchangerates` (déjà construit et testé, palier payant dès $12/mois) pour un statut commercial explicite et non ambigu — un seul changement d'instanciation, `FxRateProvider` est la même interface des deux côtés |
+| TCGdex | `packages/connectors/src/catalogs/tcgdex` + `packages/connectors/src/pricing/tcgdex` | Gratuit, aucune clé API, licence MIT confirmée (github.com/tcgdex/cards-database). Catalogue multilingue (FR/EN pour ce lot) + prix Cardmarket EUR + TCGPlayer USD. Source complémentaire à Pokémon TCG API (catalogue) et JustTCG (pricing), ne les remplace jamais | Aucun changement de licence attendu (MIT, déjà commercialement utilisable) — surveiller uniquement une éventuelle évolution de quota si le volume grossit fortement |
 | PriceCharting | *(non implémenté)* | Bloqué : nécessite une autorisation écrite avant tout usage (scraping/contournement CGU explicitement exclu par instruction produit) | Reste bloqué indépendamment de cette stratégie MVP — ce n'est pas une question de coût mais d'autorisation d'accès |
+
+## Candidat futur — Scrydex (non construit)
+
+Scrydex est identifié comme candidat futur pour des besoins que ni Pokémon TCG API,
+ni TCGdex, ni JustTCG ne couvrent aujourd'hui :
+
+- reconnaissance photo ;
+- cartes gradées (lecture PSA/BGS/CGC) ;
+- produits scellés ;
+- historique de prix long terme ;
+- population reports (nombre d'exemplaires gradés par note).
+
+Aucun abonnement ni intégration Scrydex n'est commencé à ce stade — pas construit,
+pas audité en détail, simplement noté ici pour ne pas le perdre de vue.
 
 ## Principe
 

@@ -33,15 +33,25 @@ describe("ConnectorRegistry", () => {
     registry.register(connector);
 
     expect(registry.list()).toHaveLength(1);
-    expect(registry.get("fake-source")).toBe(connector);
+    expect(registry.get("fake-source", "catalog")).toBe(connector);
   });
 
-  it("refuse un doublon (même source déjà enregistrée)", () => {
+  it("refuse un doublon (même source ET même famille déjà enregistrées)", () => {
     const registry = new ConnectorRegistry();
     registry.register(fakeDescriptor());
 
     expect(() => registry.register(fakeDescriptor())).toThrow(DuplicateConnectorError);
     expect(registry.list()).toHaveLength(1);
+  });
+
+  it("autorise la même source sur deux familles différentes (ex. TCGdex : catalog + pricing)", () => {
+    const registry = new ConnectorRegistry();
+    registry.register(fakeDescriptor({ source: "tcgdex", family: "catalog", capabilities: ["catalog.resolve.v1"] }));
+    registry.register(fakeDescriptor({ source: "tcgdex", family: "pricing", capabilities: ["pricing.lookup.v1"] }));
+
+    expect(registry.list()).toHaveLength(2);
+    expect(registry.get("tcgdex", "catalog")?.family).toBe("catalog");
+    expect(registry.get("tcgdex", "pricing")?.family).toBe("pricing");
   });
 
   it("recherche par famille", () => {
