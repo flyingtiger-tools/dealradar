@@ -14,3 +14,6 @@ export * from "./pricing/justtcg/client";
 export * from "./pricing/justtcg/normalize";
 export * from "./pricing/justtcg/connector";
 export * from "./pricing/justtcg/raw-types";
+export * from "./registry/types";
+export * from "./registry/registry";
+export * from "./registry/capability-engine";
