@@ -35,6 +35,7 @@ export async function persistListing(
     description: listing.description ?? null,
     price_cents: listing.price.amountCents,
     currency: listing.price.currency,
+    shipping_cost_cents: listing.shippingCostCents,
     condition: listing.condition,
     // `categories` (taxonomie générale du marché) est une table distincte,
     // non peuplée dans ce lot — le slug de profil Intelligence Core

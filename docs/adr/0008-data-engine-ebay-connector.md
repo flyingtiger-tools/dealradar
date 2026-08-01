@@ -208,9 +208,11 @@ déclenchement manuel (CLI ci-dessus, ou la page `/admin/ingestion` une fois
 - Aucun identifiant eBay réel disponible pendant ce lot : toute la
   couverture de tests mock les appels réseau (aucune dépendance à un compte
   eBay réel).
-- Coût de livraison collecté par le connecteur mais pas encore persisté sur
+- ~~Coût de livraison collecté par le connecteur mais pas encore persisté sur
   `listings` (pas de colonne dédiée) — `shippingCostCents` par défaut à 0
-  dans l'analyse, sous-estimation documentée.
+  dans l'analyse, sous-estimation documentée.~~ **Résolu (2026-07-31)** :
+  colonne `shipping_cost_cents` (migration 0013), persistée par
+  `persist-listing.ts` et lue par `ingest-and-analyze.ts` pour l'analyse.
 - Correspondance eBay aspects → clés de profil de catégorie non construite
   (ex. "Set Number" eBay vs `setNumber` interne) — nécessite des identifiants
   réels pour être vérifiée sans deviner.

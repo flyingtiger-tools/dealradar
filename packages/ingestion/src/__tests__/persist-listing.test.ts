@@ -34,6 +34,7 @@ describe("persistListing", () => {
 
     expect(result.outcome).toBe("inserted");
     expect(supabase.table("listings")).toHaveLength(1);
+    expect(supabase.table("listings")[0]!.shipping_cost_cents).toBe(1500);
     expect(supabase.table("price_observations")).toHaveLength(1);
   });
 

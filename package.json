@@ -22,6 +22,9 @@
   "pnpm": {
     "patchedDependencies": {
       "expo-modules-autolinking@2.0.8": "patches/expo-modules-autolinking@2.0.8.patch"
+    },
+    "overrides": {
+      "react-server-dom-webpack": "^19.0.2"
     }
   }
 }

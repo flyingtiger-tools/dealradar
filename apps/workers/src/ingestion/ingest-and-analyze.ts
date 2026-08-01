@@ -7,12 +7,11 @@ import { buildAiExtractionConfigFromEnv } from "./ai-provider-config";
 
 /**
  * Hypothèses de coût par défaut, documentées comme telles (ADR 0008) — pas
- * des frais eBay vérifiés. `shippingCostCents` par défaut à 0 : le coût de
- * livraison remonté par le connecteur n'est pas encore persisté sur
- * `listings` dans ce lot (limite documentée).
+ * des frais eBay vérifiés. Le coût de livraison réel est lu depuis
+ * `listings.shipping_cost_cents` (voir persist-listing.ts) ; il ne fait donc
+ * plus partie de ces hypothèses.
  */
-const DEFAULT_COST_ASSUMPTIONS: Omit<CostInputs, "purchasePriceCents"> = {
-  shippingCostCents: 0,
+const DEFAULT_COST_ASSUMPTIONS: Omit<CostInputs, "purchasePriceCents" | "shippingCostCents"> = {
   platformFeeRate: 0.12,
   refurbCostCents: 0,
   riskReserveRate: 0.05,
@@ -65,15 +64,17 @@ export async function ingestAndAnalyze(params: {
 
       const { data: row } = await params.supabase
         .from("listings")
-        .select("price_cents")
+        .select("price_cents, shipping_cost_cents")
         .eq("id", listingId)
         .maybeSingle();
-      const priceCents = (row as { price_cents: number } | null)?.price_cents ?? 0;
+      const listingRow = row as { price_cents: number; shipping_cost_cents: number | null } | null;
+      const priceCents = listingRow?.price_cents ?? 0;
+      const shippingCostCents = listingRow?.shipping_cost_cents ?? 0;
 
       await analyzeListing({
         supabase: params.supabase,
         listingId,
-        costs: { purchasePriceCents: priceCents, ...DEFAULT_COST_ASSUMPTIONS },
+        costs: { purchasePriceCents: priceCents, shippingCostCents, ...DEFAULT_COST_ASSUMPTIONS },
         asOf,
       });
       analyzed += 1;
