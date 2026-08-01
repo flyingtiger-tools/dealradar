@@ -5,3 +5,8 @@ export * from "./ebay/normalize";
 export * from "./ebay/redact";
 export * from "./ebay/connector";
 export * from "./ebay/raw-types";
+export * from "./catalogs/tcg/types";
+export * from "./catalogs/pokemon-tcg/client";
+export * from "./catalogs/pokemon-tcg/normalize";
+export * from "./catalogs/pokemon-tcg/connector";
+export * from "./catalogs/pokemon-tcg/raw-types";

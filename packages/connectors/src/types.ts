@@ -123,3 +123,110 @@ export function hasCapability(
 ): boolean {
   return connector.capabilities.includes(capability);
 }
+
+/**
+ * Socle commun aux quatre familles de connecteurs (ADR 0012 §2-§5). Purement
+ * additif à ce fichier : `MarketplaceConnector` et le connecteur eBay restent
+ * inchangés — cette base ne sert qu'aux nouvelles familles (Catalog en
+ * premier). La migration éventuelle d'eBay vers ce socle est un chantier
+ * séparé, non couvert ici.
+ */
+export interface QualityScore {
+  reliability: number;
+  coverage: number;
+  freshness: number;
+  latency: number;
+  confidence: number;
+}
+
+export interface CostModel {
+  model: "free" | "freemium" | "paid";
+  details: string;
+}
+
+export interface QuotaModel {
+  perSecond?: number;
+  perDay?: number;
+  notes?: string;
+}
+
+export interface LicenseModel {
+  allowsCommercialUse: boolean;
+  allowsCaching: boolean;
+  maxCacheAgeHours: number | null;
+  allowsRedistribution: boolean;
+  termsUrl: string;
+}
+
+export interface CachePolicy {
+  ttlHours: number;
+  staleWhileRevalidate: boolean;
+}
+
+export type ConnectorFamily = "marketplace" | "catalog" | "pricing" | "ai";
+
+export interface ConnectorDescriptor {
+  readonly source: string;
+  readonly displayName: string;
+  readonly family: ConnectorFamily;
+  /** Versionnées : "catalog.resolve.v1", jamais une capacité implicite (ADR 0012 §5). */
+  readonly capabilities: readonly string[];
+  readonly supportedCategorySlugs: readonly string[] | "any";
+  readonly declaredQuality: QualityScore;
+  readonly cost: CostModel;
+  readonly quotas: QuotaModel;
+  readonly license: LicenseModel;
+  readonly cachePolicy: CachePolicy;
+  healthCheck(): Promise<HealthCheckResult>;
+}
+
+/**
+ * Métadonnée de prix tiers (TCGPlayer, Cardmarket, etc.) — jamais une vente
+ * confirmée. `provenance` documente explicitement la nature du chiffre pour
+ * qu'aucun appelant ne puisse le confondre avec un `NormalizedSoldPrice`
+ * (réservé aux Pricing Connectors, ADR 0012 §7).
+ */
+export interface ThirdPartyPriceHint {
+  source: string;
+  variant: string | null;
+  priceLow: number | null;
+  priceMid: number | null;
+  priceHigh: number | null;
+  currency: string;
+  observedAt: string | null;
+  provenance: "listing_aggregate";
+}
+
+/** Identité canonique résolue par un Catalog Connector (ADR 0012, contrat exact). */
+export interface CatalogItem {
+  source: string;
+  externalId: string;
+  /** Ex. `TcgProductKind` pour un connecteur TCG — générique ici, chaque famille de catalogue définit son propre vocabulaire de `kind`. */
+  kind: string;
+  categorySlug: string;
+  name: string;
+  canonicalAttributes: Record<string, string | number | boolean | null>;
+  images: string[];
+  externalUrl: string | null;
+  /** Prix tiers non confirmés, jamais une vente — voir `ThirdPartyPriceHint`. */
+  priceHints?: ThirdPartyPriceHint[];
+  raw?: unknown;
+}
+
+export interface CatalogMatch {
+  item: CatalogItem;
+  /** 0–1, calculée honnêtement à partir des indices qui ont réellement matché — jamais une estimation devinée. */
+  confidence: number;
+  matchedOn: string[];
+}
+
+export interface CatalogQuery {
+  categorySlug: string;
+  /** Bag ouvert — chaque connecteur catalogue interprète les indices pertinents à son domaine (voir `TcgCatalogHints` pour les jeux de cartes). */
+  hints: Record<string, unknown>;
+}
+
+export interface CatalogConnector extends ConnectorDescriptor {
+  resolve(query: CatalogQuery): Promise<CatalogMatch[]>;
+  getItem(externalId: string): Promise<CatalogItem | null>;
+}
