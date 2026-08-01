@@ -10,3 +10,7 @@ export * from "./catalogs/pokemon-tcg/client";
 export * from "./catalogs/pokemon-tcg/normalize";
 export * from "./catalogs/pokemon-tcg/connector";
 export * from "./catalogs/pokemon-tcg/raw-types";
+export * from "./pricing/justtcg/client";
+export * from "./pricing/justtcg/normalize";
+export * from "./pricing/justtcg/connector";
+export * from "./pricing/justtcg/raw-types";

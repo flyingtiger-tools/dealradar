@@ -230,3 +230,72 @@ export interface CatalogConnector extends ConnectorDescriptor {
   resolve(query: CatalogQuery): Promise<CatalogMatch[]>;
   getItem(externalId: string): Promise<CatalogItem | null>;
 }
+
+/**
+ * Nature du chiffre retourné par un Pricing Connector — jamais implicite.
+ * `market_aggregate` (agrégat de marché, ex. JustTCG/TCGPlayer) et `listing`
+ * (annonce active) sont explicitement **distincts** de `sold` (vente conclue
+ * confirmée) : voir `NormalizedSoldPrice` (ADR 0012 §7) qui reste réservé au
+ * cas `sold` uniquement. Un connecteur qui ne fournit que de l'agrégat de
+ * marché ne doit jamais se faire passer pour une source de ventes conclues.
+ */
+export type PriceType = "market_aggregate" | "listing" | "sold";
+
+/**
+ * Conversion de devise préparée mais non appliquée tant qu'aucun service de
+ * taux officiel n'existe dans le projet — voir `NormalizedPriceObservation.conversion`.
+ * Toujours `undefined` en pratique aujourd'hui ; la forme existe pour ne pas
+ * casser un futur appelant quand la conversion sera branchée.
+ */
+export interface CrossMarketConversion {
+  originalAmountCents: number;
+  originalCurrency: string;
+  rate: number;
+  rateDate: string;
+  convertedAmountCents: number;
+  convertedCurrency: string;
+  warning: string;
+}
+
+/**
+ * Sortie d'un Pricing Connector — plus riche que `NormalizedSoldPrice` (ADR
+ * 0012) car certaines sources (JustTCG, PriceCharting…) fournissent un
+ * agrégat de marché avec sa propre provenance/confiance/avertissements,
+ * jamais une vente confirmée à traiter comme telle.
+ */
+export interface NormalizedPriceObservation {
+  source: string;
+  externalProductId: string;
+  game: string;
+  name: string;
+  setName: string | null;
+  setId: string | null;
+  number: string | null;
+  variant: string | null;
+  condition: string | null;
+  gradingCompany: string | null;
+  grade: string | null;
+  amountCents: number;
+  /** Devise réelle du prix retourné — jamais convertie silencieusement. */
+  currency: string;
+  priceType: PriceType;
+  updatedAt: string | null;
+  /** Région de marché de la source (ex. "US", "NA") — jamais présentée comme une région différente. */
+  region: string;
+  provenance: string;
+  /** 0–1, calculée honnêtement à partir des indices qui ont réellement matché. */
+  confidence: number;
+  warnings: string[];
+  /** Toujours absent tant qu'aucune conversion n'est branchée — voir `CrossMarketConversion`. */
+  conversion?: CrossMarketConversion;
+}
+
+export interface PricingQuery {
+  categorySlug: string;
+  /** Bag ouvert — chaque connecteur pricing interprète les indices pertinents à son domaine (voir `TcgCatalogHints` pour les jeux de cartes). */
+  hints: Record<string, unknown>;
+}
+
+export interface PricingConnector extends ConnectorDescriptor {
+  lookup(query: PricingQuery): Promise<NormalizedPriceObservation[]>;
+}
