@@ -29,6 +29,28 @@ describe("createTcgdexPricingConnector — lookup()", () => {
     expect(observations.every((o) => o.source === "tcgdex")).toBe(true);
   });
 
+  it("ne transmet jamais set.id ni localId comme filtres à l'API (mêmes bugs confirmés que le Catalog Connector TCGdex)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: "base1-58", localId: "58", name: "Pikachu" }]))
+      .mockResolvedValueOnce(jsonResponse(PIKACHU_BASE1_EN));
+    const connector = createTcgdexPricingConnector({ fetchImpl });
+
+    await connector.lookup({ categorySlug: "pokemon_tcg", hints: { name: "Pikachu", setCode: "base4", collectorNumber: "58" } });
+
+    const [firstUrl] = fetchImpl.mock.calls[0]!;
+    expect(String(firstUrl)).not.toContain("set.id");
+    expect(String(firstUrl)).not.toContain("localId");
+  });
+
+  it("refuse sans nom fourni, jamais un scan non filtré du catalogue", async () => {
+    const fetchImpl = vi.fn();
+    const connector = createTcgdexPricingConnector({ fetchImpl });
+    const observations = await connector.lookup({ categorySlug: "pokemon_tcg", hints: { setCode: "base1", collectorNumber: "58" } });
+    expect(observations).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("retourne une liste vide sans indice exploitable, sans appeler l'API", async () => {
     const fetchImpl = vi.fn();
     const connector = createTcgdexPricingConnector({ fetchImpl });

@@ -63,10 +63,12 @@ export function matchTcgdexCard(raw: TcgdexCard, hints: TcgCatalogHints, languag
     comparableHints += 1;
     if (normalizeForCompare(raw.set.name) === normalizeForCompare(hints.setName)) matchedOn.push("setName");
   }
-  if (hints.setCode) {
-    comparableHints += 1;
-    if (normalizeForCompare(raw.set.id) === normalizeForCompare(hints.setCode)) matchedOn.push("setCode");
-  }
+  // `hints.setCode` n'est jamais comparé à `raw.set.id` : cet id est interne
+  // à TCGdex, pas un code de set comparable entre catalogues (confirmé par
+  // appel réel — "base4" chez Pokémon TCG API et "base1" chez TCGdex
+  // désignent des sets différents). Voir aussi la règle validée LOT 7B
+  // "aucune comparaison des IDs de sets entre fournisseurs" — seul
+  // `setName` (texte localisé) corrobore le set ici.
   if (hints.collectorNumber) {
     comparableHints += 1;
     if (normalizeForCompare(String(raw.localId)) === normalizeForCompare(hints.collectorNumber)) matchedOn.push("collectorNumber");

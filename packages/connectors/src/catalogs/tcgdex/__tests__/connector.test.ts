@@ -40,6 +40,23 @@ describe("createTcgdexCatalogConnector — resolve()", () => {
     expect(String(firstUrl)).toContain("/v2/en/cards");
   });
 
+  it("ne transmet jamais set.id ni localId comme filtres à l'API — id de set non comparable entre catalogues et eq: cassé sur localId (confirmé par appel réel)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: "base1-58", localId: "58", name: "Pikachu" }]))
+      .mockResolvedValueOnce(jsonResponse(PIKACHU_BASE1_EN));
+    const connector = createTcgdexCatalogConnector({ fetchImpl });
+
+    await connector.resolve({
+      categorySlug: "pokemon_tcg",
+      hints: { name: "Pikachu", setCode: "base4", collectorNumber: "58" },
+    });
+
+    const [firstUrl] = fetchImpl.mock.calls[0]!;
+    expect(String(firstUrl)).not.toContain("set.id");
+    expect(String(firstUrl)).not.toContain("localId");
+  });
+
   it("carte française exacte : interroge la locale fr, résolue avec confiance maximale", async () => {
     const fetchImpl = vi
       .fn()

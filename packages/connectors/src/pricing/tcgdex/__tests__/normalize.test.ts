@@ -52,8 +52,8 @@ describe("normalizeTcgdexPricing", () => {
     }
   });
 
-  it("langue portée sur chaque observation, jamais devinée depuis le prix lui-même", () => {
+  it("langue portée sur chaque observation en toutes lettres (comme JustTCG), jamais le code de locale TCGdex", () => {
     const observations = normalizeTcgdexPricing(PIKACHU_BASE1_EN, { name: "Pikachu" }, "fr");
-    expect(observations.every((o) => o.language === "fr")).toBe(true);
+    expect(observations.every((o) => o.language === "French")).toBe(true);
   });
 });

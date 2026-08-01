@@ -31,13 +31,13 @@ describe("matchTcgdexCard", () => {
   it("carte anglaise exacte : set + numéro + langue corroborés, confiance maximale", () => {
     const match = matchTcgdexCard(PIKACHU_BASE1_EN, { name: "Pikachu", setName: "Base Set", setCode: "base1", collectorNumber: "58", language: "en" }, "en");
     expect(match.confidence).toBe(1);
-    expect(match.matchedOn).toEqual(expect.arrayContaining(["name", "setName", "setCode", "collectorNumber", "language"]));
+    expect(match.matchedOn).toEqual(expect.arrayContaining(["name", "setName", "collectorNumber", "language"]));
   });
 
   it("carte française exacte : set + numéro + langue corroborés en locale fr", () => {
     const match = matchTcgdexCard(PIKACHU_BASE1_FR, { name: "Pikachu", setName: "Set de Base", setCode: "base1", collectorNumber: "58", language: "fr" }, "fr");
     expect(match.confidence).toBe(1);
-    expect(match.matchedOn).toEqual(expect.arrayContaining(["name", "setName", "setCode", "collectorNumber", "language"]));
+    expect(match.matchedOn).toEqual(expect.arrayContaining(["name", "setName", "collectorNumber", "language"]));
   });
 
   it("set/numéro exacts sans langue précisée : toujours résolu, sans corroboration de langue", () => {

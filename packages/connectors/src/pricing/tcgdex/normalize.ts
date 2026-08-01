@@ -20,6 +20,19 @@ const TCGPLAYER_VARIANT_LABELS: Record<string, string> = {
   "unlimited-holofoil": "Unlimited Holofoil",
 };
 
+/**
+ * TCGdex identifie une langue par son code de locale ("en"/"fr"), mais le
+ * reste du pipeline (indices d'origine, JustTCG) utilise le mot complet
+ * ("English"/"French" — confirmé par les données réelles JustTCG, LOT 2).
+ * Sans cette conversion, `classifyCrossMatch` (LOT 3) comparerait "English"
+ * à "en" avec `sameText()` et échouerait toujours la corroboration de
+ * langue, même quand les deux sources décrivent la même carte.
+ */
+const TCGDEX_LANGUAGE_LABELS: Record<TcgdexLanguage, string> = {
+  en: "English",
+  fr: "French",
+};
+
 function centsFromUnit(amount: number): number {
   return Math.round(amount * 100);
 }
@@ -113,7 +126,7 @@ export function normalizeTcgdexPricing(card: TcgdexCard, hints: TcgCatalogHints,
         setId: null,
         number: String(card.localId),
         variant: TCGPLAYER_VARIANT_LABELS[key] ?? key,
-        language,
+        language: TCGDEX_LANGUAGE_LABELS[language],
         condition: null,
         gradingCompany: null,
         grade: null,
@@ -149,7 +162,7 @@ function buildCardmarketObservation(
     setId: null,
     number: String(card.localId),
     variant,
-    language,
+    language: TCGDEX_LANGUAGE_LABELS[language],
     condition: null,
     gradingCompany: null,
     grade: null,

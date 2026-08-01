@@ -36,6 +36,17 @@ describe("createJustTcgPricingConnector — lookup()", () => {
     expect(results.every((r) => r.priceType === "market_aggregate")).toBe(true);
   });
 
+  it("ne transmet jamais setCode comme filtre `set` à l'API — id de catalogue d'origine, pas le slug interne JustTCG (confirmé par appel réel)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [PIKACHU_RAW_CARD] }));
+    const connector = createJustTcgPricingConnector({ apiKey: "test-key", fetchImpl });
+
+    await connector.lookup({ categorySlug: "pokemon_tcg", hints: { name: "Pikachu", setCode: "base4", collectorNumber: "58" } });
+
+    const [url] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).not.toContain("set=base4");
+    expect(String(url)).not.toMatch(/[?&]set=/);
+  });
+
   it("carte gradée avec société et note exactes — n'appelle l'API qu'en mode gradé", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [CHARIZARD_GRADED_CARD] }));
     const connector = createJustTcgPricingConnector({ apiKey: "test-key", fetchImpl });

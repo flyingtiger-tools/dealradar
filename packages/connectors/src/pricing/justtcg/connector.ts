@@ -92,10 +92,16 @@ export function createJustTcgPricingConnector(config: JustTcgConnectorConfig): P
     const game = CATEGORY_TO_GAME_SLUG[query.categorySlug] ?? query.categorySlug;
     const isGraded = Boolean(hints.gradingCompany || hints.grade || hints.kind === "graded_card");
 
+    // `hints.setCode` n'est jamais transmis à JustTCG : c'est un identifiant
+    // du catalogue d'origine (ex. "base4" chez Pokémon TCG API), pas le slug
+    // interne JustTCG (ex. "base-set-pokemon") — confirmé par appel réel :
+    // transmettre "base4" comme `set` retourne silencieusement une liste
+    // vide au lieu de la carte réelle. Même piège que l'id de set TCGdex
+    // (voir pricing/tcgdex/normalize.ts) : la correspondance de set se fait
+    // en aval, sur le nom, via `classifyCrossMatch` (LOT 3), jamais ici.
     const raw = await client.get("/cards", {
       q: hints.name,
       game,
-      set: hints.setCode,
       number: hints.collectorNumber,
       regions: SERVICEABLE_REGION,
       graded: isGraded ? "only" : "exclude",

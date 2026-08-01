@@ -65,10 +65,18 @@ export function createTcgdexCatalogConnector(config: TcgdexConnectorConfig = {})
     if (hints.kind && !SUPPORTED_KINDS.includes(hints.kind)) return [];
 
     const language = resolveTcgdexLanguage(hints.language);
+    // Seul `name` (`eq:`) est transmis à l'API. `set.id` n'est jamais
+    // envoyé : c'est l'id du catalogue d'origine (ex. "base4" chez Pokémon
+    // TCG API), pas le slug interne TCGdex (ex. "base1" pour le même Base
+    // Set réel, confirmé par appel réel) — voir aussi la règle validée LOT
+    // 7B "aucune comparaison des IDs de sets entre fournisseurs". `localId`
+    // n'est pas transmis non plus : `eq:` ne matche jamais ce champ côté
+    // TCGdex (confirmé par appel réel, y compris sur une carte connue), et
+    // le filtre laxist par défaut ferait des faux positifs par sous-chaîne
+    // (`localId=5` matche aussi "15", "25", "58"…). Le tri exact se fait
+    // côté client, sur `localId` ET `set.name` (jamais `set.id`).
     const filters: Record<string, string> = {};
     if (hints.name) filters.name = `eq:${hints.name}`;
-    if (hints.setCode) filters["set.id"] = `eq:${hints.setCode}`;
-    if (hints.collectorNumber) filters.localId = `eq:${hints.collectorNumber}`;
     if (Object.keys(filters).length === 0) return [];
 
     const rawList = await client.get(language, "/cards", filters);
@@ -79,11 +87,15 @@ export function createTcgdexCatalogConnector(config: TcgdexConnectorConfig = {})
       });
     }
 
+    const candidates = hints.collectorNumber
+      ? parsedList.data.filter((brief) => String(brief.localId) === hints.collectorNumber)
+      : parsedList.data;
+
     // La recherche ne renvoie qu'un résumé (id/localId/name/image) — jamais
     // assez pour matcher honnêtement (set, rareté). Chaque candidat est
     // récupéré en détail avant toute correspondance.
     const detailed = await Promise.all(
-      parsedList.data.map(async (brief) => {
+      candidates.map(async (brief) => {
         const raw = await client.get(language, `/cards/${encodeURIComponent(brief.id)}`);
         const parsed = tcgdexCardSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;

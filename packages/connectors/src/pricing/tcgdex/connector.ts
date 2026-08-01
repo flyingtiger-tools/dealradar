@@ -56,15 +56,15 @@ export function createTcgdexPricingConnector(config: TcgdexPricingConnectorConfi
     const hints = isHints(query.hints) ? (query.hints as TcgCatalogHints) : {};
 
     if (hints.kind && !SUPPORTED_KINDS.includes(hints.kind)) return [];
-    if (!hints.name && !hints.setCode && !hints.collectorNumber) return [];
+    // `name` est le seul filtre fiable côté API (voir Catalog Connector
+    // TCGdex pour le détail des deux bugs confirmés en appel réel : `set.id`
+    // n'est jamais comparable entre catalogues, `localId` ne supporte pas
+    // `eq:`). Sans nom, aucune recherche bornée n'est possible — refus
+    // honnête plutôt qu'un scan non filtré de tout le catalogue.
+    if (!hints.name) return [];
 
     const language = resolveTcgdexLanguage(hints.language);
-    const filters: Record<string, string> = {};
-    if (hints.name) filters.name = `eq:${hints.name}`;
-    if (hints.setCode) filters["set.id"] = `eq:${hints.setCode}`;
-    if (hints.collectorNumber) filters.localId = `eq:${hints.collectorNumber}`;
-
-    const rawList = await client.get(language, "/cards", filters);
+    const rawList = await client.get(language, "/cards", { name: `eq:${hints.name}` });
     const parsedList = tcgdexCardListSchema.safeParse(rawList);
     if (!parsedList.success) {
       throw new ConnectorError(`Réponse TCGdex invalide : ${parsedList.error.issues[0]?.message ?? "erreur de validation"}`, {
@@ -72,8 +72,12 @@ export function createTcgdexPricingConnector(config: TcgdexPricingConnectorConfi
       });
     }
 
+    const candidates = hints.collectorNumber
+      ? parsedList.data.filter((brief) => String(brief.localId) === hints.collectorNumber)
+      : parsedList.data;
+
     const detailed = await Promise.all(
-      parsedList.data.map(async (brief) => {
+      candidates.map(async (brief) => {
         const raw = await client.get(language, `/cards/${encodeURIComponent(brief.id)}`);
         const parsed = tcgdexCardSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
