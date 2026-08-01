@@ -43,7 +43,7 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetchImpl(url.toString(), {
+      const response = await fetchImpl(url.toString(), {
         method: spec.method ?? "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -52,6 +52,17 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
         },
         signal: controller.signal,
       });
+      // TEMP DIAG (à retirer après investigation Production) — aucun secret : URL, marketplace, statut HTTP uniquement.
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({
+          diag: "ebay-http-request",
+          url: url.toString(),
+          marketplaceId: options.marketplaceId,
+          status: response.status,
+        }),
+      );
+      return response;
     } finally {
       clearTimeout(timeoutHandle);
     }
@@ -99,7 +110,19 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
 
       reportRateLimitHeaders(response);
 
-      if (response.ok) return response.json();
+      if (response.ok) {
+        const body = (await response.json()) as { total?: number; itemSummaries?: unknown[] };
+        // TEMP DIAG (à retirer après investigation Production) — aucun secret : total/nombre d'items uniquement.
+        // eslint-disable-next-line no-console
+        console.log(
+          JSON.stringify({
+            diag: "ebay-http-body",
+            total: body?.total ?? null,
+            itemCount: Array.isArray(body?.itemSummaries) ? body.itemSummaries.length : null,
+          }),
+        );
+        return body;
+      }
 
       if (response.status === 401 && !triedTokenRefresh) {
         triedTokenRefresh = true;
@@ -118,6 +141,14 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
         attempt += 1;
         continue;
       }
+
+      // TEMP DIAG (à retirer après investigation Production) — corps d'erreur eBay, aucun secret dedans.
+      const errorBody = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify({ diag: "ebay-http-error", status: response.status, errorBody }));
 
       throw new ConnectorError(`eBay a répondu ${response.status} (${path}).`, {
         httpStatus: response.status,
