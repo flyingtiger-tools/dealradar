@@ -1,5 +1,7 @@
 export * from "./schemas";
 export * from "./persist-listing";
+export * from "./tcg-price-schemas";
+export * from "./persist-tcg-price-observation";
 export * from "./run-ingestion";
 export * from "./map-to-intelligence";
 export * from "./analyze-listing";

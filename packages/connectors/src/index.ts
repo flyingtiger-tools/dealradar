@@ -17,3 +17,5 @@ export * from "./pricing/justtcg/raw-types";
 export * from "./registry/types";
 export * from "./registry/registry";
 export * from "./registry/capability-engine";
+export * from "./tcg-mapping/types";
+export * from "./tcg-mapping/pokemon-to-justtcg";
