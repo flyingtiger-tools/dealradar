@@ -272,6 +272,7 @@ export interface NormalizedPriceObservation {
   setId: string | null;
   number: string | null;
   variant: string | null;
+  language: string | null;
   condition: string | null;
   gradingCompany: string | null;
   grade: string | null;

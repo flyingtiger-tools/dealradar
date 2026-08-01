@@ -108,6 +108,7 @@ function buildObservation(
     setId: card.set.id,
     number: card.number ?? null,
     variant: variant.printing ?? null,
+    language: variant.language ?? null,
     condition: variant.condition ?? null,
     gradingCompany: variant.grading?.company ?? null,
     grade: variant.grading ? variant.grading.canonical : null,
