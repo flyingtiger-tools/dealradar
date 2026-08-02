@@ -118,5 +118,11 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ id: analysisRequest.id, status: analysisRequest.status }, { status: 202 });
+  // `result` toujours présent (à `null` ici), jamais omis — même forme que
+  // GET /v1/analyses/:id (`analysisResponseSchema.result` est `nullable()`,
+  // pas `optional()` : un client strict qui valide cette réponse doit
+  // pouvoir compter sur la présence de la clé). Bug réel démontré sur
+  // appareil (LOT 9) : son absence faisait échouer `analysisResponseSchema.parse()`
+  // côté mobile juste après la création, avant même le premier polling.
+  return NextResponse.json({ id: analysisRequest.id, status: analysisRequest.status, result: null }, { status: 202 });
 }

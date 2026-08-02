@@ -103,7 +103,7 @@ describe("POST /v1/analyses", () => {
 
     expect(response.status).toBe(202);
     const json = await response.json();
-    expect(json).toEqual({ id: "analysis-1", status: "pending" });
+    expect(json).toEqual({ id: "analysis-1", status: "pending", result: null });
     expect(vi.mocked(enqueueJob)).toHaveBeenCalledWith("analysis.process", { analysisRequestId: "analysis-1" });
   });
 
@@ -121,7 +121,7 @@ describe("POST /v1/analyses", () => {
 
     expect(response.status).toBe(202);
     const json = await response.json();
-    expect(json).toEqual({ id: "analysis-existing", status: "processing" });
+    expect(json).toEqual({ id: "analysis-existing", status: "processing", result: null });
     expect(vi.mocked(enqueueJob)).not.toHaveBeenCalled();
   });
 });
