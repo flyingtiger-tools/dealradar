@@ -89,6 +89,68 @@ describe("createClaudeProvider", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("JSON brut sans enrobage : fonctionne toujours", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse(JSON.stringify({ cardName: "Dracaufeu" })));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    const result = await provider.extract({ system: "sys", userText: "user", images: [] });
+    expect(result.raw).toEqual({ cardName: "Dracaufeu" });
+  });
+
+  it("bloc ```json ... ``` : l'enrobage est retiré avant le parsing", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('```json\n{"cardName":"Dracaufeu"}\n```'));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    const result = await provider.extract({ system: "sys", userText: "user", images: [] });
+    expect(result.raw).toEqual({ cardName: "Dracaufeu" });
+  });
+
+  it("bloc ``` ... ``` sans tag json : l'enrobage est retiré avant le parsing", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('```\n{"cardName":"Dracaufeu"}\n```'));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    const result = await provider.extract({ system: "sys", userText: "user", images: [] });
+    expect(result.raw).toEqual({ cardName: "Dracaufeu" });
+  });
+
+  it("espaces avant/après les fences : fonctionne", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('  \n```json\n{"cardName":"Dracaufeu"}\n```\n  '));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    const result = await provider.extract({ system: "sys", userText: "user", images: [] });
+    expect(result.raw).toEqual({ cardName: "Dracaufeu" });
+  });
+
+  it("texte supplémentaire avant le bloc : refus INVALID_RESPONSE, jamais une extraction partielle", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('Voici le JSON :\n```json\n{"cardName":"Dracaufeu"}\n```'));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    await expect(provider.extract({ system: "sys", userText: "user", images: [] })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
+  it("texte supplémentaire après le bloc : refus INVALID_RESPONSE, jamais une extraction partielle", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('```json\n{"cardName":"Dracaufeu"}\n```\nMerci !'));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    await expect(provider.extract({ system: "sys", userText: "user", images: [] })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
+  it("JSON réellement invalide (dans ou hors bloc) : refus INVALID_RESPONSE", async () => {
+    const fetchImpl = vi.fn(async () => messagesResponse('```json\n{cardName: "Dracaufeu"\n```'));
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    await expect(provider.extract({ system: "sys", userText: "user", images: [] })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
+  it("plusieurs blocs de code concaténés : refus INVALID_RESPONSE, jamais le premier bloc extrait arbitrairement", async () => {
+    const fetchImpl = vi.fn(async () =>
+      messagesResponse('```json\n{"cardName":"Dracaufeu"}\n```\n```json\n{"cardName":"Pikachu"}\n```'),
+    );
+    const provider = createClaudeProvider({ apiKey: "sk-ant-test", model: "claude-haiku-4-5-20251001", fetchImpl });
+    await expect(provider.extract({ system: "sys", userText: "user", images: [] })).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
+  });
+
   it("ne journalise jamais la clé API : le header x-api-key porte la vraie valeur mais n'apparaît jamais dans le résultat", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const headers = init!.headers as Record<string, string>;

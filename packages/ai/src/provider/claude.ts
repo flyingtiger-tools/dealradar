@@ -28,6 +28,23 @@ interface AnthropicMessagesResponse {
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
+/**
+ * Claude enrobe fréquemment sa réponse dans un bloc de code Markdown
+ * (```json ... ``` ou ``` ... ```) même quand le prompt l'interdit
+ * explicitement — contrairement à OpenAI (`response_format: json_object`),
+ * l'API Messages n'a pas de mode qui force un JSON brut. `[^`]*` interdit
+ * tout backtick dans le contenu capturé : un texte autour du bloc ou
+ * plusieurs blocs concaténés font donc systématiquement échouer le match,
+ * jamais une extraction partielle ou devinée.
+ */
+const MARKDOWN_FENCE_PATTERN = /^```(?:json)?[ \t]*\r?\n([^`]*)\r?\n?```$/;
+
+function stripMarkdownFence(text: string): string {
+  const trimmed = text.trim();
+  const match = MARKDOWN_FENCE_PATTERN.exec(trimmed);
+  return match ? match[1]!.trim() : trimmed;
+}
+
 export function createClaudeProvider(options: ClaudeProviderOptions): AIProvider {
   return {
     name: "anthropic",
@@ -74,7 +91,7 @@ export function createClaudeProvider(options: ClaudeProviderOptions): AIProvider
 
       let raw: unknown;
       try {
-        raw = JSON.parse(content);
+        raw = JSON.parse(stripMarkdownFence(content));
       } catch {
         throw new ProviderError("Réponse Claude n'est pas un JSON valide.", { code: "INVALID_RESPONSE" });
       }
