@@ -8,7 +8,11 @@ import {
 } from "./state/copilot-state";
 import { isOverlayCopilotSupported, overlayCopilot, subscribeToBubbleTapped } from "./native/overlay-copilot";
 import { createAnalysis, pollAnalysisUntilSettled } from "./api/analyses-client";
+import { decodeJwtUserId } from "./api/decode-jwt-user-id";
+import { TcgScanScreen } from "./screens/TcgScanScreen";
 import type { AnalysisResponse } from "@dealradar/contracts";
+
+type AppTab = "copilot" | "tcgScan";
 
 /**
  * Spike Android (ADR 0010, section 16 du brief) : prouve le flux
@@ -17,15 +21,17 @@ import type { AnalysisResponse } from "@dealradar/contracts";
  * POST /v1/analyses retourne, il ne calcule jamais un score lui-même.
  */
 export default function App() {
+  const [activeTab, setActiveTab] = useState<AppTab>("copilot");
   const [state, setState] = useState<CopilotState>(initialCopilotState);
   const reducerRef = useRef(createCopilotReducer());
-  // Champ de saisie manuelle pour ce spike uniquement — une V1 réelle
+  // Champ de saisie manuelle pour ce spike/lot uniquement — une V1 réelle
   // authentifie via Supabase Auth et stocke le jeton dans Keychain/Keystore
   // (expo-secure-store), jamais dans un état React en clair (voir
   // docs/mobile/privacy-and-retention.md).
   const [accessToken, setAccessToken] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const userId = accessToken ? decodeJwtUserId(accessToken) : null;
 
   const dispatch = useCallback((action: CopilotAction) => {
     setState((current) => reducerRef.current(current, action));
@@ -95,6 +101,7 @@ export default function App() {
         imageReferences: [],
         consentVersion: "1",
         clientRequestId: crypto.randomUUID(),
+        providedTcgHints: null,
       });
       const settled = await pollAnalysisUntilSettled(accessToken, created.id);
       setAnalysis(settled);
@@ -103,8 +110,35 @@ export default function App() {
     }
   }, [state, accessToken]);
 
+  if (activeTab === "tcgScan") {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.tabBar}>
+          <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
+          <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} disabled />
+        </View>
+        <TextInput
+          style={styles.input}
+          placeholder="Jeton d'accès (dev uniquement)"
+          value={accessToken}
+          onChangeText={setAccessToken}
+        />
+        {!userId && accessToken.length > 0 && <Text style={styles.warning}>Jeton invalide — identifiant utilisateur introuvable.</Text>}
+        {accessToken && userId ? (
+          <TcgScanScreen accessToken={accessToken} userId={userId} />
+        ) : (
+          <Text style={styles.phase}>Colle un jeton d'accès valide pour scanner une carte.</Text>
+        )}
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.tabBar}>
+        <Button title="Copilote" onPress={() => setActiveTab("copilot")} disabled />
+        <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
+      </View>
       <Text style={styles.title}>DealRadar Copilote — spike</Text>
       <Text style={styles.phase}>État : {state.phase}</Text>
 
@@ -144,6 +178,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24, gap: 12 },
+  tabBar: { flexDirection: "row", gap: 12, marginBottom: 8 },
   title: { fontSize: 20, fontWeight: "600" },
   phase: { fontSize: 14, color: "#666" },
   warning: { color: "#b45309" },

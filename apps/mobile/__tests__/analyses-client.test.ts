@@ -35,6 +35,7 @@ describe("createAnalysis", () => {
       imageReferences: [],
       consentVersion: "1",
       clientRequestId: CLIENT_REQUEST_ID,
+        providedTcgHints: null,
     });
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -64,6 +65,7 @@ describe("createAnalysis", () => {
         imageReferences: [],
         consentVersion: "1",
         clientRequestId: CLIENT_REQUEST_ID,
+        providedTcgHints: null,
       }),
     ).rejects.toThrow();
 
@@ -86,6 +88,7 @@ describe("createAnalysis", () => {
         imageReferences: [],
         consentVersion: "1",
         clientRequestId: CLIENT_REQUEST_ID,
+        providedTcgHints: null,
       }),
     ).rejects.toMatchObject(new AnalysesApiError("RATE_LIMITED", "Trop de requêtes."));
   });

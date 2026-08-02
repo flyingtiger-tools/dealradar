@@ -12,6 +12,11 @@ export {
   analysisStatusSchema,
   analysisResultSchema,
   analysisResponseSchema,
+  tcgCardExtractedFieldsSchema,
+  tcgCardProvidedHintsSchema,
+  tcgPriceObservationSchema,
+  tcgCardIdentitySchema,
+  tcgCardAnalysisResultSchema,
 } from "@dealradar/contracts";
 export type {
   AnalysisSourceType,
@@ -19,6 +24,11 @@ export type {
   AnalysisStatus,
   AnalysisResult,
   AnalysisResponse,
+  TcgCardExtractedFields,
+  TcgCardProvidedHints,
+  TcgPriceObservation,
+  TcgCardIdentity,
+  TcgCardAnalysisResult,
 } from "@dealradar/contracts";
 
 /**

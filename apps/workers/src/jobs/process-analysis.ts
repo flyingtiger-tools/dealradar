@@ -13,6 +13,8 @@ import {
   PROMPT_VERSION,
   EXTRACTION_SCHEMA_VERSION,
   DETERMINISTIC_EXTRACTOR_VERSION,
+  TCG_CARD_PROMPT_VERSION,
+  TCG_CARD_EXTRACTION_SCHEMA_VERSION,
   type ExtractionImage,
   type ExtractionInput,
 } from "@dealradar/ai";
@@ -24,6 +26,9 @@ import {
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
+import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
+import { processTcgCardAnalysis } from "./process-tcg-card-analysis";
+import type { TcgCardProvidedHints } from "@dealradar/core";
 
 /**
  * Job `analysis.process` (ADR 0010) — traite une requête soumise via
@@ -55,6 +60,7 @@ interface AnalysisRequestRow {
   currency: string;
   image_references: { url: string }[] | null;
   source_type: string;
+  provided_tcg_hints: TcgCardProvidedHints | null;
 }
 
 interface RawSoldListingWithSource extends SoldListingRow {
@@ -128,12 +134,56 @@ export async function processAnalysis(
 ): Promise<void> {
   const { data: row } = await db
     .from("analysis_requests")
-    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type")
+    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type,provided_tcg_hints")
     .eq("id", analysisRequestId)
     .maybeSingle();
   const request = row as AnalysisRequestRow | null;
   if (!request) {
     logger.warn({ analysisRequestId }, "Requête d'analyse introuvable, traitement ignoré");
+    return;
+  }
+
+  // Branche dédiée (LOT 8, mobile) — identification de carte + prix
+  // traçables, jamais une décision BUY/REVIEW/PASS ni un prix d'achat
+  // requis : ne partage donc aucune des étapes ci-dessous (Intelligence
+  // Core). Réutilise `orchestratePokemonPipeline()` tel quel (ADR 0012).
+  if (request.category_slug === "pokemon_tcg") {
+    const aiConfig = buildAiExtractionConfigFromEnv();
+    const cache = aiConfig
+      ? createSupabaseExtractionCache(db, {
+          provider: aiConfig.provider.name,
+          model: aiConfig.provider.model,
+          promptVersion: TCG_CARD_PROMPT_VERSION,
+          schemaVersion: TCG_CARD_EXTRACTION_SCHEMA_VERSION,
+          deterministicVersion: 0,
+        })
+      : undefined;
+
+    const { status, result } = await processTcgCardAnalysis(
+      db,
+      {
+        id: request.id,
+        imageReferences: request.image_references ?? [],
+        providedTcgHints: request.provided_tcg_hints,
+      },
+      {
+        extractionOptions: aiConfig
+          ? {
+              provider: aiConfig.provider,
+              cache,
+              budgetGuard: createSupabaseBudgetGuard(db, {
+                provider: aiConfig.provider.name,
+                model: aiConfig.provider.model,
+                dailyBudgetUsd: aiConfig.dailyBudgetUsd ?? 0,
+                listingId: null,
+              }),
+            }
+          : undefined,
+        connectors: buildTcgPipelineConnectorsFromEnv(),
+      },
+    );
+
+    await db.from("analysis_requests").update({ status, result, updated_at: new Date().toISOString() }).eq("id", analysisRequestId);
     return;
   }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tcgCardAnalysisResultSchema } from "./tcg-card-analysis-result";
 
 /**
  * Enveloppe Zod du résultat d'analyse universel (ADR 0010) — validée à la
@@ -74,9 +75,17 @@ export const analysisResultSchema = z.object({
 });
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 
+/**
+ * `result` peut être soit une décision générique (Intelligence Core), soit
+ * un résultat de scan de carte TCG (`kind: "pokemon_tcg_card"`, LOT 8) —
+ * jamais les deux à la fois. Les deux formes sont suffisamment distinctes
+ * (champs requis différents) pour que `z.union` les distingue sans
+ * ambiguïté, sans qu'il soit nécessaire de faire porter un discriminant à
+ * `analysisResultSchema` lui-même (déjà consommé ailleurs sans `kind`).
+ */
 export const analysisResponseSchema = z.object({
   id: z.string().uuid(),
   status: analysisStatusSchema,
-  result: analysisResultSchema.nullable(),
+  result: z.union([tcgCardAnalysisResultSchema, analysisResultSchema]).nullable(),
 });
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;

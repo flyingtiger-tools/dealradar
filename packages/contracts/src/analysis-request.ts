@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { categorySlugSchema } from "./category-slug";
+import { tcgCardProvidedHintsSchema } from "./tcg-card-analysis-result";
 
 /**
  * Contrat universel d'analyse (Lot Mobile Copilot, ADR 0010) — une seule
@@ -45,5 +46,15 @@ export const analysisRequestSchema = z.object({
   imageReferences: z.array(analysisImageReferenceSchema).max(4).default([]),
   consentVersion: z.string().min(1),
   clientRequestId: z.string().uuid(),
+  /**
+   * Champs corrigés manuellement par l'utilisateur sur l'écran de
+   * confirmation d'un scan carte TCG (LOT 8) — n'a de sens que lorsque
+   * `categorySlug === "pokemon_tcg"` ; interprété uniquement par cette
+   * branche du worker (`process-analysis.ts`), ignoré sinon. Présent =
+   * ré-extraction visuelle sautée pour ces champs, corroboration lancée
+   * directement avec les valeurs fournies (mêmes règles strictes que le
+   * reste du pipeline : aucune correspondance par nom seul).
+   */
+  providedTcgHints: tcgCardProvidedHintsSchema.nullable().default(null),
 });
 export type AnalysisRequest = z.infer<typeof analysisRequestSchema>;
