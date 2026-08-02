@@ -1,10 +1,13 @@
 /**
  * Table tarifaire versionnée et datée — jamais une vérité codée en dur.
- * Un seul provider réel dans ce lot (OpenAI) ; toute autre ligne (ex.
- * Anthropic) resterait un exemple documentaire, jamais utilisée par le code.
+ * Deux providers réels : OpenAI et Anthropic (LOT Claude).
  *
  * Sources (à reconfirmer périodiquement, les tarifs évoluent) :
  * - GPT-4o-mini : https://devtk.ai/en/models/gpt-4o-mini/ ($0.15 / $0.60 par million de tokens, entrée/sortie).
+ * - Claude Haiku 4.5 / Sonnet 5 : https://platform.claude.com/docs/en/about-claude/pricing (relevé le 2026-08-02).
+ *   Sonnet 5 est en tarif introductif ($2/$10) jusqu'au 2026-08-31 ; passera à
+ *   $3/$15 ensuite — cette table ne gère pas les tarifs datés multiples pour
+ *   un même modèle, à mettre à jour manuellement à cette date.
  */
 export interface CostTableEntry {
   provider: string;
@@ -22,6 +25,20 @@ export const COST_TABLE: CostTableEntry[] = [
     inputPerMTokUsd: 0.15,
     outputPerMTokUsd: 0.6,
     effectiveFrom: "2026-01-01",
+  },
+  {
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    inputPerMTokUsd: 1,
+    outputPerMTokUsd: 5,
+    effectiveFrom: "2026-08-02",
+  },
+  {
+    provider: "anthropic",
+    model: "claude-sonnet-5",
+    inputPerMTokUsd: 2,
+    outputPerMTokUsd: 10,
+    effectiveFrom: "2026-08-02",
   },
 ];
 
