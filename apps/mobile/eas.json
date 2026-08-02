@@ -1,0 +1,19 @@
+{
+  "cli": {
+    "version": ">= 21.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://dealradar-web-omega.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ofjjqpvdewnzlqaovzfc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mampxcHZkZXduemxxYW92emZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUwNTcxMjYsImV4cCI6MjEwMDYzMzEyNn0.Oh-b_INkTBEneqRfCQCS-Rt3cznPMbXhwOkefkG8zpE"
+      }
+    }
+  }
+}

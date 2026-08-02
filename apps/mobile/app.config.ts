@@ -6,7 +6,7 @@ import type { ExpoConfig } from "expo/config";
  * cible Share Extension iOS) qu'Expo Go ne peut pas héberger.
  */
 const config: ExpoConfig = {
-  name: "DealRadar Copilot",
+  name: "DealRadar",
   slug: "dealradar-copilot",
   version: "0.1.0",
   scheme: "dealradar",
@@ -52,6 +52,11 @@ const config: ExpoConfig = {
     // mobile" : la clé anon est conçue pour être publique (LOT 8).
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    // Identifiant public du projet EAS (`eas init`, LOT 8) — pas un secret,
+    // sert uniquement à associer les builds au bon projet expo.dev.
+    eas: {
+      projectId: "43ef931b-5126-4828-ab49-8ba2a8db4396",
+    },
   },
 };
 
