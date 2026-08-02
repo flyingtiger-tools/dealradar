@@ -64,6 +64,10 @@ export interface ExtractionTelemetry {
   estimatedCostUsd: number;
   status: ExtractionStatus;
   errorCode?: string;
+  /** Statut HTTP renvoyé par le provider, si l'erreur en portait un (ex. 401/429/500) — jamais le corps de la réponse. */
+  errorHttpStatus?: number | null;
+  /** Message déjà nettoyé par construction (`provider/http.ts`/`provider/claude.ts`/`provider/openai.ts` ne composent jamais ce message à partir d'un secret, d'une image ou du corps brut de la réponse) — sûr à journaliser tel quel. */
+  errorMessage?: string;
 }
 
 export interface ExtractionResult {

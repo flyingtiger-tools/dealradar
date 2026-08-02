@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { extractTcgCardFromPhoto } from "../extract-tcg-card";
 import { createMemoryCache } from "../../cache/memory-cache";
+import { ProviderError } from "../../provider/http";
 import type { AIProvider, AIProviderRequest, AIProviderResponse } from "../../provider/types";
 import type { BudgetGuard } from "../../budget/types";
 
@@ -124,7 +125,7 @@ describe("extractTcgCardFromPhoto", () => {
 
   it("erreur réseau du provider → warning PROVIDER_ERROR, jamais de crash, budget finalisé en échec", async () => {
     const extract = vi.fn(async () => {
-      throw Object.assign(new Error("réseau indisponible"), { code: "NETWORK" });
+      throw new ProviderError("Erreur réseau lors de l'appel au provider IA.", { code: "NETWORK", retryable: true });
     });
     const budgetGuard = alwaysGrantBudget();
     const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract), budgetGuard });
@@ -135,10 +136,34 @@ describe("extractTcgCardFromPhoto", () => {
 
   it("timeout du provider → warning PROVIDER_TIMEOUT", async () => {
     const extract = vi.fn(async () => {
-      throw Object.assign(new Error("délai dépassé"), { code: "TIMEOUT" });
+      throw new ProviderError("Délai dépassé lors de l'appel au provider IA.", { code: "TIMEOUT", retryable: true });
     });
     const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
 
     expect(result.warnings).toContain("PROVIDER_TIMEOUT");
+  });
+
+  it("erreur ProviderError (ex. 401/429/500) : la télémétrie porte le statut HTTP et un message déjà nettoyé, jamais un objet brut", async () => {
+    const extract = vi.fn(async () => {
+      throw new ProviderError("Provider IA a répondu 401 (authentification).", { code: "UNAUTHORIZED", httpStatus: 401, retryable: false });
+    });
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("error");
+    expect(result.telemetry.errorCode).toBe("UNAUTHORIZED");
+    expect(result.telemetry.errorHttpStatus).toBe(401);
+    expect(result.telemetry.errorMessage).toBe("Provider IA a répondu 401 (authentification).");
+    expect(JSON.stringify(result.telemetry)).not.toMatch(/bearer|x-api-key|sk-/i);
+  });
+
+  it("erreur sans code reconnu (jamais une ProviderError) : errorHttpStatus reste null, jamais deviné", async () => {
+    const extract = vi.fn(async () => {
+      throw new Error("panne inattendue");
+    });
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.errorCode).toBe("UNKNOWN");
+    expect(result.telemetry.errorHttpStatus).toBeNull();
+    expect(result.telemetry.errorMessage).toBe("panne inattendue");
   });
 });

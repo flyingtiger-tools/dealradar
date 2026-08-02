@@ -12,5 +12,7 @@ export function buildTelemetry(partial: Partial<ExtractionTelemetry> & Pick<Extr
     estimatedCostUsd: partial.estimatedCostUsd ?? 0,
     status: partial.status,
     errorCode: partial.errorCode,
+    errorHttpStatus: partial.errorHttpStatus,
+    errorMessage: partial.errorMessage,
   };
 }

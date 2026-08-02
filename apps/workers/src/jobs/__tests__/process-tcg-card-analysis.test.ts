@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logger } from "../../logger";
 
 const extractTcgCardFromPhoto = vi.fn();
 const orchestratePokemonPipeline = vi.fn();
@@ -269,5 +270,58 @@ describe("processTcgCardAnalysis", () => {
       { extractionOptions: undefined, connectors },
     );
     expect((db.storage.from("analysis-uploads") as unknown as { remove: ReturnType<typeof vi.fn> }).remove).toHaveBeenCalledWith(["u1/req-11/photo.jpg"]);
+  });
+
+  it("échec provider (télémétrie status=error) : journalise provider/modèle/statut HTTP/code/message nettoyé, jamais un secret ni l'image", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    extractTcgCardFromPhoto.mockResolvedValueOnce({
+      extraction: weakExtraction,
+      source: "ai",
+      warnings: ["PROVIDER_ERROR"],
+      telemetry: {
+        status: "error",
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+        errorCode: "UNAUTHORIZED",
+        errorHttpStatus: 401,
+        errorMessage: "Provider IA a répondu 401 (authentification).",
+      },
+    });
+
+    await processTcgCardAnalysis(
+      fakeDb(),
+      { id: "req-12", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-12/photo.jpg" }], providedTcgHints: null },
+      { extractionOptions, connectors },
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisRequestId: "req-12",
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+        httpStatus: 401,
+        errorCode: "UNAUTHORIZED",
+        errorMessage: "Provider IA a répondu 401 (authentification).",
+      }),
+      expect.any(String),
+    );
+    const loggedPayload = JSON.stringify(warnSpy.mock.calls[0]);
+    expect(loggedPayload).not.toMatch(/bearer|x-api-key|sk-ant|sk-proj|base64/i);
+    warnSpy.mockRestore();
+  });
+
+  it("extraction sans erreur (télémétrie status absent/success) : ne journalise jamais un échec provider inexistant", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    extractTcgCardFromPhoto.mockResolvedValueOnce({ extraction: fullExtraction, source: "ai", warnings: [], telemetry: { status: "success" } });
+    orchestratePokemonPipeline.mockResolvedValueOnce({ stage: "cross_match_refused", candidate: null, warnings: [], reason: "test" });
+
+    await processTcgCardAnalysis(
+      fakeDb(),
+      { id: "req-13", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-13/photo.jpg" }], providedTcgHints: null },
+      { extractionOptions, connectors },
+    );
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

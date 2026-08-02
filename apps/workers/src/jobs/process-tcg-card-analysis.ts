@@ -184,6 +184,24 @@ async function processWithPhoto(
     { imageStorageKey: storagePath, imageUrl: signed.signedUrl },
     deps.extractionOptions,
   );
+  // Diagnostic minimal sur échec provider — jamais x-api-key/Authorization
+  // (jamais capturés au-delà de ce point), jamais l'image ou le corps brut
+  // de la réponse (le message est déjà nettoyé par construction, voir
+  // `extract-tcg-card.ts`), jamais les champs extraits eux-mêmes (peuvent
+  // contenir du texte lu sur la carte de l'utilisateur).
+  if (extractionResult.telemetry.status === "error") {
+    logger.warn(
+      {
+        analysisRequestId: request.id,
+        provider: extractionResult.telemetry.provider,
+        model: extractionResult.telemetry.model,
+        httpStatus: extractionResult.telemetry.errorHttpStatus,
+        errorCode: extractionResult.telemetry.errorCode,
+        errorMessage: extractionResult.telemetry.errorMessage,
+      },
+      "Extraction IA TCG : échec provider",
+    );
+  }
   const extractionFields = extractionToFields(extractionResult.extraction, extractionResult.warnings);
 
   if (!isSufficientForAutoCorroboration(extractionResult.extraction)) {

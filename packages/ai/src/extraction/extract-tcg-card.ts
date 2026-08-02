@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { buildTcgCardPrompt, TCG_CARD_PROMPT_VERSION } from "../prompts/build-tcg-card-prompt";
+import { ProviderError } from "../provider/http";
 import { rawTcgCardProviderResponseSchema, type RawTcgCardProviderResponse } from "../validation/tcg-card-schemas";
 import { computeCacheKey } from "../cache/compute-key";
 import { estimateCostUsd, findCostTableEntry } from "../observability/cost-table";
@@ -286,13 +287,20 @@ export async function extractTcgCardFromPhoto(
     if (reservationId && options.budgetGuard) {
       await options.budgetGuard.finalize(reservationId, { status: "failed", inputUnits: 0, outputUnits: 0, estimatedCostUsd: 0 });
     }
-    const errorCode = (error as { code?: string } | null)?.code ?? "UNKNOWN";
+    // `error.message` est sûr à propager tel quel : `provider/http.ts` et
+    // chaque provider concret (`openai.ts`/`claude.ts`) ne composent jamais
+    // ce message à partir du corps de la réponse, d'une image ou d'un
+    // secret — uniquement un statut HTTP et un libellé générique fixe.
+    const providerError = error instanceof ProviderError ? error : null;
+    const errorCode = providerError?.code ?? "UNKNOWN";
     return buildResult(emptyExtraction(), "ai", [errorCode === "TIMEOUT" ? "PROVIDER_TIMEOUT" : "PROVIDER_ERROR"], startedAt, {
       provider: provider.name,
       model: provider.model,
       cacheStatus: "miss",
       status: "error",
       errorCode,
+      errorHttpStatus: providerError?.httpStatus ?? null,
+      errorMessage: providerError?.message ?? (error instanceof Error ? error.message : "Erreur inconnue lors de l'appel provider."),
     });
   }
 }
