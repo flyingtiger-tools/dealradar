@@ -41,7 +41,7 @@ describe("enqueueJob", () => {
     await enqueueJob("ingest.source", { foo: "bar" });
 
     expect(PgBossMock).toHaveBeenCalledTimes(1);
-    const options = PgBossMock.mock.calls[0][0];
+    const options = PgBossMock.mock.calls[0]![0];
     expect(options.migrate).toBe(false);
   });
 
@@ -53,8 +53,8 @@ describe("enqueueJob", () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(mockSend).toHaveBeenCalledWith("ingest.source", { foo: "bar" });
 
-    const startOrder = mockStart.mock.invocationCallOrder[0];
-    const sendOrder = mockSend.mock.invocationCallOrder[0];
+    const startOrder = mockStart.mock.invocationCallOrder[0]!;
+    const sendOrder = mockSend.mock.invocationCallOrder[0]!;
     expect(startOrder).toBeLessThan(sendOrder);
   });
 
@@ -63,7 +63,7 @@ describe("enqueueJob", () => {
     await enqueueJob("ingest.source", { foo: "bar" });
 
     expect(mockStop).toHaveBeenCalledTimes(1);
-    const options = PgBossMock.mock.calls[0][0];
+    const options = PgBossMock.mock.calls[0]![0];
     expect(options.max).toBe(1);
   });
 
@@ -79,7 +79,7 @@ describe("enqueueJob", () => {
     const { enqueueJob } = await import("../pgboss");
     await enqueueJob("ingest.source", { foo: "bar" });
 
-    const options = PgBossMock.mock.calls[0][0];
+    const options = PgBossMock.mock.calls[0]![0];
     expect(options).toHaveProperty("migrate", false);
     expect(options.migrate).not.toBeUndefined();
   });
