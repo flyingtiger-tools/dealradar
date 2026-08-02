@@ -1,6 +1,6 @@
 # ADR 0011 — Conformité eBay Marketplace Account Deletion
 
-**Statut** : accepté, durci (round 4) · **Date** : 2026-07-28
+**Statut** : accepté, durci (round 4) · **Date** : 2026-07-28 · **Statut opérationnel mis à jour le 2026-08-02** — voir « Statut réel au 2026-08-02 » ci-dessous
 
 ## Contexte
 
@@ -396,12 +396,74 @@ pour la forme masquée et la procédure de configuration.
    `EBAY_ENVIRONMENT=production` dans l'environnement des workers **et**
    d'`apps/web`.
 
-## Ce qui reste bloqué sans action de l'utilisateur
+## Statut réel au 2026-08-02 — configuré hors dépôt, entre les rounds 4 et 5
 
-Aucune des étapes 1 à 6 ci-dessus n'a été exécutée dans ce lot (rien
-déployé, aucune clé écrite dans le code). Le premier appel réel contre
-l'API eBay Production reste impossible tant que ces étapes n'ont pas été
-effectuées.
+Les étapes 1 à 6 ci-dessus ont été exécutées **hors de ce dépôt** (aucune
+trace dans l'historique git, aucune valeur dans les fichiers `.env.local`
+locaux) entre la rédaction du round 4 (28/07) et cette note. Deux catégories
+de faits, à ne jamais confondre :
+
+**Confirmé par des vérifications techniques non destructives depuis ce
+dépôt (requêtes HTTP réelles, sans lecture d'aucune valeur de secret)** :
+
+- L'endpoint est déployé et joignable publiquement à
+  `https://dealradar-web-omega.vercel.app/api/ebay/account-deletion`
+  (déploiement Vercel `production`, `readyState: READY`). Les deux autres
+  domaines du projet (`dealradar-web-dealradar2.vercel.app` et son alias
+  `-git-main-`) sont protégés par le SSO de Vercel Deployment Protection —
+  inutilisables comme callback eBay, seul le domaine `-omega` est pertinent.
+- `GET .../account-deletion` (sans `challenge_code`) → `400
+  MISSING_CHALLENGE_CODE` (pas `500 MISCONFIGURED`) → `EBAY_VERIFICATION_TOKEN`
+  et `EBAY_ACCOUNT_DELETION_ENDPOINT_URL` sont bien configurées côté Vercel
+  Production.
+- `GET .../account-deletion?challenge_code=<valeur de test>` → renvoie un
+  `challengeResponse` calculé (`200`) — le calcul du défi fonctionne
+  réellement en production.
+- `POST .../account-deletion` (corps vide, sans en-tête de signature) →
+  `412 SIGNATURE_INVALID` (pas `500 MISCONFIGURED`) → `EBAY_CLIENT_ID` et
+  `EBAY_CLIENT_SECRET` sont également configurées côté `apps/web` sur
+  Vercel Production (l'écart à l'ADR 0008 documenté plus haut est donc
+  effectivement en vigueur en production, pas seulement préparé).
+- Railway (`@dealradar/workers`) a `EBAY_ENVIRONMENT=production` positionné
+  (nom de variable et valeur de mode vérifiés via `railway variables`,
+  jamais les identifiants eux-mêmes).
+
+**Rapporté par l'opérateur, non vérifiable depuis les outils disponibles
+dans ce dépôt** — aucun outil de ce dépôt n'a accès à l'API du Developer
+Portal eBay (`developer.ebay.com`), qui n'expose pas d'API publique pour ce
+type de contrôle ; ces points reposent donc uniquement sur une confirmation
+manuelle de l'opérateur, pas sur une preuve technique produite ici :
+
+- L'URL `https://dealradar-web-omega.vercel.app/api/ebay/account-deletion`
+  et le verification token ont été renseignés dans le Developer Portal.
+- Le défi `GET` envoyé par eBay lors de l'enregistrement a été accepté
+  (endpoint marqué validé côté eBay).
+- Cette validation a ensuite permis l'activation du keyset **Production**.
+
+**Non vérifiable, même indirectement, avec les outils actuels** : la
+correspondance entre les identifiants `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET`
+configurés côté Vercel (`apps/web`, pour la vérification de signature) et
+ceux configurés côté Railway (`workers`, pour la Browse API) n'a pas pu
+être confirmée — aucun outil disponible ici ne lit la *valeur* d'une
+variable d'environnement Vercel (par conception, pour la sécurité), et il
+n'existe donc rien à comparer à la valeur Railway même en la hachant d'un
+seul côté. Si les deux couples divergent (ex. un keyset Sandbox oublié d'un
+côté), rien dans le comportement observé ci-dessus ne le révélerait : les
+deux endpoints répondraient de la même façon (present vs absent) sans
+distinguer *quel* keyset est présent. À confirmer par l'opérateur en
+comparant directement les deux tableaux de bord (Vercel / Railway) contre
+le Developer Portal eBay.
+
+### Historique (round 4, dépassé par ce qui précède)
+
+Le texte ci-dessous reflétait l'état au 28/07/2026 et est conservé pour
+mémoire — voir la section « Statut réel au 2026-08-02 » ci-dessus pour
+l'état actuel :
+
+> Aucune des étapes 1 à 6 ci-dessus n'a été exécutée dans ce lot (rien
+> déployé, aucune clé écrite dans le code). Le premier appel réel contre
+> l'API eBay Production reste impossible tant que ces étapes n'ont pas été
+> effectuées.
 
 ## Limites assumées
 
