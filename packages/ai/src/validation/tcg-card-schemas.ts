@@ -18,6 +18,9 @@ export const rawTcgCardProviderResponseSchema = z.object({
   gradingCompany: z.string().nullable().optional(),
   grade: z.string().nullable().optional(),
   overallConfidence: z.number().min(0).max(1).optional(),
-  confidence: z.record(z.number().min(0).max(1)).optional(),
+  // `null` autorisé : Claude renvoie parfois `confidence.<champ>: null` pour un
+  // champ qu'il n'a pas détecté au lieu d'omettre la clé — `extract-tcg-card.ts`
+  // (`?? DEFAULT_FIELD_CONFIDENCE`) traite déjà `null` comme absent.
+  confidence: z.record(z.number().min(0).max(1).nullable()).optional(),
 });
 export type RawTcgCardProviderResponse = z.infer<typeof rawTcgCardProviderResponseSchema>;

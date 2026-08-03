@@ -193,6 +193,109 @@ describe("extractTcgCardFromPhoto", () => {
     expect(result.telemetry.invalidIssues).toBeUndefined();
   });
 
+  it("confidence.setName = null : accepté, jamais un INVALID_PROVIDER_RESPONSE", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: "Pikachu", setName: "Base Set", confidence: { cardName: 0.9, setName: null } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("success");
+    expect(result.warnings).not.toContain("INVALID_PROVIDER_RESPONSE");
+  });
+
+  it("confidence.variant = null : accepté, jamais un INVALID_PROVIDER_RESPONSE", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: "Pikachu", variant: "Normal", confidence: { cardName: 0.9, variant: null } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("success");
+    expect(result.warnings).not.toContain("INVALID_PROVIDER_RESPONSE");
+  });
+
+  it("plusieurs valeurs null simultanées dans confidence : accepté", async () => {
+    const extract = vi.fn(async () => ({
+      raw: {
+        cardName: "Pikachu",
+        confidence: { cardName: 0.9, setName: null, variant: null, gradingCompany: null, grade: null },
+      },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("success");
+    expect(result.warnings).not.toContain("INVALID_PROVIDER_RESPONSE");
+  });
+
+  it("mélange de nombres valides et de null dans confidence : accepté, chaque champ garde sa propre confiance", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: "Pikachu", setName: "Base Set", confidence: { cardName: 0.98, setName: null } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("success");
+    expect(result.extraction.cardName).toEqual({ value: "Pikachu", confidence: 0.98 });
+    // setName a une valeur mais une confiance null dans la réponse provider : traité comme absent, jamais 0 — retombe sur la confiance par défaut, jamais inventée à partir de la valeur elle-même.
+    expect(result.extraction.setName.value).toBe("Base Set");
+    expect(result.extraction.setName.confidence).toBe(0.6);
+  });
+
+  it("confidence avec une valeur numérique < 0 : toujours refusée (INVALID_PROVIDER_RESPONSE)", async () => {
+    const extract = vi.fn(async () => ({ raw: { confidence: { cardName: -0.1 } }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+    expect(result.telemetry.invalidPaths).toEqual(["confidence.cardName"]);
+  });
+
+  it("confidence avec une valeur numérique > 1 : toujours refusée (INVALID_PROVIDER_RESPONSE)", async () => {
+    const extract = vi.fn(async () => ({ raw: { confidence: { cardName: 1.1 } }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+    expect(result.telemetry.invalidPaths).toEqual(["confidence.cardName"]);
+  });
+
+  it("confidence avec une chaîne, un objet ou un tableau : toujours refusé (INVALID_PROVIDER_RESPONSE), jamais de coercition", async () => {
+    const stringCase = await extractTcgCardFromPhoto(baseInput, {
+      provider: makeProvider(async () => ({ raw: { confidence: { cardName: "haute" } }, usage: { inputUnits: 1, outputUnits: 1 } })),
+    });
+    expect(stringCase.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+
+    const objectCase = await extractTcgCardFromPhoto(baseInput, {
+      provider: makeProvider(async () => ({ raw: { confidence: { cardName: { value: 0.9 } } }, usage: { inputUnits: 1, outputUnits: 1 } })),
+    });
+    expect(objectCase.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+
+    const arrayCase = await extractTcgCardFromPhoto(baseInput, {
+      provider: makeProvider(async () => ({ raw: { confidence: { cardName: [0.9] } }, usage: { inputUnits: 1, outputUnits: 1 } })),
+    });
+    expect(arrayCase.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+  });
+
+  it("confidence null sur un champ dont la valeur est elle-même null : reste confidence 0, jamais devinée depuis la valeur", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: "Pikachu", setName: null, confidence: { cardName: 0.9, setName: null } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.extraction.setName).toEqual({ value: null, confidence: 0 });
+  });
+
+  it("confidence null n'augmente jamais overallConfidence : reste exactement la valeur déclarée par le provider", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: "Pikachu", overallConfidence: 0.4, confidence: { cardName: 0.9, setName: null, variant: null } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.extraction.overallConfidence).toBe(0.4);
+  });
+
   it("budget épuisé : aucun appel provider, warning explicite", async () => {
     const extract = vi.fn(async () => ({ raw: FULL_CARD_RAW, usage: { inputUnits: 1, outputUnits: 1 } }));
     const budgetGuard: BudgetGuard = { reserve: vi.fn(async () => null), finalize: vi.fn(), release: vi.fn() };
