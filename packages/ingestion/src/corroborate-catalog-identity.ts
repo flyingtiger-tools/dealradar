@@ -1,4 +1,4 @@
-import { setNamesMatch, type CatalogMatch } from "@dealradar/connectors";
+import { collectorNumbersMatch, setNamesMatch, type CatalogMatch } from "@dealradar/connectors";
 
 /**
  * `single_catalog_source` est distinct de `single_source` : ce dernier
@@ -83,7 +83,12 @@ export function corroborateCatalogIdentity(primary: CatalogMatch | null, seconda
   const setMatches = primarySet !== null && secondarySet !== null && setNamesMatch(primarySet, secondarySet).matched;
   const primaryNumber = stringAttr(primary, "collectorNumber");
   const secondaryNumber = stringAttr(secondary, "collectorNumber");
-  const numberMatches = primaryNumber !== null && secondaryNumber !== null && normalize(primaryNumber) === normalize(secondaryNumber);
+  // Réutilise la comparaison déjà prouvée en production (`tcg-mapping/collector-number-matching.ts`,
+  // pricing inter-providers) : Pokémon TCG API et TCGdex conservent parfois un
+  // padding différent pour le même numéro imprimé (ex. "96" vs "096", cas réel
+  // Nymble/Phantasmal Flames) — jamais une divergence réelle. `collectorNumbersMatch`
+  // retourne déjà `false` si l'une des deux valeurs est absente, jamais un faux match.
+  const numberMatches = collectorNumbersMatch(primaryNumber, secondaryNumber);
 
   if (nameMatches && setMatches && numberMatches) {
     return {

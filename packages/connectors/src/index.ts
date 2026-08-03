@@ -21,6 +21,7 @@ export * from "./tcg-mapping/types";
 export * from "./tcg-mapping/set-name-matching";
 export * from "./tcg-mapping/pokemon-to-justtcg";
 export * from "./tcg-mapping/derive-catalog-query-collector-number";
+export * from "./tcg-mapping/collector-number-matching";
 export * from "./fx/types";
 export * from "./fx/convert";
 export * from "./fx/openexchangerates/client";
