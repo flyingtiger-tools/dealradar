@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractTcgCardFromPhoto, type ExtractTcgCardOptions, type TcgCardExtraction } from "@dealradar/ai";
 import { orchestratePokemonPipeline } from "@dealradar/ingestion";
-import type { TcgCatalogHints } from "@dealradar/connectors";
+import { deriveCollectorNumberForCatalogQuery, type TcgCatalogHints } from "@dealradar/connectors";
 import type { TcgCardAnalysisResult, TcgCardExtractedFields, TcgCardProvidedHints } from "@dealradar/core";
 import { logger } from "../logger";
 import type { TcgPipelineConnectors } from "../ingestion/tcg-connector-config";
@@ -89,7 +89,7 @@ function hintsFromExtraction(extraction: TcgCardExtraction): TcgCatalogHints {
     kind: extraction.productKind.value ?? undefined,
     name: extraction.cardName.value ?? undefined,
     setName: extraction.setName.value ?? undefined,
-    collectorNumber: extraction.cardNumber.value ?? undefined,
+    collectorNumber: deriveCollectorNumberForCatalogQuery(extraction.cardNumber.value),
     language: extraction.language.value ?? undefined,
     gradingCompany: (extraction.gradingCompany.value as TcgCatalogHints["gradingCompany"]) ?? undefined,
     grade: extraction.grade.value ?? undefined,
@@ -102,7 +102,7 @@ function hintsFromProvided(hints: TcgCardProvidedHints): TcgCatalogHints {
     kind: hints.productKind ?? undefined,
     name: hints.cardName ?? undefined,
     setName: hints.setName ?? undefined,
-    collectorNumber: hints.cardNumber ?? undefined,
+    collectorNumber: deriveCollectorNumberForCatalogQuery(hints.cardNumber),
     language: hints.language ?? undefined,
     gradingCompany: (hints.gradingCompany as TcgCatalogHints["gradingCompany"]) ?? undefined,
     grade: hints.grade ?? undefined,

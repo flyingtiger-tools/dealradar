@@ -91,6 +91,110 @@ describe("createPokemonTcgCatalogConnector — resolve()", () => {
   });
 });
 
+describe("createPokemonTcgCatalogConnector — stratégie de second essai (zéro de tête)", () => {
+  const CARD_NUMBER_96: import("../raw-types").PokemonTcgRawCard = {
+    id: "test-96",
+    name: "Sacred Ash",
+    number: "96",
+    set: { id: "xy2", name: "Flashfire" },
+  };
+
+  function requestUrl(fetchImpl: ReturnType<typeof vi.fn>, callIndex: number): string {
+    const arg = fetchImpl.mock.calls[callIndex]![0] as string | URL;
+    return arg.toString();
+  }
+
+  it("096/094 → 096 (déjà réduit en amont) : premier essai avec le zéro de tête conservé, jamais retiré d'emblée", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse({ data: [] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    await connector.resolve({ categorySlug: "pokemon_tcg", hints: { name: "Nymble", collectorNumber: "096" } });
+
+    expect(requestUrl(fetchImpl, 0)).toContain(encodeURIComponent("number:096"));
+  });
+
+  it("096 sans résultat → second essai avec le zéro de tête retiré (96), jamais une autre transformation", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [CARD_NUMBER_96] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    const matches = await connector.resolve({ categorySlug: "pokemon_tcg", hints: { name: "Sacred Ash", collectorNumber: "096" } });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(requestUrl(fetchImpl, 0)).toContain(encodeURIComponent("number:096"));
+    expect(requestUrl(fetchImpl, 1)).toContain(encodeURIComponent("number:96"));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.item.externalId).toBe("test-96");
+  });
+
+  it("premier essai avec résultat : aucun second essai, même si le numéro porte un zéro de tête", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [CARD_NUMBER_96] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    const matches = await connector.resolve({ categorySlug: "pokemon_tcg", hints: { collectorNumber: "096" } });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(matches).toHaveLength(1);
+  });
+
+  it("premier essai sans résultat et sans zéro de tête : aucun second essai (rien à retirer)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    const matches = await connector.resolve({ categorySlug: "pokemon_tcg", hints: { collectorNumber: "96" } });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(matches).toEqual([]);
+  });
+
+  it("numéro promo/alphanumérique (SWSH001) sans résultat : aucun second essai, jamais modifié", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    await connector.resolve({ categorySlug: "pokemon_tcg", hints: { collectorNumber: "SWSH001" } });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(requestUrl(fetchImpl, 0)).toContain(encodeURIComponent("number:SWSH001"));
+  });
+
+  it("second essai sans résultat non plus : retourne une liste vide proprement, jamais un troisième essai", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse({ data: [] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    const matches = await connector.resolve({ categorySlug: "pokemon_tcg", hints: { collectorNumber: "007" } });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(matches).toEqual([]);
+  });
+
+  it("un collectorNumber qui contient encore un slash (format non reconnu en amont) n'est jamais envoyé à Lucene", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    await connector.resolve({ categorySlug: "pokemon_tcg", hints: { name: "Test", collectorNumber: "TG05/TG30" } });
+
+    const url = requestUrl(fetchImpl, 0);
+    expect(url).not.toMatch(/number.*(%2F|\/)/);
+    expect(url).toContain(encodeURIComponent('name:"Test"'));
+  });
+
+  it("non-régression : recherche existante sans zéro de tête et avec résultat direct fonctionne comme avant", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [CHARIZARD_GYM2_CARD] }));
+    const connector = createPokemonTcgCatalogConnector({ fetchImpl });
+
+    const matches = await connector.resolve({
+      categorySlug: "pokemon_tcg",
+      hints: { name: "Blaine's Charizard", setName: "Gym Challenge", collectorNumber: "2" },
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(matches[0]!.item.externalId).toBe("gym2-2");
+    expect(matches[0]!.confidence).toBe(1);
+  });
+});
+
 describe("createPokemonTcgCatalogConnector — getItem()", () => {
   it("récupère une carte par identifiant externe stable", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: PIKACHU_PROMO_CARD }));

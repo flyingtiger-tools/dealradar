@@ -30,12 +30,19 @@ function isHints(value: unknown): value is TcgCatalogHints {
   return typeof value === "object" && value !== null;
 }
 
+/** Un zéro de tête suivi d'au moins un autre chiffre — jamais retiré au-delà (voir le second essai dans `resolve()`). */
+const LEADING_ZEROS = /^0+(?=[0-9])/;
+
 function buildSearchQuery(hints: TcgCatalogHints): string | null {
   const clauses: string[] = [];
   if (hints.name) clauses.push(`name:"${hints.name}"`);
   if (hints.setName) clauses.push(`set.name:"${hints.setName}"`);
   if (hints.setCode) clauses.push(`set.id:${hints.setCode}`);
-  if (hints.collectorNumber) clauses.push(`number:${hints.collectorNumber}`);
+  // Jamais un "/" brut dans une clause Lucene : confirmé par appel réel le
+  // 2026-08-03 (`number:58/102` → 400 Bad Request) — un `collectorNumber` qui
+  // en porte encore un (format non reconnu par `deriveCollectorNumberForCatalogQuery`)
+  // est ignoré ici plutôt que deviné ou coupé arbitrairement.
+  if (hints.collectorNumber && !hints.collectorNumber.includes("/")) clauses.push(`number:${hints.collectorNumber}`);
   return clauses.length > 0 ? clauses.join(" ") : null;
 }
 
@@ -78,18 +85,7 @@ export function createPokemonTcgCatalogConnector(config: PokemonTcgConnectorConf
     cachePolicy: { ttlHours: 24, staleWhileRevalidate: true },
   };
 
-  async function resolve(query: CatalogQuery): Promise<CatalogMatch[]> {
-    const hints = isHints(query.hints) ? (query.hints as TcgCatalogHints) : {};
-
-    // Refus honnête : kind explicitement scellé ou gradé — hors de portée de ce
-    // catalogue, jamais une correspondance devinée. Cf. ADR 0012 "aucune donnée inventée".
-    if (hints.kind && !SUPPORTED_KINDS.includes(hints.kind)) {
-      return [];
-    }
-
-    const q = buildSearchQuery(hints);
-    if (!q) return [];
-
+  async function searchCards(q: string, hints: TcgCatalogHints): Promise<CatalogMatch[]> {
     const raw = await client.get("/cards", { q, pageSize: 10 });
     const parsed = pokemonTcgSearchResponseSchema.safeParse(raw);
     if (!parsed.success) {
@@ -102,6 +98,35 @@ export function createPokemonTcgCatalogConnector(config: PokemonTcgConnectorConf
       .map((card) => matchCard(card, hints))
       .map((match) => ({ ...match, item: { ...match.item, categorySlug } }))
       .sort((a, b) => b.confidence - a.confidence);
+  }
+
+  async function resolve(query: CatalogQuery): Promise<CatalogMatch[]> {
+    const hints = isHints(query.hints) ? (query.hints as TcgCatalogHints) : {};
+
+    // Refus honnête : kind explicitement scellé ou gradé — hors de portée de ce
+    // catalogue, jamais une correspondance devinée. Cf. ADR 0012 "aucune donnée inventée".
+    if (hints.kind && !SUPPORTED_KINDS.includes(hints.kind)) {
+      return [];
+    }
+
+    const q = buildSearchQuery(hints);
+    if (!q) return [];
+
+    const matches = await searchCards(q, hints);
+    if (matches.length > 0) return matches;
+
+    // Second essai, propre à ce connecteur : le numérateur peut porter un zéro
+    // de tête que l'index de la Pokémon TCG API ne reconnaît pas toujours (non
+    // prouvé universel — voir rapport du 2026-08-03). Ne retire QUE le zéro de
+    // tête, jamais une autre transformation ; ne s'applique jamais au nom/set
+    // ni à un `collectorNumber` déjà sans zéro de tête ou alphanumérique.
+    if (hints.collectorNumber && LEADING_ZEROS.test(hints.collectorNumber)) {
+      const strippedHints: TcgCatalogHints = { ...hints, collectorNumber: hints.collectorNumber.replace(LEADING_ZEROS, "") };
+      const retryQ = buildSearchQuery(strippedHints);
+      if (retryQ) return searchCards(retryQ, strippedHints);
+    }
+
+    return matches;
   }
 
   async function getItem(externalId: string): Promise<CatalogItem | null> {
