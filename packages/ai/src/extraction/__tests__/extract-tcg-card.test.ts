@@ -113,6 +113,86 @@ describe("extractTcgCardFromPhoto", () => {
     expect(result.extraction.cardName.value).toBeNull();
   });
 
+  it("réponse racine manquante (null) : INVALID_PROVIDER_RESPONSE avec un chemin '(root)', jamais une extraction partielle", async () => {
+    const extract = vi.fn(async () => ({ raw: null, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.errorCode).toBe("INVALID_PROVIDER_RESPONSE");
+    expect(result.telemetry.invalidPaths).toEqual(["(root)"]);
+    expect(result.telemetry.invalidCodes).toEqual(["invalid_type"]);
+    expect(result.telemetry.invalidIssues).toHaveLength(1);
+    expect(result.telemetry.invalidIssues![0]).toMatchObject({ path: "(root)", code: "invalid_type", expected: "object" });
+  });
+
+  it("mauvais type sur un champ (cardNumber en nombre) : invalidPaths pointe le champ précis, jamais une valeur de champ dans expected/received", async () => {
+    const extract = vi.fn(async () => ({ raw: { cardNumber: 58 }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidPaths).toEqual(["cardNumber"]);
+    expect(result.telemetry.invalidCodes).toEqual(["invalid_type"]);
+    expect(result.telemetry.invalidIssues![0]).toMatchObject({ path: "cardNumber", code: "invalid_type", expected: "string", received: "number" });
+  });
+
+  it("enum invalide (productKind) : invalidPaths pointe le champ, received porte uniquement la valeur de CE champ", async () => {
+    const extract = vi.fn(async () => ({ raw: { productKind: "collector_case" }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidPaths).toEqual(["productKind"]);
+    expect(result.telemetry.invalidCodes).toEqual(["invalid_enum_value"]);
+    expect(result.telemetry.invalidIssues![0]).toMatchObject({ path: "productKind", code: "invalid_enum_value", received: "collector_case" });
+  });
+
+  it("tableau/objet inattendu (confidence en tableau au lieu d'un objet) : refus, jamais de coercition", async () => {
+    const extract = vi.fn(async () => ({ raw: { confidence: ["haute"] }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidPaths).toEqual(["confidence"]);
+    expect(result.telemetry.invalidIssues![0]).toMatchObject({ path: "confidence", code: "invalid_type", expected: "object", received: "array" });
+  });
+
+  it("plusieurs erreurs simultanées : invalidPaths/invalidCodes portent chaque champ en échec", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardNumber: 58, productKind: "collector_case", overallConfidence: "haute" },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidPaths).toEqual(["cardNumber", "productKind", "overallConfidence"]);
+    expect(result.telemetry.invalidCodes).toEqual(["invalid_type", "invalid_enum_value", "invalid_type"]);
+    expect(result.telemetry.invalidIssues).toHaveLength(3);
+  });
+
+  it("borne le nombre d'issues journalisées à 20 même si le provider renvoie un objet massivement invalide", async () => {
+    const confidence = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`champ${i}`, "pas-un-nombre"]));
+    const extract = vi.fn(async () => ({ raw: { confidence }, usage: { inputUnits: 10, outputUnits: 10 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidIssues).toHaveLength(20);
+    expect(result.telemetry.invalidPaths).toHaveLength(20);
+  });
+
+  it("aucune valeur sensible ni texte extrait dans la télémétrie même quand un champ texte a le mauvais type", async () => {
+    const extract = vi.fn(async () => ({
+      raw: { cardName: { secret: "numéro de carte bancaire 4242 4242 4242 4242 - ne jamais journaliser" } },
+      usage: { inputUnits: 10, outputUnits: 10 },
+    }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.invalidIssues![0]).toMatchObject({ path: "cardName", code: "invalid_type", expected: "string", received: "object" });
+    expect(JSON.stringify(result.telemetry)).not.toContain("4242");
+    expect(JSON.stringify(result.telemetry)).not.toContain("ne jamais journaliser");
+  });
+
+  it("réponse valide : comportement inchangé, aucun champ invalidPaths/invalidCodes/invalidIssues renseigné", async () => {
+    const extract = vi.fn(async () => ({ raw: FULL_CARD_RAW, usage: { inputUnits: 100, outputUnits: 40 } }));
+    const result = await extractTcgCardFromPhoto(baseInput, { provider: makeProvider(extract) });
+
+    expect(result.telemetry.status).toBe("success");
+    expect(result.telemetry.invalidPaths).toBeUndefined();
+    expect(result.telemetry.invalidCodes).toBeUndefined();
+    expect(result.telemetry.invalidIssues).toBeUndefined();
+  });
+
   it("budget épuisé : aucun appel provider, warning explicite", async () => {
     const extract = vi.fn(async () => ({ raw: FULL_CARD_RAW, usage: { inputUnits: 1, outputUnits: 1 } }));
     const budgetGuard: BudgetGuard = { reserve: vi.fn(async () => null), finalize: vi.fn(), release: vi.fn() };

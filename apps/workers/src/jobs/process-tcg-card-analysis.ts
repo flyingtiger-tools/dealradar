@@ -188,7 +188,10 @@ async function processWithPhoto(
   // (jamais capturés au-delà de ce point), jamais l'image ou le corps brut
   // de la réponse (le message est déjà nettoyé par construction, voir
   // `extract-tcg-card.ts`), jamais les champs extraits eux-mêmes (peuvent
-  // contenir du texte lu sur la carte de l'utilisateur).
+  // contenir du texte lu sur la carte de l'utilisateur). `invalidIssues` ne
+  // porte que la structure d'un échec de schéma (chemin/code/type), jamais
+  // la valeur d'un champ — sauf `received` sur un enum invalide, qui ne
+  // porte que la valeur de ce champ précis (voir `ZodIssueSummary`).
   if (extractionResult.telemetry.status === "error") {
     logger.warn(
       {
@@ -198,6 +201,9 @@ async function processWithPhoto(
         httpStatus: extractionResult.telemetry.errorHttpStatus,
         errorCode: extractionResult.telemetry.errorCode,
         errorMessage: extractionResult.telemetry.errorMessage,
+        invalidPaths: extractionResult.telemetry.invalidPaths,
+        invalidCodes: extractionResult.telemetry.invalidCodes,
+        invalidIssues: extractionResult.telemetry.invalidIssues,
       },
       "Extraction IA TCG : échec provider",
     );

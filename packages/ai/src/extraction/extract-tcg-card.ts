@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ZodError } from "zod";
 import { buildTcgCardPrompt, TCG_CARD_PROMPT_VERSION } from "../prompts/build-tcg-card-prompt";
 import { ProviderError } from "../provider/http";
 import { rawTcgCardProviderResponseSchema, type RawTcgCardProviderResponse } from "../validation/tcg-card-schemas";
@@ -9,7 +10,38 @@ import type { AIProvider } from "../provider/types";
 import type { ExtractionCache } from "../cache/types";
 import type { BudgetGuard } from "../budget/types";
 import type { ExtractedProduct } from "../validation/schemas";
-import type { ExtractionTelemetry } from "../types";
+import type { ExtractionTelemetry, ZodIssueSummary } from "../types";
+
+/** Borne le nombre d'issues journalisées si le provider renvoie un objet massivement invalide. */
+const MAX_LOGGED_ZOD_ISSUES = 20;
+/** Longueur max d'une valeur `received`/`expected` journalisée (garde-fou, pas une troncature de contenu significatif — ce sont des noms de type ou de courtes valeurs d'enum). */
+const MAX_LOGGED_ISSUE_VALUE_LENGTH = 200;
+
+function toSafeIssueString(value: unknown): string | undefined {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return undefined;
+  const str = String(value);
+  return str.length > MAX_LOGGED_ISSUE_VALUE_LENGTH ? `${str.slice(0, MAX_LOGGED_ISSUE_VALUE_LENGTH)}…` : str;
+}
+
+/**
+ * Ne journalise jamais `issue.input`/la valeur extraite — uniquement la
+ * structure de l'échec de validation (chemin, code, type attendu/reçu selon
+ * Zod). Seul un enum invalide expose une valeur (`received`), toujours celle
+ * du champ précis en échec (ex. `productKind`), jamais du reste de la
+ * réponse — voir `ZodIssueSummary`.
+ */
+function summarizeZodIssues(error: ZodError): ZodIssueSummary[] {
+  return error.issues.slice(0, MAX_LOGGED_ZOD_ISSUES).map((issue) => {
+    const raw = issue as unknown as { expected?: unknown; received?: unknown };
+    return {
+      path: issue.path.length > 0 ? issue.path.join(".") : "(root)",
+      code: issue.code,
+      expected: toSafeIssueString(raw.expected),
+      received: toSafeIssueString(raw.received),
+      message: issue.message,
+    };
+  });
+}
 
 /** Incrémenté à chaque changement de forme de `TcgCardExtraction` — entre dans la clé de cache. */
 export const TCG_CARD_EXTRACTION_SCHEMA_VERSION = 1;
@@ -251,6 +283,7 @@ export async function extractTcgCardFromPhoto(
 
     const parsed = rawTcgCardProviderResponseSchema.safeParse(response.raw);
     if (!parsed.success) {
+      const invalidIssues = summarizeZodIssues(parsed.error);
       return buildResult(emptyExtraction(), "ai", ["INVALID_PROVIDER_RESPONSE"], startedAt, {
         provider: provider.name,
         model: provider.model,
@@ -261,6 +294,9 @@ export async function extractTcgCardFromPhoto(
         estimatedCostUsd,
         status: "error",
         errorCode: "INVALID_PROVIDER_RESPONSE",
+        invalidIssues,
+        invalidPaths: invalidIssues.map((issue) => issue.path),
+        invalidCodes: invalidIssues.map((issue) => issue.code),
       });
     }
 

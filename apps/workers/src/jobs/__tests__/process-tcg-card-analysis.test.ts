@@ -310,6 +310,43 @@ describe("processTcgCardAnalysis", () => {
     warnSpy.mockRestore();
   });
 
+  it("échec de validation schéma (INVALID_PROVIDER_RESPONSE) : journalise invalidPaths/invalidCodes/invalidIssues, jamais une valeur de champ extraite", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    extractTcgCardFromPhoto.mockResolvedValueOnce({
+      extraction: weakExtraction,
+      source: "ai",
+      warnings: ["INVALID_PROVIDER_RESPONSE"],
+      telemetry: {
+        status: "error",
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+        errorCode: "INVALID_PROVIDER_RESPONSE",
+        invalidPaths: ["cardName"],
+        invalidCodes: ["invalid_type"],
+        invalidIssues: [{ path: "cardName", code: "invalid_type", expected: "string", received: "object", message: "Expected string, received object" }],
+      },
+    });
+
+    await processTcgCardAnalysis(
+      fakeDb(),
+      { id: "req-14", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-14/photo.jpg" }], providedTcgHints: null },
+      { extractionOptions, connectors },
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisRequestId: "req-14",
+        errorCode: "INVALID_PROVIDER_RESPONSE",
+        invalidPaths: ["cardName"],
+        invalidCodes: ["invalid_type"],
+      }),
+      expect.any(String),
+    );
+    const loggedPayload = JSON.stringify(warnSpy.mock.calls[0]);
+    expect(loggedPayload).not.toMatch(/bearer|x-api-key|sk-ant|sk-proj|base64/i);
+    warnSpy.mockRestore();
+  });
+
   it("extraction sans erreur (télémétrie status absent/success) : ne journalise jamais un échec provider inexistant", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
     extractTcgCardFromPhoto.mockResolvedValueOnce({ extraction: fullExtraction, source: "ai", warnings: [], telemetry: { status: "success" } });

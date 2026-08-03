@@ -14,5 +14,8 @@ export function buildTelemetry(partial: Partial<ExtractionTelemetry> & Pick<Extr
     errorCode: partial.errorCode,
     errorHttpStatus: partial.errorHttpStatus,
     errorMessage: partial.errorMessage,
+    invalidIssues: partial.invalidIssues,
+    invalidPaths: partial.invalidPaths,
+    invalidCodes: partial.invalidCodes,
   };
 }

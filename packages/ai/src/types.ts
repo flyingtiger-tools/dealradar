@@ -48,6 +48,22 @@ export type CacheStatus = "hit" | "miss" | "not_applicable";
 export type ExtractionStatus = "success" | "error" | "skipped";
 
 /**
+ * Résumé sûr d'une issue de validation Zod (schéma de réponse provider) —
+ * jamais `issue.input`/la valeur du champ extrait, seulement la forme de
+ * l'échec. `expected`/`received` ne portent que des noms de type ("string",
+ * "number"...) sauf pour un enum invalide, où `received` porte la valeur
+ * invalide réellement renvoyée par le provider pour CE champ précis (jamais
+ * le reste de la réponse) — c'est le seul cas où Zod expose une valeur ici.
+ */
+export interface ZodIssueSummary {
+  path: string;
+  code: string;
+  expected?: string;
+  received?: string;
+  message: string;
+}
+
+/**
  * Télémétrie retournée à l'appelant pour journalisation/persistance — jamais
  * calculée ou affichée comme une facture officielle du provider, seulement
  * une estimation dérivée des unités retournées par l'API et de
@@ -68,6 +84,12 @@ export interface ExtractionTelemetry {
   errorHttpStatus?: number | null;
   /** Message déjà nettoyé par construction (`provider/http.ts`/`provider/claude.ts`/`provider/openai.ts` ne composent jamais ce message à partir d'un secret, d'une image ou du corps brut de la réponse) — sûr à journaliser tel quel. */
   errorMessage?: string;
+  /** Détail par champ d'un échec `INVALID_PROVIDER_RESPONSE`, borné à 20 entrées — voir `ZodIssueSummary`. */
+  invalidIssues?: ZodIssueSummary[];
+  /** Chemins de champs en échec (ex. ["productKind", "confidence.cardName"]), dérivés de `invalidIssues` — jamais une valeur. */
+  invalidPaths?: string[];
+  /** Codes Zod en échec (ex. ["invalid_type", "invalid_enum_value"]), dérivés de `invalidIssues` — jamais une valeur. */
+  invalidCodes?: string[];
 }
 
 export interface ExtractionResult {
