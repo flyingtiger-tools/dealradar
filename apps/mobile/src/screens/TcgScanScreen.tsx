@@ -129,9 +129,14 @@ export function TcgScanScreen({ accessToken, userId }: TcgScanScreenProps) {
       <Text style={styles.title}>Scanner une carte Pokémon</Text>
 
       {(state.phase === "idle" || state.phase === "error") && (
-        <View style={styles.actions}>
-          <Button title="Prendre une photo" onPress={pickFromCamera} />
-          <Button title="Choisir depuis la galerie" onPress={pickFromGallery} />
+        <View style={styles.captureGuide}>
+          {/* Repère visuel statique (aucune dépendance caméra native, LOT 8A) — aide à cadrer avant d'ouvrir l'appareil photo natif, ne contraint rien techniquement. */}
+          <View style={styles.cardFrame} />
+          <Text style={styles.captureInstruction}>Carte bien droite, sans reflet, numéro du bas lisible</Text>
+          <View style={styles.actions}>
+            <Button title="Prendre une photo" onPress={pickFromCamera} />
+            <Button title="Choisir depuis la galerie" onPress={pickFromGallery} />
+          </View>
         </View>
       )}
 
@@ -250,6 +255,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "600" },
   subtitle: { fontSize: 16, fontWeight: "600", marginTop: 12 },
   actions: { flexDirection: "row", gap: 12, flexWrap: "wrap" },
+  captureGuide: { gap: 12, alignItems: "center" },
+  cardFrame: { width: 172, height: 240, borderWidth: 2, borderColor: "#999", borderStyle: "dashed", borderRadius: 12 },
+  captureInstruction: { fontSize: 13, color: "#444", textAlign: "center" },
   error: { color: "#b91c1c" },
   warning: { color: "#b45309", fontSize: 12 },
   previewBox: { gap: 8 },

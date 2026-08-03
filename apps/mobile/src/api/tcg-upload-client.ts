@@ -12,7 +12,8 @@ import { createClient } from "@supabase/supabase-js";
 
 const STORAGE_BUCKET = "analysis-uploads";
 const MAX_DIMENSION = 1600;
-const JPEG_COMPRESSION = 0.7;
+/** Relevé de 0.7 à 0.9 (LOT 8A) : une seconde passe de compression lourde après la capture caméra dégradait la lisibilité des petits numéros de collection imprimés en bas de carte — voir le rapport d'audit du 2026-08-03. `MAX_DIMENSION` inchangée pour ce premier test isolé. */
+const JPEG_COMPRESSION = 0.9;
 
 function supabaseConfig(): { url: string; anonKey: string } {
   const extra = Constants.expoConfig?.extra as { supabaseUrl?: string; supabaseAnonKey?: string } | undefined;
