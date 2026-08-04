@@ -10,8 +10,7 @@ import { isOverlayCopilotSupported, overlayCopilot, subscribeToBubbleTapped } fr
 import { createAnalysis, pollAnalysisUntilSettled } from "./api/analyses-client";
 import { decodeJwtUserId } from "./api/decode-jwt-user-id";
 import { TcgScanScreen } from "./screens/TcgScanScreen";
-import { UniversalCaptureScreen } from "./capture/UniversalCaptureScreen";
-import type { UniversalCaptureResult } from "./capture/types";
+import { UniversalCaptureBetaScreen } from "./screens/UniversalCaptureBetaScreen";
 import type { AnalysisResponse } from "@dealradar/contracts";
 
 // "universalCapture" : onglet séparé pour valider le LOT Universal Capture Intake sur
@@ -35,7 +34,6 @@ export default function App() {
   const [accessToken, setAccessToken] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lastCapture, setLastCapture] = useState<UniversalCaptureResult | null>(null);
   const userId = accessToken ? decodeJwtUserId(accessToken) : null;
 
   const dispatch = useCallback((action: CopilotAction) => {
@@ -147,13 +145,17 @@ export default function App() {
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} disabled />
         </View>
-        {lastCapture ? (
-          <View style={styles.previewBox}>
-            <Text style={styles.result}>{JSON.stringify(lastCapture, null, 2)}</Text>
-            <Button title="Nouvelle capture" onPress={() => setLastCapture(null)} />
-          </View>
+        <TextInput
+          style={styles.input}
+          placeholder="Jeton d'accès (dev uniquement)"
+          value={accessToken}
+          onChangeText={setAccessToken}
+        />
+        {!userId && accessToken.length > 0 && <Text style={styles.warning}>Jeton invalide — identifiant utilisateur introuvable.</Text>}
+        {accessToken && userId ? (
+          <UniversalCaptureBetaScreen accessToken={accessToken} userId={userId} onExit={() => setActiveTab("copilot")} />
         ) : (
-          <UniversalCaptureScreen onCaptured={setLastCapture} onCancel={() => setActiveTab("copilot")} />
+          <Text style={styles.phase}>Colle un jeton d'accès valide pour identifier un objet.</Text>
         )}
       </SafeAreaView>
     );
