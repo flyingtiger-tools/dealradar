@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Image, Platform, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Button, Image, Platform, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import * as Crypto from "expo-crypto";
+import type { Session } from "@supabase/supabase-js";
 import {
   createCopilotReducer,
   initialCopilotState,
@@ -8,8 +10,9 @@ import {
 } from "./state/copilot-state";
 import { isOverlayCopilotSupported, overlayCopilot, subscribeToBubbleTapped } from "./native/overlay-copilot";
 import { createAnalysis, pollAnalysisUntilSettled } from "./api/analyses-client";
-import { decodeJwtUserId } from "./api/decode-jwt-user-id";
 import { TcgScanScreen } from "./screens/TcgScanScreen";
+import { LoginScreen } from "./screens/LoginScreen";
+import { getCurrentSession, onSessionChange, signOut } from "./auth/session";
 import { UniversalCaptureBetaScreen } from "./screens/UniversalCaptureBetaScreen";
 import type { AnalysisResponse } from "@dealradar/contracts";
 
@@ -18,23 +21,37 @@ import type { AnalysisResponse } from "@dealradar/contracts";
 type AppTab = "copilot" | "tcgScan" | "universalCapture";
 
 /**
- * Spike Android (ADR 0010, section 16 du brief) : prouve le flux
- * bulle -> consentement -> capture unique -> aperçu -> analyse réelle, pas
- * plus. Aucune logique financière ici — l'écran affiche ce que
- * POST /v1/analyses retourne, il ne calcule jamais un score lui-même.
+ * Racine de l'app (ADR 0010, LOT 8, authentification réelle LOT 9).
+ *
+ * Authentification : `session === undefined` pendant la vérification
+ * initiale (`getCurrentSession()`), `null` sans session active → affiche
+ * `LoginScreen`, un objet `Session` → affiche l'app. `onSessionChange`
+ * réagit à toute connexion/déconnexion/rafraîchissement/expiration — si le
+ * rafraîchissement automatique du SDK échoue finalement (refresh token
+ * expiré/révoqué), Supabase émet une session `null` et cet écran bascule
+ * automatiquement sur `LoginScreen`, sans code de redirection dédié.
+ *
+ * Plus aucun champ de jeton saisi manuellement nulle part dans cet écran.
  */
 export default function App() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<AppTab>("copilot");
   const [state, setState] = useState<CopilotState>(initialCopilotState);
   const reducerRef = useRef(createCopilotReducer());
-  // Champ de saisie manuelle pour ce spike/lot uniquement — une V1 réelle
-  // authentifie via Supabase Auth et stocke le jeton dans Keychain/Keystore
-  // (expo-secure-store), jamais dans un état React en clair (voir
-  // docs/mobile/privacy-and-retention.md).
-  const [accessToken, setAccessToken] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const userId = accessToken ? decodeJwtUserId(accessToken) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSession().then((current) => {
+      if (!cancelled) setSession(current);
+    });
+    const unsubscribe = onSessionChange(setSession);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const dispatch = useCallback((action: CopilotAction) => {
     setState((current) => reducerRef.current(current, action));
@@ -89,10 +106,10 @@ export default function App() {
   }, [state, dispatch]);
 
   const analyzeCapture = useCallback(async () => {
-    if (state.phase !== "previewingCapture" || !accessToken) return;
+    if (state.phase !== "previewingCapture") return;
     setError(null);
     try {
-      const created = await createAnalysis(accessToken, {
+      const created = await createAnalysis({
         sourceType: "android_screen_capture",
         sourcePlatform: null,
         sharedUrl: null,
@@ -103,15 +120,27 @@ export default function App() {
         currency: "CHF",
         imageReferences: [],
         consentVersion: "1",
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: Crypto.randomUUID(),
         providedTcgHints: null,
       });
-      const settled = await pollAnalysisUntilSettled(accessToken, created.id);
+      const settled = await pollAnalysisUntilSettled(created.id);
       setAnalysis(settled);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur inconnue lors de l'analyse.");
     }
-  }, [state, accessToken]);
+  }, [state]);
+
+  if (session === undefined) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.phase}>Chargement…</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (session === null) {
+    return <LoginScreen />;
+  }
 
   if (activeTab === "tcgScan") {
     return (
@@ -120,19 +149,9 @@ export default function App() {
           <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} disabled />
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
+          <Button title="Déconnexion" onPress={() => void signOut()} />
         </View>
-        <TextInput
-          style={styles.input}
-          placeholder="Jeton d'accès (dev uniquement)"
-          value={accessToken}
-          onChangeText={setAccessToken}
-        />
-        {!userId && accessToken.length > 0 && <Text style={styles.warning}>Jeton invalide — identifiant utilisateur introuvable.</Text>}
-        {accessToken && userId ? (
-          <TcgScanScreen accessToken={accessToken} userId={userId} />
-        ) : (
-          <Text style={styles.phase}>Colle un jeton d'accès valide pour scanner une carte.</Text>
-        )}
+        <TcgScanScreen />
       </SafeAreaView>
     );
   }
@@ -144,19 +163,13 @@ export default function App() {
           <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} disabled />
+          <Button title="Déconnexion" onPress={() => void signOut()} />
         </View>
-        <TextInput
-          style={styles.input}
-          placeholder="Jeton d'accès (dev uniquement)"
-          value={accessToken}
-          onChangeText={setAccessToken}
+        <UniversalCaptureBetaScreen
+          accessToken={session.access_token}
+          userId={session.user.id}
+          onExit={() => setActiveTab("copilot")}
         />
-        {!userId && accessToken.length > 0 && <Text style={styles.warning}>Jeton invalide — identifiant utilisateur introuvable.</Text>}
-        {accessToken && userId ? (
-          <UniversalCaptureBetaScreen accessToken={accessToken} userId={userId} onExit={() => setActiveTab("copilot")} />
-        ) : (
-          <Text style={styles.phase}>Colle un jeton d'accès valide pour identifier un objet.</Text>
-        )}
       </SafeAreaView>
     );
   }
@@ -167,6 +180,7 @@ export default function App() {
         <Button title="Copilote" onPress={() => setActiveTab("copilot")} disabled />
         <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
         <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
+        <Button title="Déconnexion" onPress={() => void signOut()} />
       </View>
       <Text style={styles.title}>DealRadar Copilote — spike</Text>
       <Text style={styles.phase}>État : {state.phase}</Text>
@@ -188,14 +202,8 @@ export default function App() {
       {state.phase === "previewingCapture" && (
         <View style={styles.previewBox}>
           <Image source={{ uri: state.captureUri }} style={styles.preview} />
-          <TextInput
-            style={styles.input}
-            placeholder="Jeton d'accès (dev uniquement)"
-            value={accessToken}
-            onChangeText={setAccessToken}
-          />
           <Button title="Annuler et supprimer" onPress={cancelAndDelete} />
-          <Button title="Analyser" onPress={analyzeCapture} disabled={!accessToken} />
+          <Button title="Analyser" onPress={analyzeCapture} />
         </View>
       )}
 
@@ -215,5 +223,4 @@ const styles = StyleSheet.create({
   result: { fontFamily: "monospace", fontSize: 11 },
   previewBox: { gap: 8 },
   preview: { width: "100%", height: 200, resizeMode: "contain", backgroundColor: "#eee" },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 8 },
 });

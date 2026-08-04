@@ -1,11 +1,18 @@
+const mockGetCurrentAccessToken = jest.fn();
+
+jest.mock("../src/auth/session", () => ({
+  getCurrentAccessToken: () => mockGetCurrentAccessToken(),
+}));
+
 import { createAnalysis, getAnalysis, AnalysesApiError } from "../src/api/analyses-client";
 
 /**
- * Vérifie la plomberie réelle du client mobile (ADR 0010) : construction de
- * la requête HTTP, authentification, validation Zod, gestion d'erreur —
- * sans jamais toucher un vrai Supabase (fetch mocké). Ne prétend pas
- * valider le contrat contre une instance Supabase réelle : voir
- * `docs/mobile/lot1-final-report.md`.
+ * Vérifie la plomberie réelle du client mobile (ADR 0010, LOT 9) :
+ * construction de la requête HTTP, authentification, validation Zod,
+ * gestion d'erreur — sans jamais toucher un vrai Supabase (fetch et
+ * `auth/session` mockés). Le jeton n'est plus un paramètre : il vient
+ * systématiquement de la session courante (LOT 9), jamais saisi
+ * manuellement — voir le test dédié "aucune session active" ci-dessous.
  */
 
 const ACCESS_TOKEN = "test-access-token";
@@ -19,11 +26,16 @@ function mockFetchOnce(status: number, body: unknown) {
   }) as unknown as typeof fetch;
 }
 
+beforeEach(() => {
+  mockGetCurrentAccessToken.mockReset();
+  mockGetCurrentAccessToken.mockResolvedValue(ACCESS_TOKEN);
+});
+
 describe("createAnalysis", () => {
-  it("envoie POST /api/v1/analyses avec l'en-tête Authorization et le corps JSON validé", async () => {
+  it("envoie POST /api/v1/analyses avec l'en-tête Authorization (jeton de la session courante) et le corps JSON validé", async () => {
     mockFetchOnce(202, { id: "22222222-2222-2222-2222-222222222222", status: "pending", result: null });
 
-    await createAnalysis(ACCESS_TOKEN, {
+    await createAnalysis({
       sourceType: "manual_entry",
       sourcePlatform: null,
       sharedUrl: null,
@@ -35,7 +47,7 @@ describe("createAnalysis", () => {
       imageReferences: [],
       consentVersion: "1",
       clientRequestId: CLIENT_REQUEST_ID,
-        providedTcgHints: null,
+      providedTcgHints: null,
     });
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -48,11 +60,35 @@ describe("createAnalysis", () => {
     expect(sentBody.sourceType).toBe("manual_entry");
   });
 
+  it("aucune session active : refuse avant tout appel réseau, jamais un jeton vide envoyé", async () => {
+    mockGetCurrentAccessToken.mockResolvedValue(null);
+    globalThis.fetch = jest.fn();
+
+    await expect(
+      createAnalysis({
+        sourceType: "manual_entry",
+        sourcePlatform: null,
+        sharedUrl: null,
+        title: null,
+        description: null,
+        categorySlug: null,
+        purchasePrice: null,
+        currency: "CHF",
+        imageReferences: [],
+        consentVersion: "1",
+        clientRequestId: CLIENT_REQUEST_ID,
+        providedTcgHints: null,
+      }),
+    ).rejects.toMatchObject(new AnalysesApiError("UNAUTHENTICATED", "Aucune session active — connecte-toi avant de lancer une analyse."));
+
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("rejette localement (Zod) une requête invalide avant tout appel réseau", async () => {
     globalThis.fetch = jest.fn();
 
     await expect(
-      createAnalysis(ACCESS_TOKEN, {
+      createAnalysis({
         // sourceType invalide : ne fait partie d'aucune valeur de l'enum.
         sourceType: "not_a_real_source" as never,
         sourcePlatform: null,
@@ -76,7 +112,7 @@ describe("createAnalysis", () => {
     mockFetchOnce(429, { error: { code: "RATE_LIMITED", message: "Trop de requêtes." } });
 
     await expect(
-      createAnalysis(ACCESS_TOKEN, {
+      createAnalysis({
         sourceType: "manual_entry",
         sourcePlatform: null,
         sharedUrl: null,
@@ -95,11 +131,11 @@ describe("createAnalysis", () => {
 });
 
 describe("getAnalysis", () => {
-  it("envoie GET /api/v1/analyses/:id avec l'en-tête Authorization", async () => {
+  it("envoie GET /api/v1/analyses/:id avec l'en-tête Authorization (jeton de la session courante)", async () => {
     const analysisId = "22222222-2222-2222-2222-222222222222";
     mockFetchOnce(200, { id: analysisId, status: "completed", result: null });
 
-    await getAnalysis(ACCESS_TOKEN, analysisId);
+    await getAnalysis(analysisId);
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     const [url, init] = (globalThis.fetch as jest.Mock).mock.calls[0];

@@ -70,7 +70,20 @@ export function tcgScanReducer(state: TcgScanState, action: TcgScanAction): TcgS
       return { phase: "polling", requestId: action.requestId };
 
     case "FAILED":
-      if (state.phase !== "uploading" && state.phase !== "polling" && state.phase !== "resubmitting") return state;
+      // Accepté depuis toute étape d'un envoi en cours, y compris avant que
+      // "UPLOAD_STARTED" n'ait pu être dispatché (ex. une exception
+      // synchrone dans la préparation de la requête, comme la génération
+      // d'un identifiant) — une erreur à ce stade ne doit jamais rester
+      // silencieuse, sans quoi le bouton "Analyser" semble ne rien faire.
+      if (
+        state.phase !== "previewingImage" &&
+        state.phase !== "uploading" &&
+        state.phase !== "polling" &&
+        state.phase !== "needsConfirmation" &&
+        state.phase !== "resubmitting"
+      ) {
+        return state;
+      }
       return { phase: "error", message: action.message };
 
     case "RESULT_RECEIVED": {

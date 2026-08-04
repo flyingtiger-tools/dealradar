@@ -99,6 +99,14 @@ describe("tcgScanReducer", () => {
     expect(state).toEqual({ phase: "idle" });
   });
 
+  it("échec avant même le début de l'envoi (ex. génération de l'id ratée) : état d'erreur explicite, jamais un bouton qui ne fait rien", () => {
+    let state: TcgScanState = initialTcgScanState;
+    state = tcgScanReducer(state, { type: "IMAGE_SELECTED", imageUri: "file://photo.jpg" });
+    expect(state.phase).toBe("previewingImage");
+    state = tcgScanReducer(state, { type: "FAILED", message: "Identifiant de requête impossible à générer." });
+    expect(state).toEqual({ phase: "error", message: "Identifiant de requête impossible à générer." });
+  });
+
   it("échec d'upload : état d'erreur explicite, jamais une soumission silencieuse", () => {
     let state: TcgScanState = initialTcgScanState;
     state = tcgScanReducer(state, { type: "IMAGE_SELECTED", imageUri: "file://photo.jpg" });
