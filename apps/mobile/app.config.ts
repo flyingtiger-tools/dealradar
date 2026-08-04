@@ -43,6 +43,15 @@ const config: ExpoConfig = {
         photosPermission: "DealRadar accède à vos photos pour identifier une carte Pokémon que vous importez.",
       },
     ],
+    // Déclare la permission caméra pour expo-camera (LOT "Universal Capture
+    // Intake", ADR 0013) — module distinct d'expo-image-picker ci-dessus,
+    // avec son propre plugin de config natif.
+    [
+      "expo-camera",
+      {
+        cameraPermission: "DealRadar utilise l'appareil photo pour capturer et identifier un objet.",
+      },
+    ],
   ],
   extra: {
     // URL de l'API — jamais un secret ici (ADR 0010, aucun secret dans le client mobile).

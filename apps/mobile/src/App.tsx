@@ -10,9 +10,13 @@ import { isOverlayCopilotSupported, overlayCopilot, subscribeToBubbleTapped } fr
 import { createAnalysis, pollAnalysisUntilSettled } from "./api/analyses-client";
 import { decodeJwtUserId } from "./api/decode-jwt-user-id";
 import { TcgScanScreen } from "./screens/TcgScanScreen";
+import { UniversalCaptureScreen } from "./capture/UniversalCaptureScreen";
+import type { UniversalCaptureResult } from "./capture/types";
 import type { AnalysisResponse } from "@dealradar/contracts";
 
-type AppTab = "copilot" | "tcgScan";
+// "universalCapture" : onglet séparé pour valider le LOT Universal Capture Intake sur
+// appareil réel (ADR 0013) — n'affecte jamais le flux "tcgScan" existant.
+type AppTab = "copilot" | "tcgScan" | "universalCapture";
 
 /**
  * Spike Android (ADR 0010, section 16 du brief) : prouve le flux
@@ -31,6 +35,7 @@ export default function App() {
   const [accessToken, setAccessToken] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastCapture, setLastCapture] = useState<UniversalCaptureResult | null>(null);
   const userId = accessToken ? decodeJwtUserId(accessToken) : null;
 
   const dispatch = useCallback((action: CopilotAction) => {
@@ -116,6 +121,7 @@ export default function App() {
         <View style={styles.tabBar}>
           <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} disabled />
+          <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
         </View>
         <TextInput
           style={styles.input}
@@ -133,11 +139,32 @@ export default function App() {
     );
   }
 
+  if (activeTab === "universalCapture") {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.tabBar}>
+          <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
+          <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
+          <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} disabled />
+        </View>
+        {lastCapture ? (
+          <View style={styles.previewBox}>
+            <Text style={styles.result}>{JSON.stringify(lastCapture, null, 2)}</Text>
+            <Button title="Nouvelle capture" onPress={() => setLastCapture(null)} />
+          </View>
+        ) : (
+          <UniversalCaptureScreen onCaptured={setLastCapture} onCancel={() => setActiveTab("copilot")} />
+        )}
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.tabBar}>
         <Button title="Copilote" onPress={() => setActiveTab("copilot")} disabled />
         <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
+        <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
       </View>
       <Text style={styles.title}>DealRadar Copilote — spike</Text>
       <Text style={styles.phase}>État : {state.phase}</Text>
@@ -178,7 +205,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24, gap: 12 },
-  tabBar: { flexDirection: "row", gap: 12, marginBottom: 8 },
+  tabBar: { flexDirection: "row", gap: 12, marginBottom: 8, flexWrap: "wrap" },
   title: { fontSize: 20, fontWeight: "600" },
   phase: { fontSize: 14, color: "#666" },
   warning: { color: "#b45309" },
