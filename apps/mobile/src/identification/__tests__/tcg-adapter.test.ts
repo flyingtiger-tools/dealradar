@@ -2,25 +2,54 @@ const mockUploadTcgCardPhoto = jest.fn();
 const mockDeleteTcgCardPhoto = jest.fn();
 const mockCreateAnalysis = jest.fn();
 const mockPollAnalysisUntilSettled = jest.fn();
+let mockRandomUuidCounter = 0;
+
+// `Crypto.randomUUID()` appelle un module natif (`ExpoCrypto`) indisponible
+// sous Jest — fonctionne normalement sur un vrai appareil/build, mais
+// retourne `undefined` sans ce mock explicite (même schéma que les autres
+// modules natifs déjà mockés ailleurs dans ce projet, ex. expo-image-manipulator).
+jest.mock("expo-crypto", () => ({
+  randomUUID: () => `mock-uuid-${++mockRandomUuidCounter}`,
+}));
+
+// Préfixées "mock" — Jest hoiste `jest.mock()` au-dessus de toute autre
+// déclaration du fichier ; seuls les identifiants commençant par "mock"
+// (insensible à la casse) peuvent être référencés depuis une factory.
+class MockTcgUploadError extends Error {}
+class MockAnalysesApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 jest.mock("../../api/tcg-upload-client", () => ({
   uploadTcgCardPhoto: (...args: unknown[]) => mockUploadTcgCardPhoto(...args),
   deleteTcgCardPhoto: (...args: unknown[]) => mockDeleteTcgCardPhoto(...args),
-  TcgUploadError: class TcgUploadError extends Error {},
+  TcgUploadError: MockTcgUploadError,
 }));
 
 jest.mock("../../api/analyses-client", () => ({
   createAnalysis: (...args: unknown[]) => mockCreateAnalysis(...args),
   pollAnalysisUntilSettled: (...args: unknown[]) => mockPollAnalysisUntilSettled(...args),
-  AnalysesApiError: class AnalysesApiError extends Error {},
+  AnalysesApiError: MockAnalysesApiError,
 }));
 
 import { tcgAdapter } from "../tcg-adapter";
 import type { UniversalCaptureResult } from "../../capture/types";
-import type { AuthContext } from "../types";
 import type { TcgCardAnalysisResult } from "@dealradar/contracts";
 
-const AUTH: AuthContext = { accessToken: "token-abc", userId: "user-1" };
+/**
+ * Signatures alignées sur le refactor auth (LOT 9) — `uploadTcgCardPhoto`,
+ * `createAnalysis`, `pollAnalysisUntilSettled` et `deleteTcgCardPhoto` ne
+ * prennent plus ni `accessToken` ni `userId` : ces fonctions tirent
+ * elles-mêmes l'identité de la session Supabase courante. Ce test vérifie
+ * uniquement que `tcgAdapter` les appelle avec les BONS arguments restants
+ * — pas la logique de session elle-même, déjà couverte par
+ * `__tests__/session.test.ts` et `__tests__/tcg-upload-client.test.ts`.
+ */
 
 function fakeCapture(): UniversalCaptureResult {
   return {
@@ -79,24 +108,54 @@ describe("tcgAdapter.canHandle", () => {
   });
 });
 
-describe("tcgAdapter.analyze — transformation de l'entrée et appel unique au pipeline", () => {
-  it("transforme la capture vers le contrat existant et n'appelle chaque étape du pipeline qu'une seule fois", async () => {
+describe("tcgAdapter.analyze — transformation de l'entrée et appel unique au pipeline (signatures session-based)", () => {
+  it("appelle uploadTcgCardPhoto(clientRequestId, uri) sans accessToken/userId, et chaque étape une seule fois", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({
       id: "analysis-1",
       status: "completed",
       result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
     });
 
-    await tcgAdapter.analyze(fakeCapture(), AUTH);
+    await tcgAdapter.analyze(fakeCapture());
 
     expect(mockUploadTcgCardPhoto).toHaveBeenCalledTimes(1);
-    expect(mockUploadTcgCardPhoto).toHaveBeenCalledWith(AUTH.accessToken, AUTH.userId, expect.any(String), "file://normalized.jpg");
+    expect(mockUploadTcgCardPhoto).toHaveBeenCalledWith(expect.any(String), "file://normalized.jpg");
+
     expect(mockCreateAnalysis).toHaveBeenCalledTimes(1);
-    const [, request] = mockCreateAnalysis.mock.calls[0] as [string, { categorySlug: string; imageReferences: { url: string }[]; sourceType: string }];
+    const [request] = mockCreateAnalysis.mock.calls[0] as [{ categorySlug: string; imageReferences: { url: string }[]; sourceType: string }];
     expect(request.categorySlug).toBe("pokemon_tcg");
     expect(request.sourceType).toBe("mobile_camera");
     expect(request.imageReferences).toEqual([{ url: "https://storage/analysis-uploads/user-1/req/photo.jpg" }]);
+
     expect(mockPollAnalysisUntilSettled).toHaveBeenCalledTimes(1);
+    expect(mockPollAnalysisUntilSettled).toHaveBeenCalledWith("analysis-1");
+  });
+
+  it("appelle deleteTcgCardPhoto(clientRequestId) seul, sans accessToken/userId", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
+    });
+
+    await tcgAdapter.analyze(fakeCapture());
+
+    expect(mockDeleteTcgCardPhoto).toHaveBeenCalledTimes(1);
+    expect(mockDeleteTcgCardPhoto).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("le même clientRequestId est utilisé pour l'upload et la suppression", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
+    });
+
+    await tcgAdapter.analyze(fakeCapture());
+
+    const uploadId = mockUploadTcgCardPhoto.mock.calls[0][0];
+    const deleteId = mockDeleteTcgCardPhoto.mock.calls[0][0];
+    expect(uploadId).toBe(deleteId);
   });
 });
 
@@ -133,7 +192,7 @@ describe("tcgAdapter.analyze — normalisation", () => {
       },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("identified");
     expect(result.category).toBe("pokemon_tcg");
@@ -150,7 +209,7 @@ describe("tcgAdapter.analyze — normalisation", () => {
       result: { kind: "pokemon_tcg_card", needsConfirmation: true, extractedFields: fakeExtractedFields({ cardNumber: null }), identity: null, priceObservations: [], warnings: ["low_confidence_extraction"], reason: null },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("needs_confirmation");
     expect(result.valuation).toEqual({ low: null, high: null, currency: null });
@@ -164,7 +223,7 @@ describe("tcgAdapter.analyze — normalisation", () => {
       result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("insufficient_data");
     expect(result.risks).toContain("catalog_diverged");
@@ -191,7 +250,7 @@ describe("tcgAdapter.analyze — normalisation", () => {
       result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity, priceObservations: [], warnings: [], reason: null },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.product.collectorNumber).toBe("096");
   });
@@ -217,9 +276,32 @@ describe("tcgAdapter.analyze — normalisation", () => {
       result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity, priceObservations: [], warnings: [], reason: null },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.valuation).toEqual({ low: null, high: null, currency: null });
+  });
+});
+
+describe("tcgAdapter.analyze — session absente ou expirée", () => {
+  it("aucune session active dès l'upload (TcgUploadError du client) : status failed, message préservé, jamais un appel réseau suivant", async () => {
+    mockUploadTcgCardPhoto.mockRejectedValue(new MockTcgUploadError("Aucune session active — connecte-toi avant d'envoyer une photo."));
+
+    const result = await tcgAdapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.confidence).toBeNull();
+    expect(result.risks).toContain("Aucune session active — connecte-toi avant d'envoyer une photo.");
+    expect(mockCreateAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("session expirée entre l'upload et la création de l'analyse (AnalysesApiError UNAUTHENTICATED) : status failed, cleanup quand même déclenché", async () => {
+    mockCreateAnalysis.mockRejectedValue(new MockAnalysesApiError("UNAUTHENTICATED", "Aucune session active — connecte-toi avant de lancer une analyse."));
+
+    const result = await tcgAdapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.risks).toContain("Aucune session active — connecte-toi avant de lancer une analyse.");
+    expect(mockDeleteTcgCardPhoto).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -227,7 +309,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
   it("image invalide (upload échoue) : status failed, confidence null, jamais une identité inventée", async () => {
     mockUploadTcgCardPhoto.mockRejectedValue(new Error("Fichier image illisible."));
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("failed");
     expect(result.confidence).toBeNull();
@@ -239,7 +321,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
   it("timeout (le polling rend un statut encore pending) : status failed, message explicite", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "processing", result: null });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("failed");
     expect(result.risks[0]).toMatch(/délai/i);
@@ -248,7 +330,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
   it("réponse backend invalide (result absent alors que status=completed) : status failed", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: null });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("failed");
   });
@@ -260,7 +342,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
       result: { product: { name: "x", category: null, modelOrReference: null }, conditionEstimated: null, priceDetected: null, marketValueEstimate: null, resaleRangeConservative: null, grossMargin: null, estimatedFees: null, netMargin: null, confidenceScore: 50, liquidityScore: 50, dealScore: null, decision: "REVIEW", warnings: [], reasons: [], dataAvailability: { soldTransactions: false, marketGuide: false } },
     });
 
-    const result = await tcgAdapter.analyze(fakeCapture(), AUTH);
+    const result = await tcgAdapter.analyze(fakeCapture());
 
     expect(result.status).toBe("failed");
   });
@@ -268,7 +350,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
   it("nettoie la photo uploadée même en cas d'échec après upload (best-effort, jamais bloquant)", async () => {
     mockCreateAnalysis.mockRejectedValue(new Error("HTTP 500"));
 
-    await tcgAdapter.analyze(fakeCapture(), AUTH);
+    await tcgAdapter.analyze(fakeCapture());
 
     expect(mockDeleteTcgCardPhoto).toHaveBeenCalledTimes(1);
   });
@@ -276,7 +358,7 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
   it("ne tente pas de nettoyer une photo qui n'a jamais été uploadée", async () => {
     mockUploadTcgCardPhoto.mockRejectedValue(new Error("Fichier image illisible."));
 
-    await tcgAdapter.analyze(fakeCapture(), AUTH);
+    await tcgAdapter.analyze(fakeCapture());
 
     expect(mockDeleteTcgCardPhoto).not.toHaveBeenCalled();
   });

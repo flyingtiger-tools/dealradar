@@ -1,8 +1,6 @@
 import { identifyCapture } from "../identify-capture";
-import type { AuthContext, CategoryAdapter, IdentificationCandidate, RafAnalysis } from "../types";
+import type { CategoryAdapter, IdentificationCandidate, RafAnalysis } from "../types";
 import type { UniversalCaptureResult } from "../../capture/types";
-
-const AUTH: AuthContext = { accessToken: "token", userId: "user-1" };
 
 function fakeCapture(): UniversalCaptureResult {
   return {
@@ -53,7 +51,7 @@ describe("identifyCapture — routage", () => {
     const analyzeSpy = jest.fn(async () => successResult());
     const adapter = fakeAdapter({ analyze: analyzeSpy });
 
-    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", AUTH, [adapter]);
+    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", [adapter]);
 
     expect(analyzeSpy).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("identified");
@@ -67,7 +65,7 @@ describe("identifyCapture — routage", () => {
       analyze: analyzeSpy,
     });
 
-    const result = await identifyCapture(fakeCapture(), null, AUTH, [adapter]);
+    const result = await identifyCapture(fakeCapture(), null, [adapter]);
 
     expect(result.status).toBe("insufficient_data");
     expect(result.category).toBeNull();
@@ -81,7 +79,7 @@ describe("identifyCapture — routage", () => {
       analyze: analyzeSpy,
     });
 
-    await identifyCapture(fakeCapture(), null, AUTH, [adapter]);
+    await identifyCapture(fakeCapture(), null, [adapter]);
 
     expect(analyzeSpy).not.toHaveBeenCalled();
   });
@@ -93,14 +91,14 @@ describe("identifyCapture — routage", () => {
       },
     });
 
-    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", AUTH, [adapter]);
+    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", [adapter]);
 
     expect(result.status).toBe("failed");
     expect(result.risks).toContain("panne réseau imprévue");
   });
 
   it("liste vide d'adaptateurs : insufficient_data, jamais une exception", async () => {
-    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", AUTH, []);
+    const result = await identifyCapture(fakeCapture(), "pokemon_tcg", []);
     expect(result.status).toBe("insufficient_data");
   });
 });

@@ -1,6 +1,6 @@
 import type { CategorySlug } from "@dealradar/contracts";
 import type { UniversalCaptureResult } from "../capture/types";
-import type { AuthContext, CategoryAdapter, RafAnalysis } from "./types";
+import type { CategoryAdapter, RafAnalysis } from "./types";
 import { failedAnalysis, insufficientDataAnalysis } from "./raf-analysis-helpers";
 
 /**
@@ -14,7 +14,6 @@ import { failedAnalysis, insufficientDataAnalysis } from "./raf-analysis-helpers
 export async function identifyCapture(
   capture: UniversalCaptureResult,
   categoryHint: CategorySlug | null,
-  auth: AuthContext,
   adapters: readonly CategoryAdapter[],
 ): Promise<RafAnalysis> {
   const candidates = adapters
@@ -29,7 +28,7 @@ export async function identifyCapture(
   const best = candidates.reduce((a, b) => (b.candidate.confidence > a.candidate.confidence ? b : a));
 
   try {
-    return await best.adapter.analyze(capture, auth);
+    return await best.adapter.analyze(capture);
   } catch (e) {
     // Filet de sécurité : un `CategoryAdapter` correct ne devrait jamais lever
     // (voir `CategoryAdapter.analyze`), mais l'orchestrateur ne doit jamais

@@ -15,12 +15,10 @@ import { betaResultReducer, initialBetaResultState, type BetaResultState } from 
  */
 
 interface UniversalCaptureBetaScreenProps {
-  accessToken: string;
-  userId: string;
   onExit: () => void;
 }
 
-export function UniversalCaptureBetaScreen({ accessToken, userId, onExit }: UniversalCaptureBetaScreenProps) {
+export function UniversalCaptureBetaScreen({ onExit }: UniversalCaptureBetaScreenProps) {
   const [state, setState] = useState<BetaResultState>(initialBetaResultState);
   const dispatch = useCallback((action: Parameters<typeof betaResultReducer>[1]) => {
     setState((current) => betaResultReducer(current, action));
@@ -30,13 +28,13 @@ export function UniversalCaptureBetaScreen({ accessToken, userId, onExit }: Univ
     async (capture: UniversalCaptureResult) => {
       dispatch({ type: "ANALYSIS_STARTED" });
       try {
-        const analysis = await identifyCapture(capture, "pokemon_tcg", { accessToken, userId }, [tcgAdapter]);
+        const analysis = await identifyCapture(capture, "pokemon_tcg", [tcgAdapter]);
         dispatch({ type: "ANALYSIS_SUCCEEDED", analysis });
       } catch (e) {
         dispatch({ type: "ANALYSIS_FAILED", message: e instanceof Error ? e.message : "Erreur inconnue lors de l'identification." });
       }
     },
-    [accessToken, userId, dispatch],
+    [dispatch],
   );
 
   if (state.phase === "idle") {

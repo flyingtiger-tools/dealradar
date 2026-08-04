@@ -1,9 +1,10 @@
 import type { CategorySlug } from "@dealradar/contracts";
 import type { TcgCardAnalysisResult } from "@dealradar/contracts";
+import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
 import type { UniversalCaptureResult } from "../capture/types";
-import type { AuthContext, CategoryAdapter, IdentificationCandidate, RafAnalysis } from "./types";
+import type { CategoryAdapter, IdentificationCandidate, RafAnalysis } from "./types";
 import { failedAnalysis } from "./raf-analysis-helpers";
 
 const CONSENT_VERSION = "1";
@@ -95,6 +96,10 @@ function fromTcgCardResult(result: TcgCardAnalysisResult, analysisId: string): R
  * appel au pipeline TCG existant, sans dupliquer sa logique. Réutilise
  * `uploadTcgCardPhoto`/`createAnalysis`/`pollAnalysisUntilSettled`/
  * `deleteTcgCardPhoto` tels quels (mêmes fonctions que `TcgScanScreen`).
+ *
+ * Aucun paramètre d'authentification : ces fonctions tirent elles-mêmes le
+ * jeton/l'identifiant de la session Supabase courante (`auth/session.ts`,
+ * LOT 9) — même contrat que `TcgScanScreen`, jamais une seconde voie.
  */
 export const tcgAdapter: CategoryAdapter = {
   category: CATEGORY,
@@ -111,14 +116,14 @@ export const tcgAdapter: CategoryAdapter = {
     return { category: null, confidence: 0, evidence: [], missingFields: ["categoryHint"] };
   },
 
-  async analyze(capture: UniversalCaptureResult, auth: AuthContext): Promise<RafAnalysis> {
-    const clientRequestId = crypto.randomUUID();
+  async analyze(capture: UniversalCaptureResult): Promise<RafAnalysis> {
+    const clientRequestId = Crypto.randomUUID();
     let uploaded = false;
     try {
-      const { url } = await uploadTcgCardPhoto(auth.accessToken, auth.userId, clientRequestId, capture.normalizedImage.uri);
+      const { url } = await uploadTcgCardPhoto(clientRequestId, capture.normalizedImage.uri);
       uploaded = true;
 
-      const created = await createAnalysis(auth.accessToken, {
+      const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
         sharedUrl: null,
@@ -133,9 +138,9 @@ export const tcgAdapter: CategoryAdapter = {
         providedTcgHints: null,
       });
 
-      const settled = await pollAnalysisUntilSettled(auth.accessToken, created.id);
+      const settled = await pollAnalysisUntilSettled(created.id);
       // Best-effort, jamais bloquant pour l'affichage du résultat (même règle que TcgScanScreen).
-      void deleteTcgCardPhoto(auth.accessToken, auth.userId, clientRequestId);
+      void deleteTcgCardPhoto(clientRequestId);
 
       if (settled.status === "pending" || settled.status === "processing") {
         return failedAnalysis(CATEGORY, "Délai dépassé — l'analyse n'a pas abouti à temps.");
@@ -145,7 +150,7 @@ export const tcgAdapter: CategoryAdapter = {
       }
       return fromTcgCardResult(settled.result, settled.id);
     } catch (e) {
-      if (uploaded) void deleteTcgCardPhoto(auth.accessToken, auth.userId, clientRequestId);
+      if (uploaded) void deleteTcgCardPhoto(clientRequestId);
       return failedAnalysis(CATEGORY, e instanceof Error ? e.message : "Erreur inconnue lors de l'identification.");
     }
   },

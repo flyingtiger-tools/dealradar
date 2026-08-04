@@ -2,16 +2,6 @@ import type { CategorySlug } from "@dealradar/contracts";
 import type { UniversalCaptureResult } from "../capture/types";
 
 /**
- * Identité d'un utilisateur authentifié pour appeler le pipeline existant —
- * même paire `accessToken`/`userId` que `TcgScanScreen`/`App.tsx` (LOT 8/9),
- * jamais un second mécanisme d'authentification.
- */
-export interface AuthContext {
-  accessToken: string;
-  userId: string;
-}
-
-/**
  * Jugement d'un `CategoryAdapter` sur sa capacité à traiter une capture
  * donnée — `category: null` signifie "je ne sais pas", jamais une
  * catégorie devinée sans preuve (ADR 0013 : le moteur V1 est honnête,
@@ -66,6 +56,12 @@ export interface RafAnalysis {
 export interface CategoryAdapter {
   readonly category: CategorySlug;
   canHandle(capture: UniversalCaptureResult, categoryHint: CategorySlug | null): IdentificationCandidate;
-  /** Ne rejette jamais — toute erreur devient un `RafAnalysis` avec `status: "failed"`, jamais une exception qui remonte à l'appelant. */
-  analyze(capture: UniversalCaptureResult, auth: AuthContext): Promise<RafAnalysis>;
+  /**
+   * Ne rejette jamais — toute erreur devient un `RafAnalysis` avec
+   * `status: "failed"`, jamais une exception qui remonte à l'appelant.
+   * Aucun paramètre d'authentification : l'implémentation appelle des
+   * fonctions qui tirent elles-mêmes le jeton/l'identifiant de la session
+   * Supabase courante (`auth/session.ts`), jamais une seconde voie.
+   */
+  analyze(capture: UniversalCaptureResult): Promise<RafAnalysis>;
 }

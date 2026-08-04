@@ -165,11 +165,7 @@ export default function App() {
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} disabled />
           <Button title="Déconnexion" onPress={() => void signOut()} />
         </View>
-        <UniversalCaptureBetaScreen
-          accessToken={session.access_token}
-          userId={session.user.id}
-          onExit={() => setActiveTab("copilot")}
-        />
+        <UniversalCaptureBetaScreen onExit={() => setActiveTab("copilot")} />
       </SafeAreaView>
     );
   }
