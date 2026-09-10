@@ -36,3 +36,6 @@ export * from "./catalogs/tcgdex/connector";
 export * from "./catalogs/tcgdex/raw-types";
 export * from "./pricing/tcgdex/normalize";
 export * from "./pricing/tcgdex/connector";
+export * from "./web/types";
+export * from "./web/mock-fetcher";
+export * from "./web/record-web-fetch-metrics";
