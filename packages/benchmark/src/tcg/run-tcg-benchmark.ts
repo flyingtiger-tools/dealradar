@@ -14,6 +14,16 @@ export interface RunTcgBenchmarkOptions {
    * garanti, aucun appel réseau, quel que soit l'environnement.
    */
   live?: boolean;
+  /**
+   * Limite le nombre d'exemples du dataset réellement évalués (Phase 17,
+   * "long lot local") — appliqué AVANT la boucle, jamais un abandon après
+   * coup. `undefined`/absent : tous les exemples sont évalués (comportement
+   * historique, sûr en mode simulé où aucun coût n'existe). En mode live,
+   * l'appelant (voir `cli-tcg.ts`) doit fournir explicitement cette valeur —
+   * ce module lui-même ne l'exige pas (reste utilisable directement, ex. en
+   * test), c'est la responsabilité du CLI de refuser un run live sans cap.
+   */
+  maxExamples?: number;
 }
 
 /**
@@ -31,12 +41,17 @@ export async function runTcgBenchmark(
   let anyLive = false;
   const matrices = [];
 
+  const evaluatedEntries =
+    options.maxExamples !== undefined && options.maxExamples < dataset.entries.length
+      ? dataset.entries.slice(0, options.maxExamples)
+      : dataset.entries;
+
   for (const matrixEntry of matrix) {
     const built = buildProviderForMatrixEntry(matrixEntry, { live: options.live });
     if (built.mode === "live") anyLive = true;
 
     const results = [];
-    for (const entry of dataset.entries) {
+    for (const entry of evaluatedEntries) {
       const imageUrl = options.resolveImageUrl(entry.imagePath);
       results.push(
         await runTcgExample(entry, {
@@ -55,6 +70,7 @@ export async function runTcgBenchmark(
     generatedAt: new Date().toISOString(),
     datasetProvenance: dataset.provenance,
     datasetEntryCount: dataset.entries.length,
+    examplesEvaluatedCount: evaluatedEntries.length,
     mode: anyLive ? "live" : "simulated",
     matrices,
     deterministicVsAi: {

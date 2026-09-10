@@ -215,7 +215,8 @@ function printTcgMatrixMetrics(m: TcgMatrixMetrics) {
 }
 
 function printTcgReport(report: TcgBenchmarkReport) {
-  console.log(`\n=== Benchmark TCG — mode ${report.mode} — ${report.datasetEntryCount} exemple(s), provenance "${report.datasetProvenance}" ===`);
+  const capNote = report.examplesEvaluatedCount < report.datasetEntryCount ? ` (plafonné à ${report.examplesEvaluatedCount} via --tcg-max-examples)` : "";
+  console.log(`\n=== Benchmark TCG — mode ${report.mode} — ${report.datasetEntryCount} exemple(s)${capNote}, provenance "${report.datasetProvenance}" ===`);
   for (const m of report.matrices) printTcgMatrixMetrics(m);
   console.log(`\nDéterministe vs IA : ${report.deterministicVsAi.note}`);
 }
@@ -251,6 +252,12 @@ async function main() {
     const result = await runTcgCli(argv, DATASETS_DIR);
     if (result.kind === "empty_dataset") {
       console.log(`Dataset TCG "${result.datasetArg}" vide (aucune photo déposée) — voir packages/benchmark/datasets/tcg/README.md pour en ajouter.`);
+      return;
+    }
+    if (result.kind === "live_blocked") {
+      console.error("Run --tcg-live REFUSÉ (aucun appel réseau effectué, aucune clé lue) :");
+      for (const reason of result.reasons) console.error(`  - ${reason}`);
+      process.exitCode = 1;
       return;
     }
     printTcgReport(result.report);

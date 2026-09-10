@@ -150,6 +150,8 @@ export interface TcgBenchmarkReport {
   generatedAt: string;
   datasetProvenance: "synthetic" | "real";
   datasetEntryCount: number;
+  /** Nombre d'exemples RÉELLEMENT évalués — identique à `datasetEntryCount` sauf si `RunTcgBenchmarkOptions.maxExamples` a plafonné le run (Phase 17). */
+  examplesEvaluatedCount: number;
   mode: "simulated" | "live";
   matrices: TcgMatrixMetrics[];
   deterministicVsAi: TcgDeterministicVsAiSummary;

@@ -52,6 +52,28 @@ describe("runTcgBenchmark — COÛT = 0 par défaut", () => {
     expect(report.deterministicVsAi.note.length).toBeGreaterThan(0);
   });
 
+  it("maxExamples plafonne le nombre d'exemples réellement évalués (Phase 17)", async () => {
+    const twoEntryDataset: TcgDataset = {
+      provenance: "synthetic",
+      entries: [...dataset().entries, { ...dataset().entries[0]!, id: "second-card", imagePath: "photos/second.jpg" }],
+    };
+    const report = await runTcgBenchmark(twoEntryDataset, [{ provider: "openai", model: "gpt-4o-mini" }], {
+      resolveImageUrl: (imagePath) => `file://${imagePath}`,
+      maxExamples: 1,
+    });
+    expect(report.datasetEntryCount).toBe(2);
+    expect(report.examplesEvaluatedCount).toBe(1);
+    expect(report.matrices[0]!.examplesTotal).toBe(1);
+  });
+
+  it("maxExamples supérieur ou égal au dataset : aucun effet, tout le dataset est évalué", async () => {
+    const report = await runTcgBenchmark(dataset(), [{ provider: "openai", model: "gpt-4o-mini" }], {
+      resolveImageUrl: (imagePath) => `file://${imagePath}`,
+      maxExamples: 999,
+    });
+    expect(report.examplesEvaluatedCount).toBe(report.datasetEntryCount);
+  });
+
   it("dataset vide : rapport valide, sans exception, métriques à zéro", async () => {
     const report = await runTcgBenchmark(
       { provenance: "synthetic", entries: [] },
