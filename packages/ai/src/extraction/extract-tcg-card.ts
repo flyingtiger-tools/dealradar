@@ -102,6 +102,26 @@ export interface TcgCardExtractionResult {
   telemetry: ExtractionTelemetry;
 }
 
+/**
+ * Seuil de confiance globale minimal pour tenter une corroboration
+ * catalogue sans confirmation utilisateur — source de vérité unique,
+ * consommée à la fois par `apps/workers/src/jobs/process-tcg-card-analysis.ts`
+ * (décision réelle) et `packages/benchmark/src/tcg` (mesure de
+ * `needsConfirmationRate`). Vit ici, à côté de `TcgCardExtraction` qu'elle
+ * interprète, plutôt que dans `apps/workers` (packages/benchmark ne doit
+ * jamais dépendre d'une app) ou `packages/core` (ne dépend pas de
+ * `packages/ai` sans nécessité — cette règle n'en interprète que la forme
+ * déjà définie ici).
+ */
+export const MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION = 0.7;
+
+/** Nom seul ne suffit jamais (même règle que le pipeline TCG lui-même, ADR 0012) — voir aussi le seuil ci-dessus. */
+export function isSufficientForAutoCorroboration(extraction: TcgCardExtraction): boolean {
+  const hasName = extraction.cardName.value !== null;
+  const hasSetOrNumber = extraction.setName.value !== null || extraction.cardNumber.value !== null;
+  return hasName && hasSetOrNumber && extraction.overallConfidence >= MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION;
+}
+
 function emptyExtraction(): TcgCardExtraction {
   return {
     game: { value: null, confidence: 0 },

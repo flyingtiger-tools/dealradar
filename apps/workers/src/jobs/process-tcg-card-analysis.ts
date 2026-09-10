@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { extractTcgCardFromPhoto, type ExtractTcgCardOptions, type TcgCardExtraction } from "@dealradar/ai";
+import { extractTcgCardFromPhoto, isSufficientForAutoCorroboration, type ExtractTcgCardOptions, type TcgCardExtraction } from "@dealradar/ai";
 import { orchestratePokemonPipeline } from "@dealradar/ingestion";
 import { deriveCollectorNumberForCatalogQuery, type TcgCatalogHints } from "@dealradar/connectors";
 import type { TcgCardAnalysisResult, TcgCardExtractedFields, TcgCardProvidedHints } from "@dealradar/core";
@@ -16,8 +16,6 @@ import type { TcgPipelineConnectors } from "../ingestion/tcg-connector-config";
  * ou modifiée ici.
  */
 
-/** Confiance minimale + champs requis pour lancer la corroboration automatiquement — sous ce seuil, l'utilisateur doit confirmer/corriger (jamais une correspondance sur un nom seul). */
-const MIN_OVERALL_CONFIDENCE = 0.7;
 const SIGNED_URL_TTL_SECONDS = 300;
 const STORAGE_BUCKET = "analysis-uploads";
 const TARGET_CURRENCY = "CHF";
@@ -75,13 +73,6 @@ function extractionToFields(extraction: TcgCardExtraction, warnings: string[]): 
     confidence: extraction.overallConfidence,
     warnings,
   };
-}
-
-/** Champs suffisants pour tenter la corroboration sans confirmation utilisateur — nom seul ne suffit jamais (même règle que le pipeline TCG lui-même, ADR 0012). */
-function isSufficientForAutoCorroboration(extraction: TcgCardExtraction): boolean {
-  const hasName = extraction.cardName.value !== null;
-  const hasSetOrNumber = extraction.setName.value !== null || extraction.cardNumber.value !== null;
-  return hasName && hasSetOrNumber && extraction.overallConfidence >= MIN_OVERALL_CONFIDENCE;
 }
 
 function hintsFromExtraction(extraction: TcgCardExtraction): TcgCatalogHints {

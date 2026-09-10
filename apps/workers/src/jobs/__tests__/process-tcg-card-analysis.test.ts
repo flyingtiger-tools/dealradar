@@ -5,7 +5,12 @@ import { logger } from "../../logger";
 const extractTcgCardFromPhoto = vi.fn();
 const orchestratePokemonPipeline = vi.fn();
 
-vi.mock("@dealradar/ai", () => ({ extractTcgCardFromPhoto: (...args: unknown[]) => extractTcgCardFromPhoto(...args) }));
+// `isSufficientForAutoCorroboration` (et le seuil qu'elle interprète) reste la vraie implémentation ici — c'est la
+// même règle métier que le pipeline réel applique, elle ne doit jamais être re-mockée/dupliquée dans ce test.
+vi.mock("@dealradar/ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dealradar/ai")>()),
+  extractTcgCardFromPhoto: (...args: unknown[]) => extractTcgCardFromPhoto(...args),
+}));
 vi.mock("@dealradar/ingestion", () => ({ orchestratePokemonPipeline: (...args: unknown[]) => orchestratePokemonPipeline(...args) }));
 
 const { processTcgCardAnalysis } = await import("../process-tcg-card-analysis");
