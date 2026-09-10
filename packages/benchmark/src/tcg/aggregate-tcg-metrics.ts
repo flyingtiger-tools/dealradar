@@ -1,4 +1,6 @@
-import type { ProviderMatrixEntry, TcgBenchmarkExampleResult, TcgFieldAccuracy, TcgFieldName, TcgMatrixMetrics } from "./types";
+import { MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION } from "@dealradar/ai";
+import type { TcgDatasetTag } from "./dataset-schema";
+import type { ProviderMatrixEntry, TcgBenchmarkExampleResult, TcgFieldAccuracy, TcgFieldName, TcgMatrixMetrics, TcgTagMetrics } from "./types";
 
 const COMPARED_FIELDS: TcgFieldName[] = ["cardName", "setName", "collectorNumber", "language", "variant"];
 
@@ -10,6 +12,33 @@ function percentile(sorted: number[], p: number): number {
 
 function average(values: number[]): number {
   return values.length === 0 ? 0 : values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+function rate(numerator: number, denominator: number): number | null {
+  return denominator === 0 ? null : numerator / denominator;
+}
+
+/** Une entrée par tag réellement présent dans `results` — jamais les 12 tags possibles fabriqués à 0/0 (voir `TcgTagMetrics`). */
+function aggregateByTag(results: TcgBenchmarkExampleResult[]): TcgTagMetrics[] {
+  const byTag = new Map<TcgDatasetTag, TcgBenchmarkExampleResult[]>();
+  for (const result of results) {
+    for (const tag of result.tags) {
+      const group = byTag.get(tag) ?? [];
+      group.push(result);
+      byTag.set(tag, group);
+    }
+  }
+
+  return [...byTag.entries()].map(([tag, tagResults]) => {
+    const successes = tagResults.filter((r) => r.outcome === "success");
+    const exactMatchable = successes.filter((r) => Object.keys(r.fieldMatches).length > 0);
+    return {
+      tag,
+      examplesTotal: tagResults.length,
+      successCount: successes.length,
+      exactIdentificationAccuracy: exactMatchable.length === 0 ? null : exactMatchable.filter((r) => r.exactMatch).length / exactMatchable.length,
+    };
+  });
 }
 
 /**
@@ -48,6 +77,29 @@ export function aggregateTcgMatrixMetrics(matrixEntry: ProviderMatrixEntry, resu
   const needsConfirmationRate = examplesTotal === 0 ? null : results.filter((r) => r.needsConfirmation).length / examplesTotal;
   const hallucinationRate = successCount === 0 ? null : successResults.filter((r) => r.hallucinated).length / successCount;
 
+  const providerErrorCount = results.filter((r) => r.outcome === "provider_error").length;
+  const invalidJsonCount = results.filter((r) => r.outcome === "invalid_json").length;
+  const invalidSchemaCount = results.filter((r) => r.outcome === "invalid_schema").length;
+
+  // Seuil réel d'auto-corroboration (source de vérité unique, @dealradar/ai) — jamais un
+  // second seuil deviné ici pour définir "confiance élevée" vs "confiance insuffisante".
+  const highConfidenceSuccesses = successResults.filter(
+    (r) => r.overallConfidence !== null && r.overallConfidence >= MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION,
+  );
+  const falsePositiveRate = rate(highConfidenceSuccesses.filter((r) => !r.exactMatch).length, highConfidenceSuccesses.length);
+
+  const lowConfidenceSuccesses = successResults.filter(
+    (r) => r.overallConfidence !== null && r.overallConfidence < MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION,
+  );
+  const falseNegativeRate = rate(lowConfidenceSuccesses.filter((r) => r.exactMatch).length, lowConfidenceSuccesses.length);
+
+  // Restreint aux exemples où une comparaison était réellement possible (mêmes règles que
+  // `exactMatchable` ci-dessus) — sinon un exemple "ambiguous" sans champ comparable
+  // compterait à tort comme un échec (exactMatch est structurellement false quand rien
+  // n'est comparable, voir run-tcg-example.ts).
+  const ambiguousComparable = successResults.filter((r) => r.tags.includes("ambiguous") && Object.keys(r.fieldMatches).length > 0);
+  const ambiguityRate = rate(ambiguousComparable.filter((r) => !r.exactMatch).length, ambiguousComparable.length);
+
   const latencies = results.map((r) => r.latencyMs).sort((a, b) => a - b);
   const costs = results.map((r) => r.estimatedCostUsd).filter((c): c is number => c !== null);
   const estimatedCostUsdTotal = costs.length === 0 ? null : costs.reduce((sum, c) => sum + c, 0);
@@ -56,14 +108,21 @@ export function aggregateTcgMatrixMetrics(matrixEntry: ProviderMatrixEntry, resu
     matrixEntry,
     examplesTotal,
     successCount,
-    providerErrorCount: results.filter((r) => r.outcome === "provider_error").length,
-    invalidJsonCount: results.filter((r) => r.outcome === "invalid_json").length,
-    invalidSchemaCount: results.filter((r) => r.outcome === "invalid_schema").length,
+    providerErrorCount,
+    invalidJsonCount,
+    invalidSchemaCount,
+    providerErrorRate: rate(providerErrorCount, examplesTotal),
+    invalidResponseRate: rate(invalidJsonCount + invalidSchemaCount, examplesTotal),
     exactIdentificationAccuracy,
     fieldAccuracy,
     confidenceCalibrationError,
     needsConfirmationRate,
     hallucinationRate,
+    falsePositiveRate,
+    falseNegativeRate,
+    ambiguityRate,
+    hybridSuccessRate: rate(successCount, examplesTotal),
+    byTag: aggregateByTag(results),
     latencyMs: {
       avg: average(latencies),
       median: percentile(latencies, 50),

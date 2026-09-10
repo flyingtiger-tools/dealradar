@@ -56,6 +56,15 @@ export interface TcgBenchmarkExampleResult {
   latencyMs: number;
 }
 
+/** Métriques d'UN tag de difficulté/qualité (Phase 7, "long lot local") — segmente `exactIdentificationAccuracy` par tag pour voir où un provider est bon ou mauvais, jamais un taux global qui masquerait une faiblesse spécifique (ex. "glare" ou "ambiguous"). Un exemple portant plusieurs tags contribue à chacun d'eux. */
+export interface TcgTagMetrics {
+  tag: TcgDatasetTag;
+  examplesTotal: number;
+  successCount: number;
+  /** Sur les succès de CE tag uniquement, mêmes règles que `TcgMatrixMetrics.exactIdentificationAccuracy` — null si aucun exemple comparable. */
+  exactIdentificationAccuracy: number | null;
+}
+
 export interface TcgMatrixMetrics {
   matrixEntry: ProviderMatrixEntry;
   examplesTotal: number;
@@ -63,6 +72,10 @@ export interface TcgMatrixMetrics {
   providerErrorCount: number;
   invalidJsonCount: number;
   invalidSchemaCount: number;
+  /** providerErrorCount / examplesTotal — null si examplesTotal === 0. */
+  providerErrorRate: number | null;
+  /** (invalidJsonCount + invalidSchemaCount) / examplesTotal — réponse reçue mais inexploitable, distinct d'une erreur réseau/provider. null si examplesTotal === 0. */
+  invalidResponseRate: number | null;
   /** Sur les succès uniquement — proportion d'exemples où tous les champs comparables correspondent. null si successCount === 0. */
   exactIdentificationAccuracy: number | null;
   fieldAccuracy: TcgFieldAccuracy[];
@@ -74,6 +87,37 @@ export interface TcgMatrixMetrics {
   confidenceCalibrationError: number | null;
   needsConfirmationRate: number | null;
   hallucinationRate: number | null;
+  /**
+   * Parmi les succès dont `overallConfidence >= MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION`
+   * (seuil réel d'auto-corroboration, `@dealradar/ai`) — proportion dont `exactMatch`
+   * est FALSE. Mesure le cas le plus dangereux : le pipeline réel laisserait passer ce
+   * résultat sans confirmation utilisateur alors qu'il est faux. null si aucun exemple
+   * de confiance suffisante.
+   */
+  falsePositiveRate: number | null;
+  /**
+   * Parmi les succès dont `overallConfidence < MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION`
+   * (donc `needsConfirmation === true`) — proportion dont `exactMatch` est TRUE. Mesure le
+   * coût UX du seuil : combien de fois une confirmation est redemandée alors que
+   * l'extraction était en fait correcte. null si aucun exemple sous le seuil.
+   */
+  falseNegativeRate: number | null;
+  /**
+   * Parmi les succès dont la vérité terrain porte le tag "ambiguous" — proportion dont
+   * `exactMatch` est FALSE. null si aucun exemple "ambiguous" dans ce run (jamais 0
+   * fabriqué sur un dénominateur vide).
+   */
+  ambiguityRate: number | null;
+  /**
+   * successCount / examplesTotal — nommé "hybride" en prévision d'un futur extracteur
+   * déterministe (ADR 0013, étape 1) qui contribuerait à une partie des succès ; tant
+   * qu'aucun extracteur déterministe n'existe (voir `TcgDeterministicVsAiSummary`), cette
+   * valeur est structurellement identique à un simple taux de succès — jamais fabriquée
+   * comme une vraie contribution hybride avant que ce soit réellement le cas.
+   */
+  hybridSuccessRate: number | null;
+  /** Un élément par tag RÉELLEMENT présent dans ce run — jamais les 12 tags possibles fabriqués à 0/0. */
+  byTag: TcgTagMetrics[];
   /** Voir `TcgBenchmarkExampleResult.latencyMs` — non représentatif de la performance réelle d'un provider tant que `TcgBenchmarkReport.mode !== "live"`. */
   latencyMs: { avg: number; median: number; p95: number };
   inputUnitsTotal: number;

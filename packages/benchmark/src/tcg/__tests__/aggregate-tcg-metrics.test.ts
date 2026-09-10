@@ -110,3 +110,108 @@ describe("aggregateTcgMatrixMetrics — comptes et taux", () => {
     expect(metrics.latencyMs.median).toBe(30);
   });
 });
+
+describe("aggregateTcgMatrixMetrics — providerErrorRate / invalidResponseRate", () => {
+  it("providerErrorRate et invalidResponseRate sur TOUS les exemples (dénominateur = examplesTotal)", () => {
+    const results = [
+      successResult(),
+      successResult({ outcome: "provider_error", fieldMatches: {}, exactMatch: false }),
+      successResult({ outcome: "invalid_json", fieldMatches: {}, exactMatch: false }),
+      successResult({ outcome: "invalid_schema", fieldMatches: {}, exactMatch: false }),
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.providerErrorRate).toBe(0.25);
+    expect(metrics.invalidResponseRate).toBe(0.5); // invalid_json + invalid_schema
+  });
+
+  it("dataset vide : providerErrorRate et invalidResponseRate null, jamais 0 fabriqué", () => {
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, []);
+    expect(metrics.providerErrorRate).toBeNull();
+    expect(metrics.invalidResponseRate).toBeNull();
+  });
+});
+
+describe("aggregateTcgMatrixMetrics — falsePositiveRate / falseNegativeRate (seuil réel MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION = 0.7)", () => {
+  it("falsePositiveRate : parmi les succès de confiance >= 0.7, proportion faux", () => {
+    const results = [
+      successResult({ overallConfidence: 0.9, exactMatch: true }),
+      successResult({ overallConfidence: 0.8, exactMatch: false }), // confiance élevée mais faux
+      successResult({ overallConfidence: 0.5, exactMatch: false }), // confiance basse, hors dénominateur
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.falsePositiveRate).toBe(0.5); // 1/2 des succès de confiance >= 0.7 sont faux
+  });
+
+  it("falseNegativeRate : parmi les succès de confiance < 0.7, proportion juste", () => {
+    const results = [
+      successResult({ overallConfidence: 0.5, exactMatch: true }), // confiance insuffisante mais juste
+      successResult({ overallConfidence: 0.6, exactMatch: false }),
+      successResult({ overallConfidence: 0.9, exactMatch: true }), // confiance suffisante, hors dénominateur
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.falseNegativeRate).toBe(0.5);
+  });
+
+  it("aucun succès de confiance suffisante/insuffisante : null, jamais 0 fabriqué", () => {
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, []);
+    expect(metrics.falsePositiveRate).toBeNull();
+    expect(metrics.falseNegativeRate).toBeNull();
+  });
+});
+
+describe("aggregateTcgMatrixMetrics — ambiguityRate", () => {
+  it("proportion des exemples tagués \"ambiguous\" dont exactMatch est faux", () => {
+    const results = [
+      successResult({ tags: ["ambiguous"], exactMatch: true }),
+      successResult({ tags: ["ambiguous"], exactMatch: false }),
+      successResult({ tags: ["perfect"], exactMatch: false }), // pas "ambiguous", hors dénominateur
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.ambiguityRate).toBe(0.5);
+  });
+
+  it("aucun exemple \"ambiguous\" : null, jamais 0 fabriqué", () => {
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, [successResult({ tags: ["perfect"] })]);
+    expect(metrics.ambiguityRate).toBeNull();
+  });
+
+  it("un exemple \"ambiguous\" sans champ comparable (fieldMatches vide) n'est jamais compté comme un échec d'ambiguïté", () => {
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, [successResult({ tags: ["ambiguous"], fieldMatches: {} })]);
+    expect(metrics.ambiguityRate).toBeNull();
+  });
+});
+
+describe("aggregateTcgMatrixMetrics — hybridSuccessRate", () => {
+  it("identique à successCount/examplesTotal tant qu'aucun extracteur déterministe n'existe", () => {
+    const results = [successResult(), successResult({ outcome: "provider_error", fieldMatches: {}, exactMatch: false })];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.hybridSuccessRate).toBe(0.5);
+  });
+});
+
+describe("aggregateTcgMatrixMetrics — byTag", () => {
+  it("segmente exactIdentificationAccuracy par tag, une entrée par tag réellement présent", () => {
+    const results = [
+      successResult({ tags: ["glare"], exactMatch: true }),
+      successResult({ tags: ["glare"], exactMatch: false }),
+      successResult({ tags: ["low_light"], exactMatch: true }),
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.byTag).toHaveLength(2);
+    const glare = metrics.byTag.find((t) => t.tag === "glare")!;
+    const lowLight = metrics.byTag.find((t) => t.tag === "low_light")!;
+    expect(glare).toEqual({ tag: "glare", examplesTotal: 2, successCount: 2, exactIdentificationAccuracy: 0.5 });
+    expect(lowLight).toEqual({ tag: "low_light", examplesTotal: 1, successCount: 1, exactIdentificationAccuracy: 1 });
+  });
+
+  it("un exemple portant plusieurs tags contribue à chacun d'eux", () => {
+    const results = [successResult({ tags: ["glare", "low_light"], exactMatch: true })];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.byTag.map((t) => t.tag).sort()).toEqual(["glare", "low_light"]);
+  });
+
+  it("aucun exemple : byTag vide", () => {
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, []);
+    expect(metrics.byTag).toEqual([]);
+  });
+});

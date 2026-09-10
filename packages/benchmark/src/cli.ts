@@ -196,13 +196,19 @@ function formatCost(cost: number | null): string {
 function printTcgMatrixMetrics(m: TcgMatrixMetrics) {
   console.log(`\n${m.matrixEntry.provider}/${m.matrixEntry.model} :`);
   console.log(
-    `  exemples=${m.examplesTotal} succès=${m.successCount} erreurs_provider=${m.providerErrorCount} json_invalide=${m.invalidJsonCount} schema_invalide=${m.invalidSchemaCount}`,
+    `  exemples=${m.examplesTotal} succès=${m.successCount} erreurs_provider=${m.providerErrorCount} (${formatRate(m.providerErrorRate)}) réponse_invalide=${m.invalidJsonCount + m.invalidSchemaCount} (${formatRate(m.invalidResponseRate)})`,
   );
   console.log(
     `  identification_exacte=${formatRate(m.exactIdentificationAccuracy)} besoin_confirmation=${formatRate(m.needsConfirmationRate)} hallucination=${formatRate(m.hallucinationRate)}`,
   );
+  console.log(
+    `  confiance_élevée_mais_faux=${formatRate(m.falsePositiveRate)} confiance_insuffisante_mais_juste=${formatRate(m.falseNegativeRate)} ambiguïté=${formatRate(m.ambiguityRate)} succès_hybride=${formatRate(m.hybridSuccessRate)}`,
+  );
   for (const field of m.fieldAccuracy) {
     console.log(`  précision.${field.field}=${formatRate(field.accuracy)} (${field.correct}/${field.evaluable})`);
+  }
+  for (const tagMetrics of m.byTag) {
+    console.log(`  tag.${tagMetrics.tag}=${formatRate(tagMetrics.exactIdentificationAccuracy)} (${tagMetrics.successCount}/${tagMetrics.examplesTotal} succès)`);
   }
   console.log(`  latence_ms avg=${m.latencyMs.avg.toFixed(0)} median=${m.latencyMs.median.toFixed(0)} p95=${m.latencyMs.p95.toFixed(0)}`);
   console.log(`  coût_total=${formatCost(m.estimatedCostUsdTotal)} coût_par_identification=${formatCost(m.costPerSuccessfulIdentificationUsd)}`);
