@@ -1,4 +1,12 @@
-import { extractTcgCardFromPhoto, estimateCostUsd, findCostTableEntry, isSufficientForAutoCorroboration, type AIProvider, type TcgCardExtraction } from "@dealradar/ai";
+import {
+  extractTcgCardFromPhoto,
+  estimateCostUsd,
+  findCostTableEntry,
+  findProviderCapabilities,
+  isSufficientForAutoCorroboration,
+  type AIProvider,
+  type TcgCardExtraction,
+} from "@dealradar/ai";
 import { collectorNumbersMatch } from "@dealradar/connectors";
 import type { TcgGroundTruth } from "./dataset-schema";
 import type { ProviderMatrixEntry, TcgBenchmarkExampleResult, TcgExampleOutcome, TcgFieldName } from "./types";
@@ -55,6 +63,29 @@ export interface RunTcgExampleOptions {
  * pour un relevé honnête, jamais influencé par un appel précédent.
  */
 export async function runTcgExample(entry: TcgGroundTruth, options: RunTcgExampleOptions): Promise<TcgBenchmarkExampleResult> {
+  // Phase 18 : le benchmark TCG envoie toujours une photo — jamais tenté sur un modèle
+  // CONNU pour ne pas accepter d'image (capacités inconnues = tenté quand même, jamais
+  // bloqué sur une simple absence de la table — voir capabilities.ts).
+  const capabilities = findProviderCapabilities(options.provider.name, options.provider.model);
+  if (capabilities?.vision === false) {
+    return {
+      exampleId: entry.id,
+      tags: entry.tags,
+      matrixEntry: options.matrixEntry,
+      actualProviderName: options.provider.name,
+      outcome: "skipped_unsupported_capability",
+      fieldMatches: {},
+      exactMatch: false,
+      overallConfidence: null,
+      hallucinated: false,
+      needsConfirmation: true,
+      inputUnits: 0,
+      outputUnits: 0,
+      estimatedCostUsd: null,
+      latencyMs: 0,
+    };
+  }
+
   const result = await extractTcgCardFromPhoto(
     { imageStorageKey: options.imageStorageKey, imageUrl: options.imageUrl },
     { provider: options.provider },

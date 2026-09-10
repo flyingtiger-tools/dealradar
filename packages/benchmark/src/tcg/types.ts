@@ -25,7 +25,9 @@ export type TcgExampleOutcome =
   | "success"
   | "provider_error"
   | "invalid_json"
-  | "invalid_schema";
+  | "invalid_schema"
+  /** Le modèle de cette entrée de matrice est CONNU pour ne pas accepter d'image (`findProviderCapabilities(...).vision === false`, `@dealradar/ai`) — jamais tenté, jamais confondu avec un échec provider réel (Phase 18). */
+  | "skipped_unsupported_capability";
 
 /** Résultat d'un seul exemple du dataset passé à travers `extractTcgCardFromPhoto()` pour une entrée de matrice donnée. */
 export interface TcgBenchmarkExampleResult {
@@ -72,6 +74,8 @@ export interface TcgMatrixMetrics {
   providerErrorCount: number;
   invalidJsonCount: number;
   invalidSchemaCount: number;
+  /** Exemples jamais tentés car le modèle de cette entrée de matrice est CONNU pour ne pas accepter d'image (Phase 18) — jamais compté comme un échec provider. */
+  skippedUnsupportedCapabilityCount: number;
   /** providerErrorCount / examplesTotal — null si examplesTotal === 0. */
   providerErrorRate: number | null;
   /** (invalidJsonCount + invalidSchemaCount) / examplesTotal — réponse reçue mais inexploitable, distinct d'une erreur réseau/provider. null si examplesTotal === 0. */

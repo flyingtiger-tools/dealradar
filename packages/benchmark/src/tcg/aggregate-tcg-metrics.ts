@@ -80,6 +80,7 @@ export function aggregateTcgMatrixMetrics(matrixEntry: ProviderMatrixEntry, resu
   const providerErrorCount = results.filter((r) => r.outcome === "provider_error").length;
   const invalidJsonCount = results.filter((r) => r.outcome === "invalid_json").length;
   const invalidSchemaCount = results.filter((r) => r.outcome === "invalid_schema").length;
+  const skippedUnsupportedCapabilityCount = results.filter((r) => r.outcome === "skipped_unsupported_capability").length;
 
   // Seuil réel d'auto-corroboration (source de vérité unique, @dealradar/ai) — jamais un
   // second seuil deviné ici pour définir "confiance élevée" vs "confiance insuffisante".
@@ -111,6 +112,7 @@ export function aggregateTcgMatrixMetrics(matrixEntry: ProviderMatrixEntry, resu
     providerErrorCount,
     invalidJsonCount,
     invalidSchemaCount,
+    skippedUnsupportedCapabilityCount,
     providerErrorRate: rate(providerErrorCount, examplesTotal),
     invalidResponseRate: rate(invalidJsonCount + invalidSchemaCount, examplesTotal),
     exactIdentificationAccuracy,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AIProvider, AIProviderRequest, AIProviderResponse } from "@dealradar/ai";
 import { runTcgExample } from "../run-tcg-example";
 import type { TcgGroundTruth } from "../dataset-schema";
@@ -161,6 +161,38 @@ describe("runTcgExample — succès et comparaison champ par champ", () => {
     const result = await runTcgExample(groundTruth(), { ...OPTIONS_BASE, provider });
 
     expect(result.needsConfirmation).toBe(true);
+  });
+});
+
+describe("runTcgExample — capacités provider (Phase 18)", () => {
+  it("modèle CONNU pour ne pas accepter d'image (groq/llama-3.3-70b-versatile) : skipped_unsupported_capability, jamais tenté", async () => {
+    const extract = vi.fn();
+    const provider = fakeProvider("groq", "llama-3.3-70b-versatile", extract);
+
+    const result = await runTcgExample(groundTruth(), { ...OPTIONS_BASE, provider });
+
+    expect(result.outcome).toBe("skipped_unsupported_capability");
+    expect(extract).not.toHaveBeenCalled();
+    expect(result.estimatedCostUsd).toBeNull();
+    expect(result.needsConfirmation).toBe(true);
+  });
+
+  it("modèle CONNU vision-capable (openai/gpt-4o-mini) : tenté normalement, jamais sauté", async () => {
+    const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
+      raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "096", overallConfidence: 0.9, confidence: {} },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+    const result = await runTcgExample(groundTruth(), { ...OPTIONS_BASE, provider });
+    expect(result.outcome).toBe("success");
+  });
+
+  it("modèle ABSENT de la table de capacités (capacités inconnues) : tenté quand même, jamais bloqué sur une simple absence", async () => {
+    const provider = fakeProvider("openai", "un-modele-jamais-releve", async () => ({
+      raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "096", overallConfidence: 0.9, confidence: {} },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+    const result = await runTcgExample(groundTruth(), { ...OPTIONS_BASE, provider });
+    expect(result.outcome).toBe("success");
   });
 });
 

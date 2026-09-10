@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./validation/schemas";
 export * from "./provider/types";
+export * from "./provider/capabilities";
 export * from "./provider/http";
 export * from "./provider/openai";
 export * from "./provider/claude";

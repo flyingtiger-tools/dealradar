@@ -111,6 +111,18 @@ describe("aggregateTcgMatrixMetrics — comptes et taux", () => {
   });
 });
 
+describe("aggregateTcgMatrixMetrics — skippedUnsupportedCapabilityCount (Phase 18)", () => {
+  it("compte les exemples sautés séparément, jamais mélangés avec les erreurs provider", () => {
+    const results = [
+      successResult({ outcome: "skipped_unsupported_capability", fieldMatches: {}, exactMatch: false, estimatedCostUsd: null }),
+      successResult({ outcome: "provider_error", fieldMatches: {}, exactMatch: false }),
+    ];
+    const metrics = aggregateTcgMatrixMetrics(MATRIX_ENTRY, results);
+    expect(metrics.skippedUnsupportedCapabilityCount).toBe(1);
+    expect(metrics.providerErrorCount).toBe(1);
+  });
+});
+
 describe("aggregateTcgMatrixMetrics — providerErrorRate / invalidResponseRate", () => {
   it("providerErrorRate et invalidResponseRate sur TOUS les exemples (dénominateur = examplesTotal)", () => {
     const results = [

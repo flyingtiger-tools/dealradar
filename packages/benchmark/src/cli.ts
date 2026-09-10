@@ -196,7 +196,7 @@ function formatCost(cost: number | null): string {
 function printTcgMatrixMetrics(m: TcgMatrixMetrics) {
   console.log(`\n${m.matrixEntry.provider}/${m.matrixEntry.model} :`);
   console.log(
-    `  exemples=${m.examplesTotal} succès=${m.successCount} erreurs_provider=${m.providerErrorCount} (${formatRate(m.providerErrorRate)}) réponse_invalide=${m.invalidJsonCount + m.invalidSchemaCount} (${formatRate(m.invalidResponseRate)})`,
+    `  exemples=${m.examplesTotal} succès=${m.successCount} erreurs_provider=${m.providerErrorCount} (${formatRate(m.providerErrorRate)}) réponse_invalide=${m.invalidJsonCount + m.invalidSchemaCount} (${formatRate(m.invalidResponseRate)}) capacité_non_supportée=${m.skippedUnsupportedCapabilityCount}`,
   );
   console.log(
     `  identification_exacte=${formatRate(m.exactIdentificationAccuracy)} besoin_confirmation=${formatRate(m.needsConfirmationRate)} hallucination=${formatRate(m.hallucinationRate)}`,
