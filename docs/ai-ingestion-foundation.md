@@ -194,6 +194,11 @@ cohérent avec le reste du code mobile existant).
 | Frontière Scrapling / Web Marketplace Fetcher | PREPARED, NOT IMPLEMENTED, aucun scraping |
 | Frontière Agent Reach / signal de tendance | PREPARED, NOT IMPLEMENTED, aucune intégration |
 | Seuil `needsConfirmation` (source unique) | IMPLEMENTED — `isSufficientForAutoCorroboration()` (`packages/ai`), consommée par le worker réel et le benchmark |
+| Outil dev "TCG Dataset Capture" (mobile) | IMPLEMENTED, MOCK-TESTED, **NOT DEVICE-TESTED** (voir `docs/tcg-dataset-samsung-test-procedure.md`, jamais encore exécutée sur un Samsung physique) |
+| Validateur de dataset exporté (`--validate-tcg-dataset=`) | IMPLEMENTED, MOCK-TESTED (fichiers réels sur disque en test, aucun réseau) |
+| Métriques TCG par tag + taux étendus (faux positif/négatif, ambiguïté, hybride) | IMPLEMENTED, MOCK-TESTED |
+| Table de capacités provider (`findProviderCapabilities`) + garde vision benchmark | IMPLEMENTED, MOCK-TESTED — inerte en mode simulé, n'affecte que `--tcg-live` (jamais exécuté) |
+| Garde-fous `--tcg-live` (`--confirm-live-cost` + `--tcg-max-examples`) | IMPLEMENTED, MOCK-TESTED — **NOT LIVE-TESTED**, jamais exécuté avec une vraie clé |
 
 Tout le reste du pipeline TCG existant (`orchestratePokemonPipeline`, corroboration
 catalogue, `collectorNumbersMatch`, pricing, persistance) est **inchangé** par ce lot.
@@ -209,3 +214,61 @@ primitives de routing à ce qui est réellement produit, garde de démontage sur
 capture, discriminant structurel sur `TrendSignal`, et correction de deux références de
 documentation mortes. Détail complet dans l'historique git
 (`chore/lint-scripts-exclusion..HEAD`).
+
+## 12. Long lot local — dataset capture (suite du lot)
+
+Après la revue de consolidation ci-dessus, un second lot 100% local (COÛT = 0 CHF,
+aucun push, aucun déploiement, aucun appel API réel) a ajouté :
+
+- **Outil dev "TCG Dataset Capture"** (`apps/mobile/src/dataset-capture/` +
+  `screens/TcgDatasetCaptureTool.tsx`) — capture de photos TCG réelles sans aucun réseau,
+  stockage local (manifest JSON + images sous `FileSystem.documentDirectory`), export en
+  ZIP réel (écrivain maison, zéro dépendance externe) déposé via Storage Access Framework
+  (Android). Double garde `__DEV__` — jamais disponible en build release. Invariant "aucun
+  réseau" prouvé mécaniquement par lecture de code source
+  (`__tests__/no-network-invariant.test.ts`). Voir `docs/tcg-dataset-workflow.md` (usage)
+  et `docs/tcg-dataset-samsung-test-procedure.md` (procédure device).
+- **Format de vérité terrain unique** — `TcgGroundTruth`/`TcgDatasetTag`
+  (`@dealradar/contracts/src/tcg-dataset.ts`) partagé entre l'outil mobile et
+  `packages/benchmark` : aucun second format à faire correspondre.
+- **Validateur de dataset exporté** (`--validate-tcg-dataset=`) — ids uniques, images
+  existantes, extensions supportées, chemins sûrs, doublons probables (via
+  `collectorNumbersMatch()`, jamais une égalité de texte brute), fichiers orphelins.
+  Jamais de correction automatique.
+- **Métriques TCG étendues** — segmentation par tag de difficulté (`byTag`), taux
+  faux-positif/faux-négatif (autour du seuil réel `MIN_OVERALL_CONFIDENCE_FOR_AUTO_CORROBORATION`),
+  taux d'ambiguïté, taux de succès "hybride" (identique au taux de succès tant qu'aucun
+  extracteur déterministe n'existe — jamais fabriqué comme une vraie contribution
+  hybride avant que ce soit réellement le cas).
+- **Capacités provider** (`findProviderCapabilities`, `packages/ai`) — relevé que
+  `llama-3.3-70b-versatile` (modèle Groq par défaut de la matrice benchmark) est TEXTE
+  SEUL ; le benchmark TCG signale désormais `skipped_unsupported_capability` pour ce cas
+  plutôt que de tenter un envoi d'image dont le comportement serait indéfini.
+- **Garde-fous `--tcg-live`** — refuse tout run live sans `--confirm-live-cost` ET
+  `--tcg-max-examples=<n>` explicites, avant même de charger le dataset. Jamais exécuté
+  dans ce lot.
+
+### Audit AI-LAST (Phase 20)
+
+| | CURRENT | DESIRED (ADR 0013) | GAP |
+|---|---|---|---|
+| Déterministe d'abord | Aucun extracteur déterministe pour une photo de carte TCG (`deterministicSuccessRate` structurellement 0) | Un extracteur déterministe (OCR/code-barres) tenté avant tout appel IA | Non comblé — étape 1 de l'ADR 0013, hors périmètre de ce lot |
+| Corroboration catalogue | `corroborate-catalog-identity.ts` appelé après extraction IA réussie, avant décision finale | Identique | Aucun |
+| IA en dernier recours | Chaque scan TCG appelle l'IA directement (pas d'alternative déterministe existante) — donc l'IA n'est pas "en dernier recours" au sens strict, elle est la SEULE étape aujourd'hui | IA appelée seulement si le déterministe échoue/est ambigu | Attendu tant que l'étape déterministe n'existe pas — documenté honnêtement, jamais masqué |
+| Modèle le moins cher qui passe un seuil | Aucun routage automatique — le provider est fixé par configuration (`AI_PROVIDER`), jamais choisi dynamiquement par coût/qualité | `selectCheapestPassingCandidate()` (`packages/ai/src/routing/`) appelé en production | Non comblé — primitives PREPARED uniquement (Phase 8, jamais branchées), délibéré |
+| Confirmation utilisateur si incertain | `isSufficientForAutoCorroboration()` (seuil 0.7) décide `needsConfirmation` — un seul seuil, une seule fonction, consommée par le worker réel ET le benchmark | Identique | Aucun |
+| Filet de repli explicite | `failedAnalysis()`/`insufficientDataAnalysis()` — jamais un statut ambigu retourné à l'appelant | Identique | Aucun |
+| Télémétrie complète | `ExtractionTelemetry` (statut, provider, modèle, coût, latence, codes d'erreur) sur chaque appel IA réel | Identique | Aucun |
+
+**Aucun endroit où l'IA est appelée "trop tôt"** n'a été trouvé — le seul écart réel
+(absence d'étape déterministe) est une fonctionnalité non construite, pas une violation
+de l'ordre AI-LAST : le pipeline actuel respecte l'ordre prévu pour les étapes qui
+existent.
+
+### Statuts DEVICE/LIVE/DEPLOYED (honnêtes, Phase 22)
+
+- **DEVICE-TESTED** : rien dans ce lot (aucun accès à un Samsung physique pendant ce
+  lot — voir `docs/tcg-dataset-samsung-test-procedure.md` pour la procédure à suivre).
+- **LIVE-TESTED** : rien (Groq/OpenRouter restent NOT LIVE-TESTED depuis le lot
+  précédent ; `--tcg-live` jamais exécuté).
+- **DEPLOYED** : rien (aucun déploiement Railway/Vercel/Supabase déclenché).
