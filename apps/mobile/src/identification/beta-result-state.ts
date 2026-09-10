@@ -31,7 +31,16 @@ export type BetaResultAction =
 
 export const initialBetaResultState: BetaResultState = { phase: "idle" };
 
-const IN_FLIGHT_PHASES = new Set(["uploading", "submitting", "polling"]);
+/**
+ * Vérifie et rétrécit (narrowing) `state` vers les 3 variantes "en vol" en
+ * une seule expression — une vérification par `Set.has()` ne serait pas
+ * reconnue par TypeScript comme un garde de type, obligeant un cast non
+ * sûr pour lire `state.capture` ensuite. Cette forme explicite l'évite
+ * entièrement.
+ */
+function isInFlight(state: BetaResultState): state is Extract<BetaResultState, { phase: "uploading" | "submitting" | "polling" }> {
+  return state.phase === "uploading" || state.phase === "submitting" || state.phase === "polling";
+}
 
 export function betaResultReducer(state: BetaResultState, action: BetaResultAction): BetaResultState {
   switch (action.type) {
@@ -57,16 +66,16 @@ export function betaResultReducer(state: BetaResultState, action: BetaResultActi
       return { phase: "uploading", capture: state.capture };
 
     case "PROGRESS":
-      if (!IN_FLIGHT_PHASES.has(state.phase)) return state;
-      return { phase: action.phase, capture: (state as { capture: UniversalCaptureResult }).capture };
+      if (!isInFlight(state)) return state;
+      return { phase: action.phase, capture: state.capture };
 
     case "ANALYSIS_SUCCEEDED":
-      if (!IN_FLIGHT_PHASES.has(state.phase)) return state;
+      if (!isInFlight(state)) return state;
       return { phase: "result", analysis: action.analysis };
 
     case "ANALYSIS_FAILED":
-      if (!IN_FLIGHT_PHASES.has(state.phase)) return state;
-      return { phase: "error", capture: (state as { capture: UniversalCaptureResult }).capture, message: action.message };
+      if (!isInFlight(state)) return state;
+      return { phase: "error", capture: state.capture, message: action.message };
 
     case "RESET":
       return { phase: "idle" };

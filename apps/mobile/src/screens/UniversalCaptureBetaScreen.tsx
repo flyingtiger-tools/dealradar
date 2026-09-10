@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import { UniversalCaptureScreen } from "../capture/UniversalCaptureScreen";
 import type { QualityWarningCode } from "../capture/types";
@@ -39,7 +39,21 @@ interface UniversalCaptureBetaScreenProps {
 
 export function UniversalCaptureBetaScreen({ onExit }: UniversalCaptureBetaScreenProps) {
   const [state, setState] = useState<BetaResultState>(initialBetaResultState);
+  // Le flux réseau (upload -> création d'analyse -> polling, jusqu'à 60s)
+  // n'est pas annulable aujourd'hui côté tcgAdapter — cette ref empêche
+  // seulement une mise à jour d'état après démontage de l'écran (retour
+  // arrière/changement d'onglet pendant l'envoi) ; l'appel réseau déjà en
+  // vol continue en arrière-plan jusqu'à son terme (limitation connue, pas
+  // un appel supplémentaire déclenché ici).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const dispatch = useCallback((action: Parameters<typeof betaResultReducer>[1]) => {
+    if (!mountedRef.current) return;
     setState((current) => betaResultReducer(current, action));
   }, []);
 
