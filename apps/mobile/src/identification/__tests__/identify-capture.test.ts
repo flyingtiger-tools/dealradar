@@ -101,4 +101,21 @@ describe("identifyCapture — routage", () => {
     const result = await identifyCapture(fakeCapture(), "pokemon_tcg", []);
     expect(result.status).toBe("insufficient_data");
   });
+
+  it("transmet onProgress à l'adaptateur choisi, sans le modifier", async () => {
+    const receivedCallbacks: unknown[] = [];
+    const adapter = fakeAdapter({
+      analyze: async (_capture, onProgress) => {
+        receivedCallbacks.push(onProgress);
+        onProgress?.("uploading");
+        return successResult();
+      },
+    });
+    const onProgress = jest.fn();
+
+    await identifyCapture(fakeCapture(), "pokemon_tcg", [adapter], onProgress);
+
+    expect(receivedCallbacks[0]).toBe(onProgress);
+    expect(onProgress).toHaveBeenCalledWith("uploading");
+  });
 });

@@ -131,6 +131,31 @@ describe("tcgAdapter.analyze — transformation de l'entrée et appel unique au 
     expect(mockPollAnalysisUntilSettled).toHaveBeenCalledWith("analysis-1");
   });
 
+  it("rapporte la progression réelle (uploading -> submitting -> polling) dans l'ordre, jamais une progression fabriquée", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
+    });
+    const phases: string[] = [];
+
+    await tcgAdapter.analyze(fakeCapture(), (phase) => phases.push(phase));
+
+    expect(phases).toEqual(["uploading", "submitting", "polling"]);
+  });
+
+  it("sans callback onProgress fourni : fonctionne normalement (paramètre optionnel)", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: { kind: "pokemon_tcg_card", needsConfirmation: false, extractedFields: fakeExtractedFields(), identity: null, priceObservations: [], warnings: [], reason: "catalog_diverged" },
+    });
+
+    const result = await tcgAdapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("insufficient_data");
+  });
+
   it("appelle deleteTcgCardPhoto(clientRequestId) seul, sans accessToken/userId", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({
       id: "analysis-1",

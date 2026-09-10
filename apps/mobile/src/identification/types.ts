@@ -18,6 +18,15 @@ export interface IdentificationCandidate {
 export type RafAnalysisStatus = "identified" | "needs_confirmation" | "insufficient_data" | "failed";
 
 /**
+ * Étapes réseau réelles traversées par `CategoryAdapter.analyze()` — jamais
+ * une progression fabriquée par un minuteur : l'écran appelant ne reçoit un
+ * changement de phase que lorsque l'adaptateur franchit réellement cette
+ * étape (voir `tcg-adapter.ts`).
+ */
+export type AnalysisProgressPhase = "uploading" | "submitting" | "polling";
+export type OnAnalysisProgress = (phase: AnalysisProgressPhase) => void;
+
+/**
  * Contrat générique minimal consommé par l'écran de résultat bêta —
  * volontairement pas le contrat commercial final (pas de revente, pas
  * d'offres alternatives, pas de recommandation de plateforme). Reflète
@@ -63,5 +72,5 @@ export interface CategoryAdapter {
    * fonctions qui tirent elles-mêmes le jeton/l'identifiant de la session
    * Supabase courante (`auth/session.ts`), jamais une seconde voie.
    */
-  analyze(capture: UniversalCaptureResult): Promise<RafAnalysis>;
+  analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress): Promise<RafAnalysis>;
 }

@@ -4,7 +4,7 @@ import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
 import type { UniversalCaptureResult } from "../capture/types";
-import type { CategoryAdapter, IdentificationCandidate, RafAnalysis } from "./types";
+import type { CategoryAdapter, IdentificationCandidate, OnAnalysisProgress, RafAnalysis } from "./types";
 import { failedAnalysis } from "./raf-analysis-helpers";
 
 const CONSENT_VERSION = "1";
@@ -116,13 +116,15 @@ export const tcgAdapter: CategoryAdapter = {
     return { category: null, confidence: 0, evidence: [], missingFields: ["categoryHint"] };
   },
 
-  async analyze(capture: UniversalCaptureResult): Promise<RafAnalysis> {
+  async analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress): Promise<RafAnalysis> {
     const clientRequestId = Crypto.randomUUID();
     let uploaded = false;
     try {
+      onProgress?.("uploading");
       const { url } = await uploadTcgCardPhoto(clientRequestId, capture.normalizedImage.uri);
       uploaded = true;
 
+      onProgress?.("submitting");
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
@@ -138,6 +140,7 @@ export const tcgAdapter: CategoryAdapter = {
         providedTcgHints: null,
       });
 
+      onProgress?.("polling");
       const settled = await pollAnalysisUntilSettled(created.id);
       // Best-effort, jamais bloquant pour l'affichage du résultat (même règle que TcgScanScreen).
       void deleteTcgCardPhoto(clientRequestId);
