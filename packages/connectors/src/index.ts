@@ -39,3 +39,5 @@ export * from "./pricing/tcgdex/connector";
 export * from "./web/types";
 export * from "./web/mock-fetcher";
 export * from "./web/record-web-fetch-metrics";
+export * from "./trend/types";
+export * from "./trend/mock-connector";
