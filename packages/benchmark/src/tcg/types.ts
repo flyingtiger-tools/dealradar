@@ -46,12 +46,13 @@ export interface TcgBenchmarkExampleResult {
    * confondu avec une simple erreur de valeur.
    */
   hallucinated: boolean;
-  /** Reflète `isSufficientForAutoCorroboration()` (apps/workers/src/jobs/process-tcg-card-analysis.ts, seuil 0.7) — dupliqué intentionnellement, pas importé (mauvais sens de dépendance, packages/benchmark ne dépend jamais de apps/workers). */
+  /** Calculé via `isSufficientForAutoCorroboration()` (`@dealradar/ai`) — même fonction, même seuil que le worker réel (`apps/workers/src/jobs/process-tcg-card-analysis.ts`), source de vérité unique. */
   needsConfirmation: boolean;
   inputUnits: number;
   outputUnits: number;
   /** null si le modèle n'a pas d'entrée fiable dans `COST_TABLE` (@dealradar/ai) — jamais un coût inventé. */
   estimatedCostUsd: number | null;
+  /** Temps mesuré réellement, mais en mode simulé (`TcgBenchmarkReport.mode === "simulated"`) reflète le délai artificiel de `createSimulatedProvider` (400ms par défaut), jamais une latence provider réelle — ne jamais comparer entre providers tant que `mode !== "live"`. */
   latencyMs: number;
 }
 
@@ -73,6 +74,7 @@ export interface TcgMatrixMetrics {
   confidenceCalibrationError: number | null;
   needsConfirmationRate: number | null;
   hallucinationRate: number | null;
+  /** Voir `TcgBenchmarkExampleResult.latencyMs` — non représentatif de la performance réelle d'un provider tant que `TcgBenchmarkReport.mode !== "live"`. */
   latencyMs: { avg: number; median: number; p95: number };
   inputUnitsTotal: number;
   outputUnitsTotal: number;

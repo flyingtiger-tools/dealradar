@@ -1,11 +1,12 @@
-import { extractTcgCardFromPhoto, estimateCostUsd, findCostTableEntry, type AIProvider, type TcgCardExtraction } from "@dealradar/ai";
+import { extractTcgCardFromPhoto, estimateCostUsd, findCostTableEntry, isSufficientForAutoCorroboration, type AIProvider, type TcgCardExtraction } from "@dealradar/ai";
+import { collectorNumbersMatch } from "@dealradar/connectors";
 import type { TcgGroundTruth } from "./dataset-schema";
 import type { ProviderMatrixEntry, TcgBenchmarkExampleResult, TcgExampleOutcome, TcgFieldName } from "./types";
 
-/** Dupliqué intentionnellement depuis `apps/workers/src/jobs/process-tcg-card-analysis.ts` (MIN_OVERALL_CONFIDENCE) — packages/benchmark ne dépend jamais de apps/workers (mauvais sens de dépendance). Garder synchronisé manuellement si le seuil réel change. */
-const MIN_OVERALL_CONFIDENCE = 0.7;
-
 const COMPARED_FIELDS: TcgFieldName[] = ["cardName", "setName", "collectorNumber", "language", "variant"];
+
+/** Champs de vérité terrain non couverts par l'accuracy (`COMPARED_FIELDS`, liste demandée explicitement) mais quand même vérifiés pour l'hallucination — un modèle qui invente une gradation sur une carte brute est un signal réel, pas moins qu'un nom de set inventé. */
+const HALLUCINATION_ONLY_FIELDS = ["productKind", "gradingCompany", "grade"] as const;
 
 /** `collectorNumber` (vocabulaire du dataset, Phase 7) correspond à `cardNumber` côté `TcgCardExtraction` (@dealradar/ai) — seule différence de nom entre les deux vocabulaires, mappée explicitement ici plutôt que devinée. */
 function extractionValueFor(extraction: TcgCardExtraction, field: TcgFieldName): string | null {
@@ -14,13 +15,19 @@ function extractionValueFor(extraction: TcgCardExtraction, field: TcgFieldName):
 }
 
 /**
- * `extractTcgCardFromPhoto()` collapse déjà `estimateCostUsd(...) ?? 0` en
- * interne (voir `extract-tcg-card.ts`) — impossible de distinguer depuis sa
- * télémétrie seule "coût réellement nul" de "modèle absent de la table
- * tarifaire". Recalcule donc ici indépendamment, à partir de la même table
- * (`COST_TABLE`, `@dealradar/ai`) — jamais une table parallèle, jamais un
- * coût inventé si le modèle n'y figure pas.
+ * Compare une valeur extraite à la vérité terrain. `collectorNumber` réutilise
+ * `collectorNumbersMatch()` (`@dealradar/connectors`, déjà éprouvée en
+ * production — voir `corroborate-catalog-identity.ts`) : une comparaison
+ * texte brute classerait à tort "96" vs "096" comme un échec, exactement le
+ * bug historique que ce projet a corrigé ailleurs. Les autres champs restent
+ * une comparaison texte (trim + casse) — aucune normalisation de padding n'a
+ * de sens pour un nom de carte/set/langue/variante.
  */
+function fieldMatches(field: TcgFieldName, actual: string | null, expected: string): boolean {
+  if (field === "collectorNumber") return collectorNumbersMatch(actual, expected);
+  return actual !== null && actual.trim().toLowerCase() === expected.trim().toLowerCase();
+}
+
 function estimateCostForExample(provider: AIProvider, inputUnits: number, outputUnits: number): number | null {
   const entry = findCostTableEntry(provider.name, provider.model);
   return estimateCostUsd({ inputUnits, outputUnits }, entry);
@@ -75,7 +82,7 @@ export async function runTcgExample(entry: TcgGroundTruth, options: RunTcgExampl
   }
 
   const extraction = result.extraction;
-  const fieldMatches: Partial<Record<TcgFieldName, boolean>> = {};
+  const matches: Partial<Record<TcgFieldName, boolean>> = {};
   let hallucinated = false;
 
   for (const field of COMPARED_FIELDS) {
@@ -88,15 +95,20 @@ export async function runTcgExample(entry: TcgGroundTruth, options: RunTcgExampl
       if (actual !== null) hallucinated = true;
       continue;
     }
-    fieldMatches[field] = actual !== null && actual.trim().toLowerCase() === expected.trim().toLowerCase();
+    matches[field] = fieldMatches(field, actual, expected);
   }
 
-  const comparedValues = Object.values(fieldMatches);
-  const exactMatch = comparedValues.length > 0 && comparedValues.every(Boolean);
+  // Hallucination sur les champs de gradation — hors accuracy (non demandés
+  // dans la liste explicite des 5 champs mesurés) mais un modèle qui invente
+  // `gradingCompany`/`grade` sur une carte brute (vérité terrain null) reste
+  // une hallucination réelle, jamais ignorée silencieusement.
+  for (const field of HALLUCINATION_ONLY_FIELDS) {
+    if (entry[field] === null && extraction[field].value !== null) hallucinated = true;
+  }
 
-  const hasName = extraction.cardName.value !== null;
-  const hasSetOrNumber = extraction.setName.value !== null || extraction.cardNumber.value !== null;
-  const needsConfirmation = !(hasName && hasSetOrNumber && extraction.overallConfidence >= MIN_OVERALL_CONFIDENCE);
+  const comparedValues = Object.values(matches);
+  const exactMatch = comparedValues.length > 0 && comparedValues.every(Boolean);
+  const needsConfirmation = !isSufficientForAutoCorroboration(extraction);
 
   return {
     exampleId: entry.id,
@@ -104,7 +116,7 @@ export async function runTcgExample(entry: TcgGroundTruth, options: RunTcgExampl
     matrixEntry: options.matrixEntry,
     actualProviderName: options.provider.name,
     outcome: "success",
-    fieldMatches,
+    fieldMatches: matches,
     exactMatch,
     overallConfidence: extraction.overallConfidence,
     hallucinated,

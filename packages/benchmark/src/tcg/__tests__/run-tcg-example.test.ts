@@ -53,13 +53,24 @@ describe("runTcgExample — succès et comparaison champ par champ", () => {
     expect(result.hallucinated).toBe(false);
   });
 
-  it("numéro de collection différent (96 vs 096, comparaison texte brute) : fieldMatches.collectorNumber false", async () => {
+  it("numéro de collection avec padding différent (96 vs 096) : fieldMatches.collectorNumber true (collectorNumbersMatch, pas une comparaison texte brute)", async () => {
     const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
       raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "96", overallConfidence: 0.9, confidence: {} },
       usage: { inputUnits: 500, outputUnits: 80 },
     }));
 
     const result = await runTcgExample(groundTruth({ collectorNumber: "096" }), { ...OPTIONS_BASE, provider });
+
+    expect(result.fieldMatches.collectorNumber).toBe(true);
+  });
+
+  it("numéro de collection réellement différent (96 vs 12) : fieldMatches.collectorNumber false", async () => {
+    const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
+      raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "96", overallConfidence: 0.9, confidence: {} },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+
+    const result = await runTcgExample(groundTruth({ collectorNumber: "12" }), { ...OPTIONS_BASE, provider });
 
     expect(result.fieldMatches.collectorNumber).toBe(false);
     expect(result.exactMatch).toBe(false);
@@ -85,6 +96,49 @@ describe("runTcgExample — succès et comparaison champ par champ", () => {
     const result = await runTcgExample(groundTruth({ variant: null }), { ...OPTIONS_BASE, provider });
 
     expect(result.hallucinated).toBe(true);
+  });
+
+  it("hallucination sur gradingCompany : vérité terrain null, valeur inventée détectée même hors champs comparés d'exactitude", async () => {
+    const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
+      raw: {
+        cardName: "Nymble",
+        setName: "Phantasmal Flames",
+        cardNumber: "096",
+        gradingCompany: "PSA (inventé)",
+        overallConfidence: 0.9,
+        confidence: {},
+      },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+
+    const result = await runTcgExample(groundTruth({ gradingCompany: null }), { ...OPTIONS_BASE, provider });
+
+    expect(result.hallucinated).toBe(true);
+    // gradingCompany n'est pas un champ de comparaison d'exactitude (COMPARED_FIELDS) : la détection de
+    // hallucination doit rester indépendante de fieldMatches.
+    expect("gradingCompany" in result.fieldMatches).toBe(false);
+  });
+
+  it("hallucination sur grade : vérité terrain null, valeur inventée détectée", async () => {
+    const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
+      raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "096", grade: "10 (inventé)", overallConfidence: 0.9, confidence: {} },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+
+    const result = await runTcgExample(groundTruth({ grade: null }), { ...OPTIONS_BASE, provider });
+
+    expect(result.hallucinated).toBe(true);
+  });
+
+  it("productKind attendu non null et correctement rapporté : pas de hallucination", async () => {
+    const provider = fakeProvider("openai", "gpt-4o-mini", async () => ({
+      raw: { cardName: "Nymble", setName: "Phantasmal Flames", cardNumber: "096", productKind: "raw_card", overallConfidence: 0.9, confidence: {} },
+      usage: { inputUnits: 500, outputUnits: 80 },
+    }));
+
+    const result = await runTcgExample(groundTruth({ productKind: "raw_card" }), { ...OPTIONS_BASE, provider });
+
+    expect(result.hallucinated).toBe(false);
   });
 
   it("confiance globale insuffisante : needsConfirmation true (reflète isSufficientForAutoCorroboration, seuil 0.7)", async () => {
