@@ -25,3 +25,4 @@ export * from "./cache/memory-cache";
 export * from "./budget/types";
 export * from "./observability/cost-table";
 export * from "./observability/telemetry";
+export * from "./routing/types";
