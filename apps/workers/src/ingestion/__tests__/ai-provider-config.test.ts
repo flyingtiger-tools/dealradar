@@ -13,7 +13,7 @@ describe("buildAiExtractionConfigFromEnv", () => {
   const ORIGINAL_ENV = { ...process.env };
 
   beforeEach(() => {
-    for (const key of ["AI_PROVIDER", "AI_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AI_DAILY_BUDGET_USD", "AI_MAX_IMAGES", "AI_IMAGE_DOMAIN_ALLOWLIST"]) {
+    for (const key of ["AI_PROVIDER", "AI_MODEL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "AI_DAILY_BUDGET_USD", "AI_MAX_IMAGES", "AI_IMAGE_DOMAIN_ALLOWLIST"]) {
       delete process.env[key];
     }
   });
@@ -78,6 +78,70 @@ describe("buildAiExtractionConfigFromEnv", () => {
     process.env.AI_PROVIDER = "gemini";
     process.env.OPENAI_API_KEY = "sk-openai-test";
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+
+    expect(buildAiExtractionConfigFromEnv()).toBeUndefined();
+  });
+
+  it("provider Groq sélectionné : AI_PROVIDER=groq + GROQ_API_KEY construit bien un provider 'groq'", () => {
+    process.env.AI_PROVIDER = "groq";
+    process.env.GROQ_API_KEY = "gsk-test";
+
+    const config = buildAiExtractionConfigFromEnv();
+
+    expect(config).toBeDefined();
+    expect(config!.provider.name).toBe("groq");
+    expect(config!.provider.model).toBe("llama-3.3-70b-versatile");
+  });
+
+  it("AI_MODEL surcharge le modèle Groq par défaut", () => {
+    process.env.AI_PROVIDER = "groq";
+    process.env.GROQ_API_KEY = "gsk-test";
+    process.env.AI_MODEL = "llama-3.1-8b-instant";
+
+    const config = buildAiExtractionConfigFromEnv();
+
+    expect(config!.provider.model).toBe("llama-3.1-8b-instant");
+  });
+
+  it("clé absente : AI_PROVIDER=groq sans GROQ_API_KEY désactive l'IA, jamais une erreur", () => {
+    process.env.AI_PROVIDER = "groq";
+
+    expect(buildAiExtractionConfigFromEnv()).toBeUndefined();
+  });
+
+  it("aucun fallback vers un autre provider si Groq est sélectionné sans sa clé, même si d'autres clés sont présentes", () => {
+    process.env.AI_PROVIDER = "groq";
+    process.env.OPENAI_API_KEY = "sk-openai-present-but-must-be-ignored";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-present-but-must-be-ignored";
+    process.env.OPENROUTER_API_KEY = "or-present-but-must-be-ignored";
+    // GROQ_API_KEY volontairement absente.
+
+    expect(buildAiExtractionConfigFromEnv()).toBeUndefined();
+  });
+
+  it("provider OpenRouter sélectionné : AI_PROVIDER=openrouter + OPENROUTER_API_KEY construit bien un provider 'openrouter'", () => {
+    process.env.AI_PROVIDER = "openrouter";
+    process.env.OPENROUTER_API_KEY = "or-test";
+
+    const config = buildAiExtractionConfigFromEnv();
+
+    expect(config).toBeDefined();
+    expect(config!.provider.name).toBe("openrouter");
+    expect(config!.provider.model).toBe("openai/gpt-4o-mini");
+  });
+
+  it("AI_MODEL surcharge le modèle OpenRouter par défaut", () => {
+    process.env.AI_PROVIDER = "openrouter";
+    process.env.OPENROUTER_API_KEY = "or-test";
+    process.env.AI_MODEL = "anthropic/claude-haiku-4.5";
+
+    const config = buildAiExtractionConfigFromEnv();
+
+    expect(config!.provider.model).toBe("anthropic/claude-haiku-4.5");
+  });
+
+  it("clé absente : AI_PROVIDER=openrouter sans OPENROUTER_API_KEY désactive l'IA, jamais une erreur", () => {
+    process.env.AI_PROVIDER = "openrouter";
 
     expect(buildAiExtractionConfigFromEnv()).toBeUndefined();
   });

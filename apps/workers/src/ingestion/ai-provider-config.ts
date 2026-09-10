@@ -1,4 +1,4 @@
-import { createOpenAiProvider, createClaudeProvider, type AIProvider } from "@dealradar/ai";
+import { createOpenAiProvider, createClaudeProvider, createGroqProvider, createOpenRouterProvider, type AIProvider } from "@dealradar/ai";
 import { logger } from "../logger";
 
 export interface AiExtractionConfig {
@@ -9,9 +9,11 @@ export interface AiExtractionConfig {
 }
 
 /** Modèle par défaut si `AI_MODEL` n'est pas surchargé — jamais utilisé pour un provider autre que celui dont il porte le nom. */
-const DEFAULT_MODEL_BY_PROVIDER: Record<"openai" | "anthropic", string> = {
+const DEFAULT_MODEL_BY_PROVIDER: Record<"openai" | "anthropic" | "groq" | "openrouter", string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-haiku-4-5-20251001",
+  groq: "llama-3.3-70b-versatile",
+  openrouter: "openai/gpt-4o-mini",
 };
 
 /**
@@ -20,12 +22,13 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<"openai" | "anthropic", string> = {
  * configurée — dégradation gracieuse : le pipeline continue en 100%
  * déterministe, même esprit que `connector-config.ts` pour eBay.
  *
- * Deux providers réels (`openai`, `anthropic`), sélectionnés uniquement via
- * `AI_PROVIDER` — chaque branche est isolée et ne retourne que sa propre
- * variable de clé (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`) : si le provider
- * choisi n'a pas sa clé, l'IA est désactivée (repli déterministe), jamais un
- * repli silencieux vers l'autre provider même si sa clé est présente par
- * ailleurs dans l'environnement.
+ * Quatre providers réels (`openai`, `anthropic`, `groq`, `openrouter`),
+ * sélectionnés uniquement via `AI_PROVIDER` — chaque branche est isolée et
+ * ne retourne que sa propre variable de clé (`OPENAI_API_KEY` /
+ * `ANTHROPIC_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY`) : si le
+ * provider choisi n'a pas sa clé, l'IA est désactivée (repli déterministe),
+ * **jamais** un repli silencieux vers un autre provider même si sa clé est
+ * présente par ailleurs dans l'environnement.
  */
 export function buildAiExtractionConfigFromEnv(): AiExtractionConfig | undefined {
   const providerName = process.env.AI_PROVIDER;
@@ -58,9 +61,29 @@ export function buildAiExtractionConfigFromEnv(): AiExtractionConfig | undefined
     return { provider: createClaudeProvider({ apiKey, model }), maxImages, imageDomainAllowlist, dailyBudgetUsd };
   }
 
+  if (providerName === "groq") {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      logger.warn("GROQ_API_KEY absent — extraction IA désactivée, repli 100% déterministe.");
+      return undefined;
+    }
+    const model = process.env.AI_MODEL ?? DEFAULT_MODEL_BY_PROVIDER.groq;
+    return { provider: createGroqProvider({ apiKey, model }), maxImages, imageDomainAllowlist, dailyBudgetUsd };
+  }
+
+  if (providerName === "openrouter") {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      logger.warn("OPENROUTER_API_KEY absent — extraction IA désactivée, repli 100% déterministe.");
+      return undefined;
+    }
+    const model = process.env.AI_MODEL ?? DEFAULT_MODEL_BY_PROVIDER.openrouter;
+    return { provider: createOpenRouterProvider({ apiKey, model }), maxImages, imageDomainAllowlist, dailyBudgetUsd };
+  }
+
   logger.warn(
     { providerName },
-    "AI_PROVIDER non reconnu ('openai' ou 'anthropic' uniquement) — extraction IA désactivée, repli déterministe.",
+    "AI_PROVIDER non reconnu ('openai', 'anthropic', 'groq' ou 'openrouter' uniquement) — extraction IA désactivée, repli déterministe.",
   );
   return undefined;
 }
