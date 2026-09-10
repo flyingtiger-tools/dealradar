@@ -9,7 +9,7 @@
  *
  *   RicardoConnector  implements MarketplaceConnector (../types.ts)
  *     -> WebMarketplaceFetcher (ce fichier)
- *         -> Scrapling (ou équivalent, voir docs/scrapling-boundary.md)
+ *         -> Scrapling (ou équivalent, voir docs/ai-ingestion-foundation.md, section 7)
  *
  *   AnibisConnector    implements MarketplaceConnector
  *     -> WebMarketplaceFetcher

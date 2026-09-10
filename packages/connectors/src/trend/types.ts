@@ -7,7 +7,12 @@
  * RÈGLE ABSOLUE : un `TrendSignal` n'assigne jamais seul la valeur d'un
  * produit. Il ne peut qu'ENRICHIR un signal de demande/tendance/risque déjà
  * calculé ailleurs (Intelligence Core, `packages/core`) — jamais remplacer
- * `marketValueEstimate`/`decision`. Voir docs/agent-reach-boundary.md pour
+ * `marketValueEstimate`/`decision`. `kind: "trend_signal"` (jamais une autre
+ * valeur) rend ce type structurellement impossible à confondre avec
+ * `NormalizedPriceObservation`/`ThirdPartyPriceHint` (../types.ts, ADR
+ * 0012) : aucun champ de prix ici, et un futur code qui accepterait un
+ * union `market evidence | trend signal` peut discriminer sur `kind` sans
+ * ambiguïté. Voir `docs/ai-ingestion-foundation.md` (section 8) pour
  * comment ce signal pourrait un jour contribuer à Raf sans jamais modifier
  * directement la valeur marché.
  *
@@ -30,6 +35,8 @@ export interface TrendSignalQuery {
 }
 
 export interface TrendSignal {
+  /** Discriminant fixe — jamais une autre valeur. Distingue structurellement ce type d'une preuve de marché (voir la règle absolue ci-dessus). */
+  kind: "trend_signal";
   source: TrendSource;
   trendDirection: TrendDirection;
   /** null si la source ne fournit pas de volume exploitable — jamais 0 par défaut. */

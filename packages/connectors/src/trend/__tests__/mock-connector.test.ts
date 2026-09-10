@@ -4,6 +4,7 @@ import type { TrendSignal } from "../types";
 
 function signal(overrides: Partial<TrendSignal> = {}): TrendSignal {
   return {
+    kind: "trend_signal",
     source: "reddit",
     trendDirection: "up",
     mentionVolume: 120,
