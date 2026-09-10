@@ -4,6 +4,8 @@ export * from "./provider/types";
 export * from "./provider/http";
 export * from "./provider/openai";
 export * from "./provider/claude";
+export * from "./provider/groq";
+export * from "./provider/openrouter";
 export * from "./prompts/build-prompt";
 export * from "./prompts/build-tcg-card-prompt";
 export * from "./validation/tcg-card-schemas";
