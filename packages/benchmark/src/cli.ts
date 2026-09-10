@@ -13,6 +13,8 @@ import { renderReport } from "./report/render-html";
 import { loadBaseline, saveBaseline, compareToBaseline, type RegressionResult } from "./regression/baseline";
 import { runDatasetOnline } from "./online/supabase-runner";
 import { cleanupBenchmarkRun } from "./online/cleanup";
+import { runTcgCli } from "./tcg/cli-tcg";
+import type { TcgBenchmarkReport, TcgMatrixMetrics } from "./tcg/types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ALL_CATEGORIES = ["lego", "pokemon_tcg", "apple", "gaming", "photo"];
@@ -182,9 +184,53 @@ async function cleanupOnly() {
   }
 }
 
+function formatRate(rate: number | null): string {
+  return rate === null ? "n/a" : `${(rate * 100).toFixed(1)}%`;
+}
+
+function formatCost(cost: number | null): string {
+  return cost === null ? "inconnu (modèle absent de COST_TABLE)" : `$${cost.toFixed(6)}`;
+}
+
+function printTcgMatrixMetrics(m: TcgMatrixMetrics) {
+  console.log(`\n${m.matrixEntry.provider}/${m.matrixEntry.model} :`);
+  console.log(
+    `  exemples=${m.examplesTotal} succès=${m.successCount} erreurs_provider=${m.providerErrorCount} json_invalide=${m.invalidJsonCount} schema_invalide=${m.invalidSchemaCount}`,
+  );
+  console.log(
+    `  identification_exacte=${formatRate(m.exactIdentificationAccuracy)} besoin_confirmation=${formatRate(m.needsConfirmationRate)} hallucination=${formatRate(m.hallucinationRate)}`,
+  );
+  for (const field of m.fieldAccuracy) {
+    console.log(`  précision.${field.field}=${formatRate(field.accuracy)} (${field.correct}/${field.evaluable})`);
+  }
+  console.log(`  latence_ms avg=${m.latencyMs.avg.toFixed(0)} median=${m.latencyMs.median.toFixed(0)} p95=${m.latencyMs.p95.toFixed(0)}`);
+  console.log(`  coût_total=${formatCost(m.estimatedCostUsdTotal)} coût_par_identification=${formatCost(m.costPerSuccessfulIdentificationUsd)}`);
+}
+
+function printTcgReport(report: TcgBenchmarkReport) {
+  console.log(`\n=== Benchmark TCG — mode ${report.mode} — ${report.datasetEntryCount} exemple(s), provenance "${report.datasetProvenance}" ===`);
+  for (const m of report.matrices) printTcgMatrixMetrics(m);
+  console.log(`\nDéterministe vs IA : ${report.deterministicVsAi.note}`);
+}
+
 async function main() {
+  const argv = process.argv.slice(2);
+
+  // "--tcg" bascule vers l'évaluation multi-provider des cartes TCG (Phase
+  // 6/7, ADR 0013) — chemin entièrement séparé du benchmark eBay existant
+  // ci-dessous, jamais mélangé (dataset, métriques et vocabulaire différents).
+  if (argv.includes("--tcg")) {
+    const result = await runTcgCli(argv, DATASETS_DIR);
+    if (result.kind === "empty_dataset") {
+      console.log(`Dataset TCG "${result.datasetArg}" vide (aucune photo déposée) — voir packages/benchmark/datasets/tcg/README.md pour en ajouter.`);
+      return;
+    }
+    printTcgReport(result.report);
+    return;
+  }
+
   if (!existsSync(BASELINE_DIR)) mkdirSync(BASELINE_DIR, { recursive: true });
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(argv);
 
   if (args.cleanupOnly) {
     await cleanupOnly();
