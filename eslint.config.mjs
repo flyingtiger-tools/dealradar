@@ -30,4 +30,14 @@ export default [
       "no-console": "off",
     },
   },
+  {
+    // Scripts de diagnostic manuel (ex. real-pokemon-pipeline-test.ts) :
+    // jamais committés dans le flux normal, jamais exécutés en CI/production,
+    // jamais importés par du code applicatif — sortie terminal humaine au
+    // même titre qu'un cli.ts, même exception à no-console.
+    files: ["apps/workers/src/scripts/**/*.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
 ];
