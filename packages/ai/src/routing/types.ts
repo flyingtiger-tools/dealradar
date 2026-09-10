@@ -32,17 +32,20 @@ export interface ModelQualityProfile {
   measuredAt: string | null;
 }
 
-export type EscalationReason =
-  | "low_confidence"
-  | "ambiguous_candidates"
-  | "cheapest_model_failed"
-  | "no_candidate_meets_threshold";
+/**
+ * Une seule valeur produite aujourd'hui par `selectCheapestPassingCandidate()`
+ * ci-dessous — délibérément pas un enum plus large ("low_confidence",
+ * "ambiguous_candidates", etc.) : ces cas décriraient une vraie escalade
+ * multi-étapes (retenter avec un autre candidat après un premier échec),
+ * qui n'existe pas encore comme logique réelle. Étendre cet enum seulement
+ * quand une fonction produit effectivement ces valeurs — jamais avant.
+ */
+export type EscalationReason = "no_candidate_meets_threshold";
 
 export interface RoutingDecision {
-  /** null = aucun candidat ne passe le seuil de qualité — jamais un choix par défaut fabriqué ; l'appelant doit alors soit escalader, soit refuser d'appeler l'IA. */
+  /** null = aucun candidat ne passe le seuil de qualité — jamais un choix par défaut fabriqué ; l'appelant doit alors refuser d'appeler l'IA. */
   chosen: ModelCandidate | null;
   reason: string;
-  escalatedFrom: ModelCandidate | null;
   escalationReason: EscalationReason | null;
 }
 
@@ -68,7 +71,6 @@ export function selectCheapestPassingCandidate(policy: RoutingPolicy): RoutingDe
     return {
       chosen: null,
       reason: `Aucun candidat mesuré n'atteint le seuil de qualité (${policy.qualityThreshold}).`,
-      escalatedFrom: null,
       escalationReason: "no_candidate_meets_threshold",
     };
   }
@@ -76,7 +78,6 @@ export function selectCheapestPassingCandidate(policy: RoutingPolicy): RoutingDe
   return {
     chosen: eligible.candidate,
     reason: `Premier candidat éligible (précision mesurée ${eligible.measuredExactAccuracy} >= seuil ${policy.qualityThreshold}).`,
-    escalatedFrom: null,
     escalationReason: null,
   };
 }
