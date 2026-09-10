@@ -67,14 +67,18 @@ voir `packages/benchmark/datasets/tcg/README.md` pour la procédure complète.
 pnpm --filter @dealradar/benchmark bench -- --tcg
 ```
 
-Statut : **MOCK-TESTED** (76 tests, mode simulé garanti par défaut). Mode réel
+Statut : **MOCK-TESTED** (80 tests, mode simulé garanti par défaut). Mode réel
 (`--tcg-live`) : **PREPARED, NOT LIVE-TESTED** — nécessite un flag explicite ET une
 vraie clé pour le provider concerné, sinon repli automatique sur le simulé.
 
 Métriques produites : exemples/succès/erreurs (provider/JSON/schéma), précision
-d'identification exacte, précision par champ (nom/set/numéro/langue/variante),
-calibration de confiance, taux de `needsConfirmation` (reflète le seuil réel du worker,
-0.7), taux d'hallucination, latences (avg/median/p95), coût total et coût par
+d'identification exacte, précision par champ (nom/set/numéro/langue/variante — comparaison
+du numéro de collection via `collectorNumbersMatch()`, jamais une égalité de texte brute :
+"96" et "096" correspondent), calibration de confiance, taux de `needsConfirmation`
+(calculé via `isSufficientForAutoCorroboration()`, `packages/ai/src/extraction/extract-tcg-card.ts`
+— seuil 0.7, source de vérité unique partagée avec le worker réel, plus de duplication),
+taux d'hallucination (couvre les 5 champs comparés pour l'exactitude ET
+productKind/gradingCompany/grade), latences (avg/median/p95), coût total et coût par
 identification réussie (`null` si le modèle n'a pas d'entrée fiable dans `COST_TABLE`).
 
 ## 5. Ajouter un dataset réel
@@ -89,10 +93,15 @@ ambigu, variante proche). **Aucune photo réelle n'est incluse dans ce lot** —
 
 `packages/ai/src/routing/types.ts` — **PREPARED, NOT IMPLEMENTED en production**.
 `ModelCandidate`, `ModelQualityProfile` (alimenté par les mesures du benchmark, jamais
-une note devinée), `RoutingDecision`, `EscalationReason`, et une seule fonction pure
+une note devinée), `RoutingDecision`, et une seule fonction pure
 (`selectCheapestPassingCandidate`) — testée (5 tests), jamais appelée par
 `apps/workers`. Aucune décision de routage automatique n'est prise en production par ce
-lot.
+lot. `EscalationReason` ne porte qu'une seule valeur (`"no_candidate_meets_threshold"`) —
+la seule que `selectCheapestPassingCandidate()` produit réellement aujourd'hui ; un enum
+plus large (bas niveau de confiance, candidats ambigus…) décrirait une vraie escalade
+multi-étapes qui n'existe pas encore comme logique réelle, donc n'a pas été ajouté par
+anticipation. Le champ `escalatedFrom` (toujours `null` en pratique) a été retiré pour la
+même raison.
 
 ## 7. Frontière Scrapling (Phase 9)
 
@@ -145,10 +154,14 @@ implémenté dans ce lot.
 `TrendSignalConnector`, un mock pour les tests. Règle absolue : ce signal n'assigne
 jamais seul la valeur d'un produit — il ne peut qu'enrichir un signal de demande/
 tendance/risque déjà calculé par Intelligence Core (`packages/core`), jamais
-`marketValueEstimate`/`decision` directement. Volontairement hors du vocabulaire
-`ConnectorFamily` partagé (`packages/connectors/src/types.ts`) : une 6ᵉ famille de
-connecteurs nécessiterait sa propre extension d'ADR 0012, non tranchée ici (même règle
-que l'ADR 0013 a suivie pour la 5ᵉ famille, "Identification Connectors").
+`marketValueEstimate`/`decision` directement. `TrendSignal` porte un discriminant fixe
+`kind: "trend_signal"` qui le rend structurellement impossible à confondre avec
+`NormalizedPriceObservation`/`ThirdPartyPriceHint` (preuve de marché, `../types.ts`,
+ADR 0012) : aucun champ de prix dans ce type, et un futur code acceptant un union
+"market evidence | trend signal" peut discriminer sur `kind` sans ambiguïté. Volontairement
+hors du vocabulaire `ConnectorFamily` partagé (`packages/connectors/src/types.ts`) : une 6ᵉ
+famille de connecteurs nécessiterait sa propre extension d'ADR 0012, non tranchée ici (même
+règle que l'ADR 0013 a suivie pour la 5ᵉ famille, "Identification Connectors").
 
 ## 9. Universal Capture — confirmation explicite (Phase 2)
 
@@ -158,7 +171,13 @@ barres détectés) — aucun upload, aucune création de requête d'analyse, auc
 avant un tap explicite sur "Analyser". `TcgScanScreen` (flux historique) est inchangé.
 121 tests mobiles au total (104 avant ce lot + 17 nouveaux), y compris la protection
 anti double-tap et la couverture upload/analyse/polling jamais déclenchés avant
-confirmation.
+confirmation. L'écran garde une ref de montage (`mountedRef`) vérifiée avant toute mise
+à jour d'état, pour ignorer un résultat qui reviendrait après un démontage (retour
+arrière pendant l'envoi) — ceci ne rend PAS l'appel réseau sous-jacent annulable
+(`tcgAdapter.analyze()` n'expose aucun mécanisme d'annulation aujourd'hui) ; l'appel déjà
+en vol continue en arrière-plan jusqu'à son terme, limitation connue et non testée au
+niveau composant (React Native n'a pas d'outillage de test de composants dans ce dépôt,
+cohérent avec le reste du code mobile existant).
 
 ## 10. Résumé des statuts
 
@@ -174,6 +193,19 @@ confirmation.
 | Routing IA (sélection coût/qualité) | PREPARED, NOT IMPLEMENTED en production |
 | Frontière Scrapling / Web Marketplace Fetcher | PREPARED, NOT IMPLEMENTED, aucun scraping |
 | Frontière Agent Reach / signal de tendance | PREPARED, NOT IMPLEMENTED, aucune intégration |
+| Seuil `needsConfirmation` (source unique) | IMPLEMENTED — `isSufficientForAutoCorroboration()` (`packages/ai`), consommée par le worker réel et le benchmark |
 
 Tout le reste du pipeline TCG existant (`orchestratePokemonPipeline`, corroboration
 catalogue, `collectorNumbersMatch`, pricing, persistance) est **inchangé** par ce lot.
+
+## 11. Revue de consolidation
+
+Une revue de consolidation a été menée avant proposition au merge (5 commits distincts
+après les 9 commits d'origine, aucun de ces 9 commits réécrit/squashé) : centralisation
+du seuil `needsConfirmation`, correction d'un bug de comparaison de numéro de collection
+dans le benchmark (même classe de bug que Nymble 96/096, déjà résolue ailleurs via
+`collectorNumbersMatch()`), extension de la détection de hallucination, réduction des
+primitives de routing à ce qui est réellement produit, garde de démontage sur l'écran de
+capture, discriminant structurel sur `TrendSignal`, et correction de deux références de
+documentation mortes. Détail complet dans l'historique git
+(`chore/lint-scripts-exclusion..HEAD`).
