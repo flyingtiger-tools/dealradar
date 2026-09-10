@@ -14,6 +14,7 @@ import { loadBaseline, saveBaseline, compareToBaseline, type RegressionResult } 
 import { runDatasetOnline } from "./online/supabase-runner";
 import { cleanupBenchmarkRun } from "./online/cleanup";
 import { runTcgCli } from "./tcg/cli-tcg";
+import { validateTcgDataset, type TcgDatasetValidationReport } from "./tcg/validate-tcg-dataset";
 import type { TcgBenchmarkReport, TcgMatrixMetrics } from "./tcg/types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -213,8 +214,29 @@ function printTcgReport(report: TcgBenchmarkReport) {
   console.log(`\nDéterministe vs IA : ${report.deterministicVsAi.note}`);
 }
 
+function printTcgValidationReport(report: TcgDatasetValidationReport) {
+  console.log(`\n=== Validation dataset TCG — ${report.datasetPath} ===`);
+  console.log(`Statut : ${report.status} — ${report.entryCount} exemple(s), ${report.issues.length} problème(s) relevé(s).`);
+  for (const issue of report.issues) {
+    console.log(`  [${issue.severity}] ${issue.code}${issue.entryId ? ` (${issue.entryId})` : ""} : ${issue.message}`);
+  }
+  if (report.issues.length === 0) console.log("  Aucun problème détecté.");
+}
+
 async function main() {
   const argv = process.argv.slice(2);
+
+  // "--validate-tcg-dataset=<nom>" (Phase 5, long lot local) — valide un
+  // dataset exporté SANS l'exécuter à travers un provider, aucun appel
+  // réseau, aucun coût. Chemin entièrement séparé du reste du CLI.
+  const validateArg = argv.find((a) => a.startsWith("--validate-tcg-dataset="))?.split("=")[1];
+  if (validateArg !== undefined) {
+    const datasetPath = path.join(DATASETS_DIR, "tcg", `${validateArg}.json`);
+    const report = validateTcgDataset(datasetPath);
+    printTcgValidationReport(report);
+    if (report.status === "INVALID") process.exitCode = 1;
+    return;
+  }
 
   // "--tcg" bascule vers l'évaluation multi-provider des cartes TCG (Phase
   // 6/7, ADR 0013) — chemin entièrement séparé du benchmark eBay existant
