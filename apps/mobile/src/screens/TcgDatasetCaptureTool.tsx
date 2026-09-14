@@ -11,6 +11,7 @@ import {
 import { addExample, deleteExample, listExamples, updateExample } from "../dataset-capture/storage";
 import { exportDataset, DatasetExportError } from "../dataset-capture/export-dataset";
 import type { DatasetCaptureExample, DatasetGroundTruthDraft } from "../dataset-capture/types";
+import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
 
 /**
  * Outil dev "TCG Dataset Capture" (long lot local, Phase 1/12) — collecte de
@@ -25,8 +26,10 @@ import type { DatasetCaptureExample, DatasetGroundTruthDraft } from "../dataset-
  * `../dataset-capture/__tests__/no-network-invariant.test.ts`, qui vérifie
  * mécaniquement cette propriété sur ce fichier ET sur tout le dossier
  * `dataset-capture/`).
- * Double garde : `__DEV__` ci-dessous ET le fait que l'onglet qui rend ce
- * composant n'est lui-même ajouté à `App.tsx` que sous `__DEV__`.
+ * Double garde : `INTERNAL_TOOLS_ENABLED` ci-dessous ET le fait que l'onglet
+ * qui rend ce composant n'est lui-même ajouté à `App.tsx` que sous ce même
+ * flag — vrai en Development Build (`__DEV__`) ou dans le build interne
+ * autonome dédié, jamais dans un build grand public.
  */
 
 const WARNING_LABELS: Record<QualityWarningCode, string> = {
@@ -234,10 +237,11 @@ export function TcgDatasetCaptureTool({ onExit }: TcgDatasetCaptureToolProps) {
 
   // Garde défensive supplémentaire (double du filtrage déjà fait par l'appelant — voir
   // le commentaire de fichier ci-dessus) — jamais rendu si le bundle tournait par erreur
-  // hors dev. Placée après tous les Hooks (jamais avant un retour conditionnel) : `__DEV__`
-  // est une constante fixée à la compilation, donc l'ordre des Hooks reste stable d'un
-  // rendu à l'autre malgré ce retour anticipé.
-  if (!__DEV__) return null;
+  // hors dev/build interne. Placée après tous les Hooks (jamais avant un retour
+  // conditionnel) : `INTERNAL_TOOLS_ENABLED` est fixé à la compilation (constante
+  // `__DEV__` ou variable d'environnement inlinée), donc l'ordre des Hooks reste stable
+  // d'un rendu à l'autre malgré ce retour anticipé.
+  if (!INTERNAL_TOOLS_ENABLED) return null;
 
   const tabBar = (
     <View style={styles.tabBar}>

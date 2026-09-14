@@ -4,16 +4,25 @@ import type { ExpoConfig } from "expo/config";
  * Development Build, pas Expo Go (ADR 0010) : les deux plugins ci-dessous
  * ajoutent des modules natifs custom (overlay/MediaProjection Android,
  * cible Share Extension iOS) qu'Expo Go ne peut pas héberger.
+ *
+ * `EXPO_PUBLIC_INTERNAL_TOOLS=true` (jamais défini par défaut — voir
+ * docs/mobile/internal-build.md) bascule vers le build interne autonome :
+ * package id ET nom distincts, pour cohabiter sur le même appareil avec le
+ * build standard `com.dealradar.mobile` sans AUCUN conflit de signature
+ * (deux package id différents = deux apps Android totalement indépendantes,
+ * quelle que soit la clé de signature utilisée pour chacune).
  */
+const isInternalBuild = process.env.EXPO_PUBLIC_INTERNAL_TOOLS === "true";
+
 const config: ExpoConfig = {
-  name: "DealRadar",
+  name: isInternalBuild ? "DealRadar Internal" : "DealRadar",
   slug: "dealradar-copilot",
   version: "0.1.0",
   scheme: "dealradar",
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   ios: {
-    bundleIdentifier: "com.dealradar.mobile",
+    bundleIdentifier: isInternalBuild ? "com.dealradar.mobile.internal" : "com.dealradar.mobile",
     // App Group requis pour le passage de données Share Extension → app
     // principale (voir plugins/withIosShareExtension.js). Non fonctionnel
     // sans compte Apple Developer réel — voir docs/mobile/ios-share-extension.md.
@@ -22,7 +31,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    package: "com.dealradar.mobile",
+    package: isInternalBuild ? "com.dealradar.mobile.internal" : "com.dealradar.mobile",
     permissions: [
       // Ajoutées explicitement par withAndroidOverlayCopilot — listées ici
       // pour lisibilité, la valeur de vérité reste le config plugin.

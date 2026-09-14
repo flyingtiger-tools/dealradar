@@ -15,14 +15,17 @@ import { LoginScreen } from "./screens/LoginScreen";
 import { getCurrentSession, onSessionChange, signOut } from "./auth/session";
 import { UniversalCaptureBetaScreen } from "./screens/UniversalCaptureBetaScreen";
 import { TcgDatasetCaptureTool } from "./screens/TcgDatasetCaptureTool";
+import { INTERNAL_TOOLS_ENABLED } from "./config/internal-tools";
 import type { AnalysisResponse } from "@dealradar/contracts";
 
 // "universalCapture" : onglet séparé pour valider le LOT Universal Capture Intake sur
 // appareil réel (ADR 0013) — n'affecte jamais le flux "tcgScan" existant.
 // "datasetCapture" : outil dev "TCG Dataset Capture" (long lot local) — UNIQUEMENT sous
-// `__DEV__` (voir plus bas, l'onglet lui-même n'est même pas ajouté à la barre hors dev,
-// en plus de la garde `__DEV__` déjà présente dans `TcgDatasetCaptureTool`). Jamais
-// disponible en production : cet onglet ne doit jamais apparaître dans un build release.
+// `INTERNAL_TOOLS_ENABLED` (voir plus bas, l'onglet lui-même n'est même pas ajouté à la
+// barre hors de ce flag, en plus de la garde identique déjà présente dans
+// `TcgDatasetCaptureTool`). Jamais disponible en build grand public : `INTERNAL_TOOLS_ENABLED`
+// n'est vrai que sous `__DEV__` (Development Build classique) ou dans le build interne
+// autonome dédié (`EXPO_PUBLIC_INTERNAL_TOOLS=true`, jamais défini par défaut).
 type AppTab = "copilot" | "tcgScan" | "universalCapture" | "datasetCapture";
 
 /**
@@ -154,7 +157,7 @@ export default function App() {
           <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} disabled />
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
-          {__DEV__ && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
+          {INTERNAL_TOOLS_ENABLED && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
           <Button title="Déconnexion" onPress={() => void signOut()} />
         </View>
         <TcgScanScreen />
@@ -169,7 +172,7 @@ export default function App() {
           <Button title="Copilote" onPress={() => setActiveTab("copilot")} />
           <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
           <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} disabled />
-          {__DEV__ && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
+          {INTERNAL_TOOLS_ENABLED && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
           <Button title="Déconnexion" onPress={() => void signOut()} />
         </View>
         <UniversalCaptureBetaScreen onExit={() => setActiveTab("copilot")} />
@@ -177,10 +180,11 @@ export default function App() {
     );
   }
 
-  // Onglet dev uniquement (Phase 12) — outil "TCG Dataset Capture", jamais de bouton
-  // d'analyse/upload disponible dans cet écran (voir TcgDatasetCaptureTool.tsx). Même si
-  // `activeTab` était mis à "datasetCapture" par un chemin inattendu en build release,
-  // `TcgDatasetCaptureTool` refuse lui-même de se rendre hors `__DEV__` (double garde).
+  // Onglet interne uniquement (Phase 12, puis build interne autonome) — outil "TCG
+  // Dataset Capture", jamais de bouton d'analyse/upload disponible dans cet écran (voir
+  // TcgDatasetCaptureTool.tsx). Même si `activeTab` était mis à "datasetCapture" par un
+  // chemin inattendu en build grand public, `TcgDatasetCaptureTool` refuse lui-même de se
+  // rendre hors `INTERNAL_TOOLS_ENABLED` (double garde).
   if (activeTab === "datasetCapture") {
     return (
       <SafeAreaView style={styles.container}>
@@ -195,7 +199,7 @@ export default function App() {
         <Button title="Copilote" onPress={() => setActiveTab("copilot")} disabled />
         <Button title="Scanner Pokémon" onPress={() => setActiveTab("tcgScan")} />
         <Button title="Capture universelle (bêta)" onPress={() => setActiveTab("universalCapture")} />
-        {__DEV__ && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
+        {INTERNAL_TOOLS_ENABLED && <Button title="Dataset TCG (dev)" onPress={() => setActiveTab("datasetCapture")} />}
         <Button title="Déconnexion" onPress={() => void signOut()} />
       </View>
       <Text style={styles.title}>DealRadar Copilote — spike</Text>
