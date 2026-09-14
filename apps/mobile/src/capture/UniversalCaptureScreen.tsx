@@ -91,7 +91,7 @@ export function UniversalCaptureScreen({ guideConfig = DEFAULT_CAPTURE_GUIDE_CON
         assumedRegionCropHeight: region.crop.height,
       };
 
-      const warnings = [...evaluateQuality(qualitySignals), ...possibleRotationWarning(exifOrientation)];
+      const warnings = [...evaluateQuality(qualitySignals), ...possibleRotationWarning(normalized.orientation.pixelsPhysicallyRotated)];
 
       const result: UniversalCaptureResult = {
         captureType: "camera",

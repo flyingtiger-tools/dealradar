@@ -55,7 +55,19 @@ export function evaluateQuality(signals: QualitySignals): QualityWarningCode[] {
   return warnings;
 }
 
-/** Séparé de `evaluateQuality` : dépend du tag EXIF brut, pas des signaux numériques dérivés. */
-export function possibleRotationWarning(exifOrientation: number | null): QualityWarningCode[] {
-  return exifOrientation !== null && exifOrientation !== 1 ? ["POSSIBLE_ROTATION"] : [];
+/**
+ * Séparé de `evaluateQuality` : dépend du résultat de la normalisation
+ * d'orientation, pas des signaux numériques dérivés.
+ *
+ * Ancien comportement (bugué, corrigé) : se basait sur le tag EXIF brut
+ * (`exifOrientation !== null && !== 1`) — ce qui déclenchait CE warning
+ * même quand `normalize-orientation.ts` avait réellement corrigé l'image,
+ * un faux positif systématique pour toute photo prise autrement qu'à plat
+ * (cas normal en main). Depuis la correction du bug de double-rotation
+ * (voir normalize-orientation.ts), la correction est déterministe dès que
+ * `pixelsPhysicallyRotated` est true — il ne reste d'incertitude réelle que
+ * lorsqu'aucun tag EXIF n'était présent (rien à corriger, rien à garantir).
+ */
+export function possibleRotationWarning(pixelsPhysicallyRotated: boolean): QualityWarningCode[] {
+  return pixelsPhysicallyRotated ? [] : ["POSSIBLE_ROTATION"];
 }

@@ -77,16 +77,16 @@ describe("evaluateQuality — objet trop petit dans le cadre", () => {
 });
 
 describe("possibleRotationWarning", () => {
-  it("orientation EXIF non standard : POSSIBLE_ROTATION", () => {
-    expect(possibleRotationWarning(6)).toEqual(["POSSIBLE_ROTATION"]);
+  // Signature changée (Samsung S24 Ultra, correctif double-rotation) : dépend maintenant du
+  // résultat RÉEL de la normalisation (`pixelsPhysicallyRotated`), pas du tag EXIF brut — voir
+  // normalize-orientation.ts. Se baser sur le tag EXIF brut déclenchait ce warning même quand
+  // l'image AVAIT été correctement corrigée (faux positif systématique en usage normal).
+  it("orientation non garantie (pixelsPhysicallyRotated=false, EXIF absent) : POSSIBLE_ROTATION", () => {
+    expect(possibleRotationWarning(false)).toEqual(["POSSIBLE_ROTATION"]);
   });
 
-  it("orientation standard (1) : aucun avertissement", () => {
-    expect(possibleRotationWarning(1)).toEqual([]);
-  });
-
-  it("EXIF absent (null) : aucun avertissement — jamais deviné", () => {
-    expect(possibleRotationWarning(null)).toEqual([]);
+  it("orientation corrigée ou déjà correcte (pixelsPhysicallyRotated=true) : aucun avertissement", () => {
+    expect(possibleRotationWarning(true)).toEqual([]);
   });
 });
 
