@@ -218,14 +218,15 @@ export async function orchestratePokemonPipeline(input: OrchestratePokemonPipeli
 
   const acceptedMatches = [justTcgCrossMatch, tcgdexCrossMatch].filter((m) => m.outcome === "exact_match");
 
-  if (acceptedMatches.length === 0) {
-    return {
-      stage: "cross_match_refused",
-      candidate: null,
-      warnings: [...corroboration.warnings, ...justTcgCrossMatch.warnings, ...tcgdexCrossMatch.warnings],
-      reason: "Aucune source de pricing n'a produit d'exact_match — jamais exploité automatiquement.",
-    };
-  }
+  // Carte identifiée avec confiance même sans prix exploitable : l'identité
+  // catalogue reste construite plus bas (via `identity`, déjà résolue avant
+  // cette étape) et le candidat est quand même renvoyé, seulement avec
+  // `priceObservations: []` — jamais `candidate: null` ici. Avant ce
+  // correctif, une identification catalogue réussie mais sans pricing exact
+  // était traitée comme un échec total (`candidate: null`), perdant une
+  // information réelle et utile (voir ADR — distinction
+  // IDENTIFIED_NO_PRICE / IDENTIFICATION_FAILED côté mobile).
+  const noPriceMatch = acceptedMatches.length === 0;
 
   // 3. Persistance traçable — une écriture par observation acceptée (une
   // identité confirmée peut légitimement porter plusieurs observations :
@@ -320,6 +321,10 @@ export async function orchestratePokemonPipeline(input: OrchestratePokemonPipeli
     );
   }
 
+  if (noPriceMatch) {
+    warnings.push("Carte identifiée, mais aucune source de pricing n'a produit de correspondance exacte — jamais exploité automatiquement.");
+  }
+
   const candidate: PokemonPipelineCandidate = {
     categorySlug,
     catalogSources,
@@ -340,5 +345,5 @@ export async function orchestratePokemonPipeline(input: OrchestratePokemonPipeli
     warnings,
   };
 
-  return { stage: "ready_for_intelligence_core", candidate, warnings };
+  return { stage: noPriceMatch ? "cross_match_refused" : "ready_for_intelligence_core", candidate, warnings };
 }

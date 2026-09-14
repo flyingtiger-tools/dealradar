@@ -248,7 +248,7 @@ async function runPipelineAndBuildResult(
     targetCurrency: TARGET_CURRENCY,
   });
 
-  if (pipelineResult.stage !== "ready_for_intelligence_core" || !pipelineResult.candidate) {
+  if (!pipelineResult.candidate) {
     return {
       status: "insufficient_data",
       result: {
@@ -264,8 +264,17 @@ async function runPipelineAndBuildResult(
   }
 
   const candidate = pipelineResult.candidate;
+  // La carte peut être identifiée avec confiance (catalogue corroboré) sans
+  // qu'aucune source de pricing n'ait produit de correspondance exacte —
+  // `candidate.priceObservations` est alors vide mais `candidate` lui-même
+  // reste renseigné (voir orchestrate-pokemon-pipeline.ts, qui ne renvoie
+  // `stage: "ready_for_intelligence_core"` que lorsqu'au moins un
+  // exact_match a été accepté). Distinguer ce cas de "insufficient_data"
+  // avec identity:null (échec d'identification réel) est précisément ce qui
+  // permet au mobile d'afficher "Carte identifiée, prix temporairement
+  // indisponible" au lieu d'un échec total.
   return {
-    status: "completed",
+    status: pipelineResult.stage === "ready_for_intelligence_core" ? "completed" : "insufficient_data",
     result: {
       kind: "pokemon_tcg_card",
       needsConfirmation: false,

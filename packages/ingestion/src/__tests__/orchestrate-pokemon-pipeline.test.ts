@@ -499,15 +499,22 @@ describe("orchestratePokemonPipeline", () => {
     // Jamais un exact_match multi-catalogue quand la corroboration normalement
     // requise (Pokémon TCG API) était indisponible — la confiance plafonnée
     // (0.5) rend `exact_match` structurellement inatteignable dans
-    // `classifyCrossMatch` (qui exige `identity.confidence === 1`), donc le
-    // pipeline se termine honnêtement en refus plutôt qu'un candidat fabriqué,
-    // quel que soit le nombre ou la qualité des observations de prix reçues.
-    // Ce module ne produit lui-même aucun verdict BUY/REVIEW/PASS (voir le
-    // test ci-dessous), mais cette structure garantit qu'aucun consommateur
-    // en aval ne peut atteindre un tel verdict à partir d'un repli
-    // `single_catalog_source` : il n'y a tout simplement pas de candidat.
+    // `classifyCrossMatch` (qui exige `identity.confidence === 1`), donc
+    // `priceObservations` reste vide quel que soit le nombre ou la qualité des
+    // observations de prix reçues : aucun verdict BUY/REVIEW/PASS fabriqué à
+    // partir d'un repli `single_catalog_source` ne devient jamais possible en
+    // aval (Intelligence Core n'a aucune observation de prix à exploiter).
+    // Le candidat lui-même EST renseigné (identité catalogue résolue avec
+    // confiance) — un candidat identifié sans prix exploitable n'est plus
+    // traité comme un échec total d'identification (voir process-tcg-card-
+    // analysis.ts, distinction IDENTIFIED_NO_PRICE côté mobile) : seule
+    // l'absence de `priceObservations` porte la garantie de sécurité
+    // ci-dessus, jamais l'absence du candidat.
     expect(result.stage).toBe("cross_match_refused");
-    expect(result.candidate).toBeNull();
+    expect(result.candidate).not.toBeNull();
+    expect(result.candidate!.catalogCorroboration).toBe("single_catalog_source");
+    expect(result.candidate!.confidence).toBe(0.5);
+    expect(result.candidate!.priceObservations).toHaveLength(0);
     expect(result.warnings.some((w) => w.includes("Pokémon TCG API") && w.includes("indisponible"))).toBe(true);
     expect(result.warnings.some((w) => w.includes("plafonnée à 0.5"))).toBe(true);
     // Rien n'est persisté sans exact_match.

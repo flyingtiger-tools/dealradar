@@ -215,6 +215,58 @@ describe("processTcgCardAnalysis", () => {
     expect(result.result.extractedFields.confidence).toBe(1);
   });
 
+  it("identifiée mais aucun prix exploitable (cross_match_refused) : insufficient_data avec identity renseignée, jamais identity:null — distingue une identification réussie d'un échec total", async () => {
+    orchestratePokemonPipeline.mockResolvedValueOnce({
+      stage: "cross_match_refused",
+      warnings: ["Carte identifiée, mais aucune source de pricing n'a produit de correspondance exacte — jamais exploité automatiquement."],
+      candidate: {
+        catalogExternalId: "base1-58",
+        catalogSources: ["pokemon-tcg-api", "tcgdex"],
+        game: "pokemon",
+        name: "Pikachu",
+        setName: "Base Set",
+        cardNumber: "58",
+        variant: null,
+        language: "English",
+        productKind: "raw_card",
+        gradingCompany: null,
+        grade: null,
+        confidence: 1,
+        catalogCorroboration: "corroborated",
+        priceObservations: [],
+        provenance: ["pokemon-tcg-api", "tcgdex"],
+        warnings: ["Carte identifiée, mais aucune source de pricing n'a produit de correspondance exacte — jamais exploité automatiquement."],
+      },
+    });
+
+    const result = await processTcgCardAnalysis(
+      fakeDb(),
+      {
+        id: "req-9",
+        imageReferences: [],
+        providedTcgHints: {
+          cardName: "Pikachu",
+          setName: "Base Set",
+          cardNumber: "58",
+          variant: null,
+          language: "English",
+          productKind: "raw_card",
+          gradingCompany: null,
+          grade: null,
+        },
+      },
+      { extractionOptions, connectors },
+    );
+
+    expect(result.status).toBe("insufficient_data");
+    expect(result.result.identity).not.toBeNull();
+    expect(result.result.identity!.name).toBe("Pikachu");
+    expect(result.result.priceObservations).toEqual([]);
+    // Jamais confondu avec un échec d'identification réel : `reason` reste `null`
+    // quand `identity` est renseignée (voir tcg-card-analysis-result.ts).
+    expect(result.result.reason).toBeNull();
+  });
+
   it("connecteurs pricing non configurés (JUSTTCG_API_KEY absent) : failed, jamais un crash", async () => {
     extractTcgCardFromPhoto.mockResolvedValueOnce({ extraction: fullExtraction, source: "ai", warnings: [], telemetry: {} });
     const result = await processTcgCardAnalysis(
