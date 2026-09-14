@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType, type Ref } from "react";
+import { useCallback, useRef, useState, type ComponentType, type Ref } from "react";
 import { ActivityIndicator, Button, StyleSheet, Text, View } from "react-native";
-import { CameraView, useCameraPermissions, type BarcodeScanningResult, type CameraViewProps } from "expo-camera";
+import { CameraView, useCameraPermissions, type BarcodeScanningResult, type CameraMountError, type CameraViewProps } from "expo-camera";
 import * as FileSystem from "expo-file-system";
 import { DEFAULT_CAPTURE_GUIDE_CONFIG, type CaptureGuideConfig } from "./capture-guide-config";
 import { normalizeOrientation, parseExifOrientation } from "./normalize-orientation";
@@ -15,6 +15,19 @@ import type { DetectedBarcode, UniversalCaptureResult } from "./types";
  * `UniversalCaptureResult` consommé par un futur adapter, jamais l'inverse.
  * Introduit derrière un onglet séparé dans `App.tsx` tant qu'il n'est pas
  * validé sur appareil réel — n'affecte jamais `TcgScanScreen`.
+ *
+ * N'appelle JAMAIS `CameraView.isAvailableAsync()` — trouvé et corrigé après
+ * premier test sur appareil réel (Samsung S24 Ultra) : cette méthode n'est
+ * implémentée QUE côté web/simulateur (voir la doc `@platform web` du
+ * package `expo-camera` lui-même, et l'absence totale de l'implémentation
+ * native côté Android dans `node_modules/expo-camera/android`). Sur un
+ * device Android réel, elle lève systématiquement `UnavailabilityError`
+ * (promesse rejetée) — sans `.catch()`, l'écran restait bloqué indéfiniment
+ * sur un indicateur de chargement, quel que soit l'état réel de la caméra.
+ * La vérification réelle passe par `useCameraPermissions()` (déjà en place)
+ * + `onMountError` de `CameraView` (signal natif authentique, cross-
+ * plateforme, déclenché seulement si le montage échoue vraiment) — jamais
+ * un pré-contrôle qui invente une réponse avant même de tenter le montage.
  */
 
 /**
@@ -35,22 +48,12 @@ export interface UniversalCaptureScreenProps {
 
 export function UniversalCaptureScreen({ guideConfig = DEFAULT_CAPTURE_GUIDE_CONFIG, onCaptured, onCancel }: UniversalCaptureScreenProps) {
   const [permission, requestPermission] = useCameraPermissions();
-  const [cameraAvailable, setCameraAvailable] = useState<boolean | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  const [mountError, setMountError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const barcodesRef = useRef<DetectedBarcode[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    CameraView.isAvailableAsync().then((available) => {
-      if (!cancelled) setCameraAvailable(available);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleBarcodeScanned = useCallback((result: BarcodeScanningResult) => {
     barcodesRef.current = dedupeBarcodes([...barcodesRef.current, toDetectedBarcode(result)]);
@@ -109,16 +112,9 @@ export function UniversalCaptureScreen({ guideConfig = DEFAULT_CAPTURE_GUIDE_CON
     }
   }, [processing, guideConfig, onCaptured]);
 
-  if (cameraAvailable === false) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.instruction}>Aucun appareil photo détecté sur cet appareil.</Text>
-        {onCancel && <Button title="Retour" onPress={onCancel} />}
-      </View>
-    );
-  }
-
-  if (!permission || cameraAvailable === null) {
+  if (!permission) {
+    // `useCameraPermissions()` résout son état initial très rapidement (lecture locale, jamais
+    // un appel réseau) — état borné, jamais une attente indéfinie.
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -136,6 +132,16 @@ export function UniversalCaptureScreen({ guideConfig = DEFAULT_CAPTURE_GUIDE_CON
     );
   }
 
+  if (mountError) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.instruction}>Impossible d'utiliser l'appareil photo : {mountError}</Text>
+        <Button title="Réessayer" onPress={() => setMountError(null)} />
+        {onCancel && <Button title="Retour" onPress={onCancel} />}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <CameraViewTag
@@ -143,6 +149,7 @@ export function UniversalCaptureScreen({ guideConfig = DEFAULT_CAPTURE_GUIDE_CON
         style={styles.camera}
         facing="back"
         onCameraReady={() => setCameraReady(true)}
+        onMountError={(event: CameraMountError) => setMountError(event.message)}
         onBarcodeScanned={handleBarcodeScanned}
         barcodeScannerSettings={{ barcodeTypes: [...SUPPORTED_BARCODE_TYPES] }}
       >
