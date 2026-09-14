@@ -89,6 +89,52 @@ Puis, pour prouver que ça fonctionne **sans Metro** :
    `onMountError` dans
    [`UniversalCaptureScreen.tsx`](../../apps/mobile/src/capture/UniversalCaptureScreen.tsx)).
 
+## Problèmes de build réels rencontrés et corrigés (2026-09-14)
+
+Deux bugs distincts, propres à `expo run:android --variant release` dans
+**ce monorepo pnpm sous Windows** (jamais rencontrés avec `expo start` ni
+avec le build `debug` précédent) — aucun lien avec le code de l'app :
+
+1. **`--entry-file` relatif mal résolu par `expo export:embed`.** Le
+   plugin Gradle React Native convertit l'`--entry-file` absolu (calculé
+   correctement) en chemin relatif avant de lancer la commande — mais
+   `expo export:embed`, une fois invoqué avec ce chemin relatif, le résout
+   à tort contre la racine du **workspace pnpm** au lieu de `apps/mobile`
+   (`metro.config.js` ajoute la racine du workspace à `watchFolders` pour
+   la résolution des dépendances hoistées — c'est probablement ce qui
+   déclenche la mauvaise détection de racine côté `expo export:embed`).
+   Erreur observée : `Unable to resolve module ./index.ts from
+   <racine du repo>/.`. Reproduit et confirmé **hors Gradle** (même
+   commande, mêmes symptômes). **Corrigé** par
+   [`apps/mobile/scripts/gradle-bundle-embed-entry-fix.js`](../../apps/mobile/scripts/gradle-bundle-embed-entry-fix.js)
+   (committé, survit à `expo prebuild`) : un wrapper qui réabsolutise
+   `--entry-file` puis délègue intégralement au vrai `@expo/cli`, référencé
+   via la propriété `cliFile` du bloc `react {}` dans
+   `android/app/build.gradle` (généré, gitignoré — **cette référence doit
+   être réappliquée après chaque `expo prebuild --clean`**, voir le diff
+   dans le commit qui introduit ce fichier).
+2. **Limite Windows `MAX_PATH` (260 caractères) sur la compilation C++
+   native (`expo-modules-core`, CMake/ninja).** Le nom de dossier encodé
+   par pnpm pour `react-native` dans `node_modules/.pnpm/` (toutes les
+   peer-dependencies résolues dans le nom du dossier) rend certains chemins
+   d'en-têtes C++ (ex. `ReactCommon/CallInvokerHolder.h`) trop longs pour
+   l'API Windows classique — `ninja: error: ... Filename longer than 260
+   characters`. Sans lien avec le code du projet (uniquement la profondeur
+   du chemin d'installation). **Contourné** en mappant temporairement le
+   dossier racine du repo sur un lecteur virtuel via `subst` (raccourcit
+   tous les chemins résolus, pnpm utilisant des symlinks relatifs) :
+   ```bash
+   subst Z: "C:\chemin\vers\dealradar"
+   cd /z/apps/mobile/android
+   ./gradlew.bat app:assembleRelease -x lint -x test -PreactNativeArchitectures=arm64-v8a
+   ```
+   `subst` ne nécessite **aucun droit administrateur**, ne modifie **rien**
+   dans le repo, et se retire proprement avec `subst Z: /D` une fois le
+   build terminé — à refaire à chaque nouvelle session de build sur cette
+   machine si le problème réapparaît (il n'est pas persistant).
+   `-PreactNativeArchitectures=arm64-v8a` restreint aussi le build au seul
+   ABI du Samsung S24 Ultra (64 bits), accessoirement plus rapide.
+
 ## Garanties de sécurité
 
 - Le flag `EXPO_PUBLIC_INTERNAL_TOOLS` n'est stocké dans **aucun** fichier
