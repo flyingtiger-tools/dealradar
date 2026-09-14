@@ -20,6 +20,7 @@ export type TcgScanState =
 
 export type TcgScanAction =
   | { type: "IMAGE_SELECTED"; imageUri: string }
+  | { type: "MANUAL_ENTRY_STARTED" }
   | { type: "CANCELLED" }
   | { type: "UPLOAD_STARTED" }
   | { type: "SUBMIT_STARTED"; requestId: string }
@@ -52,11 +53,35 @@ export function extractedFieldsToProvidedHints(fields: {
   };
 }
 
+/** Champs vides pour démarrer une saisie manuelle sans extraction visuelle préalable — mêmes noms que `tcgCardProvidedHintsSchema`, jamais une seconde forme. */
+const EMPTY_HINTS: TcgCardProvidedHints = {
+  cardName: null,
+  setName: null,
+  cardNumber: null,
+  variant: null,
+  language: null,
+  productKind: null,
+  gradingCompany: null,
+  grade: null,
+};
+
 export function tcgScanReducer(state: TcgScanState, action: TcgScanAction): TcgScanState {
   switch (action.type) {
     case "IMAGE_SELECTED":
       if (state.phase !== "idle" && state.phase !== "result" && state.phase !== "error") return state;
       return { phase: "previewingImage", imageUri: action.imageUri };
+
+    case "MANUAL_ENTRY_STARTED":
+      // Entrée directe dans le formulaire de confirmation SANS photo ni
+      // extraction IA préalable — même formulaire, même mécanisme
+      // `providedTcgHints` que la confirmation post-extraction (voir
+      // `resubmitWithCorrections` dans TcgScanScreen.tsx, qui ne dépend
+      // jamais de `state.requestId` pour construire la nouvelle requête).
+      // Permet d'identifier + trouver un prix 100% déterministe (catalogue
+      // + pricing, sans aucun appel IA) quand l'utilisateur connaît déjà les
+      // informations imprimées sur la carte.
+      if (state.phase !== "idle" && state.phase !== "error") return state;
+      return { phase: "needsConfirmation", requestId: "", fields: EMPTY_HINTS };
 
     case "CANCELLED":
       return { phase: "idle" };

@@ -130,4 +130,48 @@ describe("tcgScanReducer", () => {
     state = tcgScanReducer(state, { type: "RESET" });
     expect(state).toEqual({ phase: "idle" });
   });
+
+  it("MANUAL_ENTRY_STARTED depuis idle : entre directement en confirmation avec des champs vides, sans requestId ni photo — chemin 100% déterministe (aucun appel IA)", () => {
+    let state: TcgScanState = initialTcgScanState;
+    state = tcgScanReducer(state, { type: "MANUAL_ENTRY_STARTED" });
+    expect(state).toEqual({
+      phase: "needsConfirmation",
+      requestId: "",
+      fields: {
+        cardName: null,
+        setName: null,
+        cardNumber: null,
+        variant: null,
+        language: null,
+        productKind: null,
+        gradingCompany: null,
+        grade: null,
+      },
+    });
+  });
+
+  it("MANUAL_ENTRY_STARTED depuis error : accessible aussi après un échec précédent", () => {
+    let state: TcgScanState = { phase: "error", message: "Délai dépassé" };
+    state = tcgScanReducer(state, { type: "MANUAL_ENTRY_STARTED" });
+    expect(state.phase).toBe("needsConfirmation");
+  });
+
+  it("MANUAL_ENTRY_STARTED ignoré depuis un état en vol (jamais une interruption silencieuse d'un envoi en cours)", () => {
+    const state: TcgScanState = { phase: "polling", requestId: "req-7" };
+    const next = tcgScanReducer(state, { type: "MANUAL_ENTRY_STARTED" });
+    expect(next).toBe(state);
+  });
+
+  it("saisie manuelle : les champs se modifient comme une confirmation classique, puis CONFIRMATION_SUBMITTED bascule en resubmitting", () => {
+    let state: TcgScanState = tcgScanReducer(initialTcgScanState, { type: "MANUAL_ENTRY_STARTED" });
+    state = tcgScanReducer(state, { type: "CONFIRMATION_FIELD_CHANGED", field: "cardName", value: "Pikachu" });
+    state = tcgScanReducer(state, { type: "CONFIRMATION_FIELD_CHANGED", field: "setName", value: "Base Set" });
+    expect(state).toEqual({
+      phase: "needsConfirmation",
+      requestId: "",
+      fields: expect.objectContaining({ cardName: "Pikachu", setName: "Base Set" }),
+    });
+    state = tcgScanReducer(state, { type: "CONFIRMATION_SUBMITTED" });
+    expect(state).toEqual({ phase: "resubmitting", requestId: "" });
+  });
 });

@@ -5,6 +5,8 @@ import type { QualityWarningCode } from "../capture/types";
 import { identifyCapture } from "../identification/identify-capture";
 import { tcgAdapter } from "../identification/tcg-adapter";
 import { betaResultReducer, initialBetaResultState, type BetaResultState } from "../identification/beta-result-state";
+import { cleanUserMessage } from "../identification/user-messages";
+import type { RafAnalysisStatus } from "../identification/types";
 
 /**
  * Écran bêta prouvant le flux complet ADR 0013 : Universal Capture Intake
@@ -31,6 +33,18 @@ const PROGRESS_LABELS: Record<"uploading" | "submitting" | "polling", string> = 
   uploading: "Envoi de la photo…",
   submitting: "Création de l'analyse…",
   polling: "Identification et recherche des prix en cours…",
+};
+
+/** Jamais le slug technique (`pokemon_tcg`) ni le statut brut (`RafAnalysisStatus`) affichés directement — voir user-messages.ts pour les messages d'erreur. */
+const CATEGORY_LABELS: Record<string, string> = {
+  pokemon_tcg: "Carte Pokémon",
+};
+
+const STATUS_LABELS: Record<RafAnalysisStatus, string> = {
+  identified: "✓ Carte identifiée",
+  needs_confirmation: "Identification incertaine — confirmation nécessaire",
+  insufficient_data: "Carte non identifiée",
+  failed: "Échec de l'identification",
 };
 
 interface UniversalCaptureBetaScreenProps {
@@ -118,7 +132,7 @@ export function UniversalCaptureBetaScreen({ onExit }: UniversalCaptureBetaScree
   if (state.phase === "error") {
     return (
       <View style={styles.center}>
-        <Text style={styles.error}>{state.message}</Text>
+        <Text style={styles.error}>{cleanUserMessage(state.message) ?? state.message}</Text>
         <View style={styles.actions}>
           <Button title="Reprendre une photo" onPress={() => dispatch({ type: "RETAKE" })} />
           <Button title="Annuler" onPress={onExit} />
@@ -128,20 +142,19 @@ export function UniversalCaptureBetaScreen({ onExit }: UniversalCaptureBetaScree
   }
 
   const { analysis } = state;
+  const hasPricing = analysis.valuation.low !== null && analysis.valuation.high !== null;
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Résultat (bêta)</Text>
-      <Text style={styles.row}>Catégorie : {analysis.category ?? "inconnue"}</Text>
-      <Text style={styles.row}>Statut : {analysis.status}</Text>
+      <Text style={styles.title}>Résultat</Text>
+      <Text style={styles.subtitle}>{STATUS_LABELS[analysis.status]}</Text>
+      <Text style={styles.row}>Catégorie : {analysis.category ? (CATEGORY_LABELS[analysis.category] ?? analysis.category) : "inconnue"}</Text>
       <Text style={styles.row}>Produit : {analysis.product.name ?? "—"}</Text>
       <Text style={styles.row}>Set : {analysis.product.setName ?? "—"}</Text>
       <Text style={styles.row}>Numéro : {analysis.product.collectorNumber ?? "—"}</Text>
       <Text style={styles.row}>Confiance : {analysis.confidence !== null ? `${Math.round(analysis.confidence * 100)}%` : "—"}</Text>
       <Text style={styles.row}>
         Estimation :{" "}
-        {analysis.valuation.low !== null && analysis.valuation.high !== null
-          ? `${analysis.valuation.low}–${analysis.valuation.high} ${analysis.valuation.currency}`
-          : "indisponible"}
+        {hasPricing ? `${analysis.valuation.low}–${analysis.valuation.high} ${analysis.valuation.currency}` : "temporairement indisponible"}
       </Text>
       {analysis.missingInformation.length > 0 && (
         <Text style={styles.row}>Informations manquantes : {analysis.missingInformation.join(", ")}</Text>
@@ -158,6 +171,7 @@ const styles = StyleSheet.create({
   container: { padding: 24, gap: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   title: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
+  subtitle: { fontSize: 15, fontWeight: "600", marginBottom: 4 },
   row: { fontSize: 14 },
   preview: { width: "100%", height: 320, backgroundColor: "#eee", borderRadius: 8 },
   warningBox: { gap: 4 },

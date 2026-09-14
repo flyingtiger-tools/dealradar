@@ -245,6 +245,10 @@ export function TcgDatasetCaptureTool({ onExit }: TcgDatasetCaptureToolProps) {
 
   const tabBar = (
     <View style={styles.tabBar}>
+      {/* Distinction visuelle explicite (voir la phase "identification automatique" — jamais
+          confondu avec Scanner Pokémon : cet outil collecte de la vérité terrain saisie
+          manuellement pour benchmarker, ce n'est pas le produit final). */}
+      <Text style={styles.internalToolBadge}>🔧 OUTIL INTERNE · DATASET — pas le scanner produit</Text>
       <Button title="Capturer" onPress={() => setInnerTab("capture")} disabled={innerTab === "capture"} />
       <Button title={`Bibliothèque${examples ? ` (${examples.length})` : ""}`} onPress={() => setInnerTab("library")} disabled={innerTab === "library"} />
       <Button title="Quitter" onPress={onExit} />
@@ -361,6 +365,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, gap: 8 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   tabBar: { flexDirection: "row", gap: 8, padding: 12, flexWrap: "wrap" },
+  internalToolBadge: { width: "100%", fontSize: 11, fontWeight: "600", color: "#92400e", backgroundColor: "#fef3c7", padding: 6, borderRadius: 4 },
   title: { fontSize: 18, fontWeight: "600", marginBottom: 8 },
   hint: { fontSize: 14, color: "#666", padding: 12 },
   preview: { width: "100%", height: 320, backgroundColor: "#eee", borderRadius: 8 },

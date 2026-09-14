@@ -6,6 +6,7 @@ import type { TcgCardProvidedHints } from "@dealradar/contracts";
 import { tcgScanReducer, initialTcgScanState, type TcgScanState } from "../state/tcg-scan-state";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
+import { cleanUserMessage } from "../identification/user-messages";
 
 /**
  * Écran de scan photo carte Pokémon (LOT 8, authentification réelle LOT 9)
@@ -138,10 +139,15 @@ export function TcgScanScreen() {
             <Button title="Prendre une photo" onPress={pickFromCamera} />
             <Button title="Choisir depuis la galerie" onPress={pickFromGallery} />
           </View>
+          {/* Identification + prix 100% déterministes (catalogue + pricing), aucun appel IA —
+              utile quand l'identification automatique par photo est indisponible (voir
+              docs/mobile/internal-build.md). Réutilise le même formulaire/mécanisme
+              `providedTcgHints` que la confirmation post-extraction. */}
+          <Button title="Je connais déjà les infos de la carte" onPress={() => dispatch({ type: "MANUAL_ENTRY_STARTED" })} />
         </View>
       )}
 
-      {state.phase === "error" && <Text style={styles.error}>{state.message}</Text>}
+      {state.phase === "error" && <Text style={styles.error}>{cleanUserMessage(state.message) ?? state.message}</Text>}
 
       {state.phase === "previewingImage" && (
         <View style={styles.previewBox}>
@@ -164,7 +170,11 @@ export function TcgScanScreen() {
 
       {state.phase === "needsConfirmation" && (
         <View style={styles.confirmBox}>
-          <Text style={styles.subtitle}>Confirme ou corrige les champs détectés</Text>
+          <Text style={styles.subtitle}>
+            {state.requestId === ""
+              ? "Renseigne les informations imprimées sur la carte"
+              : "Confirme ou corrige les champs détectés"}
+          </Text>
           {CONFIRMATION_FIELDS.map(({ key, label }) => (
             <View key={key} style={styles.fieldRow}>
               <Text style={styles.fieldLabel}>{label}</Text>
@@ -176,7 +186,11 @@ export function TcgScanScreen() {
               />
             </View>
           ))}
-          <Button title="Rechercher avec ces informations" onPress={resubmitWithCorrections} />
+          <Button
+            title="Rechercher avec ces informations"
+            onPress={resubmitWithCorrections}
+            disabled={!state.fields.cardName}
+          />
         </View>
       )}
 
@@ -188,7 +202,6 @@ export function TcgScanScreen() {
 }
 
 function TcgScanResultView({
-  status,
   result,
   onScanAnother,
 }: {
@@ -196,25 +209,29 @@ function TcgScanResultView({
   result: import("@dealradar/contracts").TcgCardAnalysisResult | null;
   onScanAnother: () => void;
 }) {
-  if (status !== "completed" || !result || !result.identity) {
+  // Le signal de vérité est `result.identity`, jamais `status` seul : une
+  // carte identifiée avec confiance mais sans source de pricing exacte
+  // renvoie `status: "insufficient_data"` (le pricing EST insuffisant) tout
+  // en gardant `identity` renseignée (voir orchestrate-pokemon-pipeline.ts /
+  // process-tcg-card-analysis.ts) — avant ce correctif, cet écran traitait
+  // ce cas comme un échec total d'identification, perdant une information
+  // réelle et utile.
+  if (!result || !result.identity) {
     return (
       <View style={styles.resultBox}>
-        <Text style={styles.subtitle}>Données insuffisantes</Text>
-        <Text>{result?.reason ?? "Identification impossible avec les informations disponibles."}</Text>
-        {result?.warnings.map((w, i) => (
-          <Text key={i} style={styles.warning}>
-            {w}
-          </Text>
-        ))}
+        <Text style={styles.subtitle}>Carte non identifiée</Text>
+        <Text>{cleanUserMessage(result?.reason) ?? "Identification impossible avec les informations disponibles."}</Text>
         <Button title="Nouveau scan" onPress={onScanAnother} />
       </View>
     );
   }
 
-  const { identity, priceObservations, warnings } = result;
+  const { identity, priceObservations } = result;
+  const hasPricing = priceObservations.length > 0;
 
   return (
     <View style={styles.resultBox}>
+      <Text style={styles.identifiedBadge}>✓ Carte identifiée</Text>
       <Text style={styles.subtitle}>{identity.name}</Text>
       <Text>
         {identity.setName ?? "Set inconnu"} {identity.cardNumber ? `#${identity.cardNumber}` : ""}
@@ -226,21 +243,28 @@ function TcgScanResultView({
       <Text>Confiance identité : {Math.round(identity.confidence * 100)}%</Text>
 
       <Text style={styles.subtitle}>Prix par source</Text>
-      {priceObservations.map((obs, i) => (
-        <View key={i} style={styles.priceRow}>
-          <Text>
-            {obs.source} · {(obs.amountCents / 100).toFixed(2)} {obs.currency}
-            {obs.condition ? ` · ${obs.condition}` : ""}
-          </Text>
-          {obs.conversion && (
-            <Text style={styles.conversion}>
-              ≈ {(obs.conversion.convertedAmountCents / 100).toFixed(2)} {obs.conversion.convertedCurrency} (indicatif)
+      {hasPricing ? (
+        priceObservations.map((obs, i) => (
+          <View key={i} style={styles.priceRow}>
+            <Text>
+              {obs.source} · {(obs.amountCents / 100).toFixed(2)} {obs.currency}
+              {obs.condition ? ` · ${obs.condition}` : ""}
             </Text>
-          )}
-        </View>
-      ))}
+            {obs.conversion && (
+              <Text style={styles.conversion}>
+                ≈ {(obs.conversion.convertedAmountCents / 100).toFixed(2)} {obs.conversion.convertedCurrency} (indicatif)
+              </Text>
+            )}
+          </View>
+        ))
+      ) : (
+        <Text style={styles.warning}>Prix temporairement indisponible pour cette carte.</Text>
+      )}
 
-      {warnings.map((w, i) => (
+      {/* Avertissements de qualité de données (variante ambiguë, conversion indicative, etc.)
+          — des disclaimers utiles pour l'utilisateur, pas du texte technique brut (voir cleanUserMessage
+          pour ce qui EST filtré : codes d'erreur, statuts internes). */}
+      {result.warnings.map((w, i) => (
         <Text key={i} style={styles.warning}>
           {w}
         </Text>
@@ -270,6 +294,7 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 12, color: "#666" },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 8 },
   resultBox: { gap: 4 },
+  identifiedBadge: { fontSize: 14, fontWeight: "600", color: "#15803d" },
   priceRow: { paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#ddd" },
   conversion: { fontSize: 12, color: "#666" },
 });
