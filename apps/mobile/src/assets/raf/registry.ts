@@ -47,6 +47,14 @@ const RAF_ASSETS: Record<RafState, RafAssetDescriptor> = {
   analyzing: { state: "analyzing", kind: "placeholder", emoji: "🔎", backgroundColor: colors.primary, accessibilityLabel: "Raf analyse" },
   searching: { state: "searching", kind: "placeholder", emoji: "🔍", backgroundColor: colors.primary, accessibilityLabel: "Raf cherche sur le marché" },
   scanning: { state: "scanning", kind: "placeholder", emoji: "📸", backgroundColor: colors.primary, accessibilityLabel: "Raf scanne" },
+  // États étendus (2026-09-15) — vocabulaire demandé explicitement pour ce
+  // lot (comparaison de prix, notification, 3 vides distincts) ; aucun
+  // asset réel pour aucun d'eux, placeholders comme tous les autres.
+  comparing: { state: "comparing", kind: "placeholder", emoji: "⚖️", backgroundColor: colors.primary, accessibilityLabel: "Raf compare les prix" },
+  notifying: { state: "notifying", kind: "placeholder", emoji: "🔔", backgroundColor: colors.primary, accessibilityLabel: "Raf a une nouvelle information" },
+  emptySearch: { state: "emptySearch", kind: "placeholder", emoji: "🔍", backgroundColor: colors.surfaceRaised, accessibilityLabel: "Raf attend une recherche" },
+  emptyNoResults: { state: "emptyNoResults", kind: "placeholder", emoji: "🤷", backgroundColor: colors.surfaceRaised, accessibilityLabel: "Raf n'a rien trouvé" },
+  emptyError: { state: "emptyError", kind: "placeholder", emoji: "😵", backgroundColor: colors.surfaceRaised, accessibilityLabel: "Raf, une erreur est survenue" },
   warning: { state: "warning", kind: "placeholder", emoji: "😬", backgroundColor: colors.warning, accessibilityLabel: "Raf, prudent" },
   badDeal: { state: "badDeal", kind: "placeholder", emoji: "👎", backgroundColor: colors.danger, accessibilityLabel: "Raf, mauvaise affaire" },
   goodDeal: { state: "goodDeal", kind: "placeholder", emoji: "👍", backgroundColor: colors.success, accessibilityLabel: "Raf, bonne affaire" },

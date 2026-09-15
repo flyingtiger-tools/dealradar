@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { RootTab } from "./types";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -71,7 +71,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "space-around",
     paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
+    // Marge basse supplémentaire sur Android : sans `react-native-safe-
+    // area-context` (non installé — aucune dépendance native ajoutée tant
+    // que le build natif n'est pas vérifiable, voir
+    // docs/mobile/ui-product-foundation.md), impossible de lire la hauteur
+    // exacte de la barre de navigation gestuelle. Cette marge fixe évite
+    // au moins que les onglets ne soient collés au bord — approximation
+    // documentée, pas une valeur précise par appareil.
+    paddingBottom: Platform.OS === "android" ? spacing.lg : spacing.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,

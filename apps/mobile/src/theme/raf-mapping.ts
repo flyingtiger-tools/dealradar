@@ -37,7 +37,20 @@ export type RafState =
   | "badDeal"
   | "goodDeal"
   | "gem"
-  | "megaDeal";
+  | "megaDeal"
+  // États étendus (LOT "package visuel Raf", Phase 5, demandés explicitement
+  // par l'utilisateur — pas dérivés des source_boards/, jugés non fiables
+  // pour ce lot, voir docs/raf-asset-status.md) : "comparing"/"notifying"
+  // complètent les phases d'action déjà couvertes par analyzing/searching/
+  // scanning ; les 3 "empty*" couvrent des cas d'absence de données
+  // distincts de "warning" (réservé à un problème sur un résultat déjà
+  // obtenu). Optionnels : aucun écran n'est obligé de les utiliser, ajoutés
+  // seulement là où ils clarifient réellement l'intention.
+  | "comparing"
+  | "notifying"
+  | "emptySearch"
+  | "emptyNoResults"
+  | "emptyError";
 
 /** Tous les états Raf valides — utilisé par le registry pour valider les fallbacks et par UI Preview pour tout lister. */
 export const ALL_RAF_STATES: readonly RafState[] = [
@@ -48,6 +61,11 @@ export const ALL_RAF_STATES: readonly RafState[] = [
   "analyzing",
   "searching",
   "scanning",
+  "comparing",
+  "notifying",
+  "emptySearch",
+  "emptyNoResults",
+  "emptyError",
   "warning",
   "badDeal",
   "goodDeal",

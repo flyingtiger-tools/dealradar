@@ -1,15 +1,19 @@
 import { useCallback, useState } from "react";
-import { Button, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { signInWithPassword } from "../auth/session";
+import { AppButton } from "../components/ui/AppButton";
+import { colors, radius, spacing, typography } from "../theme/tokens";
 
 /**
- * Écran de connexion (LOT 9) — remplace définitivement le champ "Jeton
- * d'accès (dev uniquement)". Authentification Supabase réelle uniquement
- * (`signInWithPassword`) — aucune clé serveur, aucun secret ici, seule la
- * clé publique "anon" déjà configurée dans le client partagé est utilisée.
- * La session résultante est gérée entièrement par le SDK Supabase
- * (`App.tsx` s'abonne à `onSessionChange`) ; cet écran ne stocke rien
- * lui-même.
+ * Écran de connexion (LOT 9, restylé LOT "package visuel Raf" — Phase
+ * "cohérence des tokens" : aucune couleur codée en dur, `AppButton` au
+ * lieu du `<Button>` natif). Authentification Supabase réelle uniquement
+ * (`signInWithPassword`), logique INCHANGÉE — aucune couleur codée en dur,
+ * `AppButton` au lieu du `<Button>` natif. Aucune clé serveur, aucun
+ * secret ici, seule la clé publique "anon" déjà configurée dans le client
+ * partagé est utilisée. La session résultante est gérée entièrement par
+ * le SDK Supabase (`App.tsx` s'abonne à `onSessionChange`) ; cet écran ne
+ * stocke rien lui-même.
  */
 export function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -40,22 +44,30 @@ export function LoginScreen() {
         <TextInput
           style={styles.input}
           placeholder="Email"
+          placeholderTextColor={colors.textMuted}
           value={email}
           onChangeText={setEmail}
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
+          accessibilityLabel="Email"
         />
         <TextInput
           style={styles.input}
           placeholder="Mot de passe"
+          placeholderTextColor={colors.textMuted}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
           autoCapitalize="none"
           autoComplete="password"
+          accessibilityLabel="Mot de passe"
         />
-        <Button title={submitting ? "Connexion…" : "Se connecter"} onPress={handleSignIn} disabled={submitting || !email || !password} />
+        <AppButton
+          title={submitting ? "Connexion…" : "Se connecter"}
+          onPress={handleSignIn}
+          disabled={submitting || !email || !password}
+        />
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -64,10 +76,17 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 16, justifyContent: "center" },
-  title: { fontSize: 24, fontWeight: "700", textAlign: "center" },
-  subtitle: { fontSize: 14, color: "#666", textAlign: "center", marginBottom: 8 },
-  form: { gap: 12 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 12 },
-  error: { color: "#b91c1c", textAlign: "center" },
+  container: { flex: 1, padding: spacing.xl, gap: spacing.lg, justifyContent: "center", backgroundColor: colors.background },
+  title: { ...typography.display, color: colors.textPrimary, textAlign: "center" },
+  subtitle: { ...typography.body, color: colors.textSecondary, textAlign: "center", marginBottom: spacing.sm },
+  form: { gap: spacing.md },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+  },
+  error: { ...typography.body, color: colors.danger, textAlign: "center" },
 });

@@ -40,17 +40,21 @@ export function ResultScreen({ view, onScanAnother, onExit }: ResultScreenProps)
 
   const rafState = view.decision ? getRafStateForDealTier(getDealTierFromDecision(view.decision, view.dealScore)) : getRafStateForIdentificationStatus("identified");
 
+  // Hiérarchie de lecture (Phase 13) : verdict d'abord (quand il existe
+  // réellement), puis l'état Raf/identité, puis prix, puis confiance,
+  // informations détaillées, "pourquoi", actions — jamais 18 blocs
+  // d'égale importance en même temps.
   return (
     <ScrollView contentContainerStyle={styles.container}>
       {view.isDemo && <Badge label="DEMO — donnée fictive" tone="warning" />}
+
+      {view.decision && <VerdictBanner decision={view.decision} />}
 
       <RafResultHero
         state={rafState}
         headline={view.product.name ?? "Produit identifié"}
         subheadline={[view.product.setName, view.product.collectorNumber ? `#${view.product.collectorNumber}` : null].filter(Boolean).join(" · ") || undefined}
       />
-
-      {view.decision && <VerdictBanner decision={view.decision} />}
 
       <Card style={styles.section}>
         <Text style={styles.sectionTitle}>Identité</Text>
@@ -62,10 +66,6 @@ export function ResultScreen({ view, onScanAnother, onExit }: ResultScreenProps)
         {view.product.productKind === "graded_card" && (
           <InfoRow label="Gradation" value={[view.product.gradingCompany, view.product.grade].filter(Boolean).join(" ") || null} />
         )}
-      </Card>
-
-      <Card style={styles.section}>
-        <ScoreConfidenceRow score={view.dealScore} confidencePercent={view.confidencePercent} />
       </Card>
 
       <Card style={styles.section}>
@@ -93,6 +93,10 @@ export function ResultScreen({ view, onScanAnother, onExit }: ResultScreenProps)
         )}
       </Card>
 
+      <Card style={styles.section}>
+        <ScoreConfidenceRow score={view.dealScore} confidencePercent={view.confidencePercent} />
+      </Card>
+
       <WhyPanel positives={view.reasons} warnings={view.warnings} />
 
       <View style={styles.actions}>
@@ -113,7 +117,7 @@ function InfoRow({ label, value }: { label: string; value: string | null }) {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: spacing.lg, gap: spacing.md },
+  container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
   section: { gap: spacing.xs },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.xs },
   infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },

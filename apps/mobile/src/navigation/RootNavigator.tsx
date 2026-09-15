@@ -1,6 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { SafeAreaView, StyleSheet, View } from "react-native";
 import { BottomTabBar } from "./BottomTabBar";
 import type { PushedScreen, RootTab } from "./types";
 import { HomeScreen } from "../screens/HomeScreen";
@@ -40,14 +40,18 @@ export function RootNavigator({ session }: RootNavigatorProps) {
   const [pushed, setPushed] = useState<PushedScreen | null>(null);
 
   if (pushed) {
-    return <View style={styles.root}>{renderPushedScreen(pushed, setPushed)}</View>;
+    // `edges` non disponible (pas `react-native-safe-area-context`) —
+    // `SafeAreaView` du cœur RN respecte au moins l'encoche/la barre de
+    // statut sur iOS ; sur Android c'est un no-op inoffensif (voir
+    // BottomTabBar.tsx pour la marge basse Android).
+    return <SafeAreaView style={styles.root}>{renderPushedScreen(pushed, setPushed)}</SafeAreaView>;
   }
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root}>
       <View style={styles.content}>{renderTab(activeTab, setActiveTab, setPushed, session)}</View>
       <BottomTabBar active={activeTab} onSelect={setActiveTab} />
-    </View>
+    </SafeAreaView>
   );
 }
 
