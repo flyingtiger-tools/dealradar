@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, StyleSheet, Text } from "react-native";
+import { SafeAreaView, StatusBar, StyleSheet, Text } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import { getCurrentSession, onSessionChange } from "./auth/session";
 import { LoginScreen } from "./screens/LoginScreen";
@@ -23,6 +23,15 @@ import { colors, typography } from "./theme/tokens";
  * `onboardingCompleted === undefined` : lecture en cours (AsyncStorage,
  * asynchrone) — même état "chargement" que la vérification de session,
  * jamais un flash de contenu incorrect.
+ *
+ * `StatusBar` (cœur React Native, aucune dépendance ajoutée — `expo-
+ * status-bar` n'est pas installé dans ce projet) : rendue UNE SEULE fois
+ * ici, en tête de chaque branche, plutôt que dupliquée par écran — le
+ * thème est exclusivement sombre (voir theme/tokens.ts), donc toujours
+ * `barStyle="light-content"` (icônes claires) et un fond identique à
+ * `colors.background`, jamais la barre blanche par défaut d'Android
+ * observée en QA device réel (LOT "device QA + first real scan",
+ * 2026-09-15) sur CHAQUE écran avant ce correctif.
  */
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -51,38 +60,47 @@ export default function App() {
     };
   }, [session]);
 
-  if (session === undefined) {
-    return (
-      <SafeAreaView style={styles.loading}>
-        <Text style={styles.loadingText}>Chargement…</Text>
-      </SafeAreaView>
-    );
-  }
+  return (
+    <>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      {renderBody()}
+    </>
+  );
 
-  if (session === null) {
-    return <LoginScreen />;
-  }
+  function renderBody() {
+    if (session === undefined) {
+      return (
+        <SafeAreaView style={styles.loading}>
+          <Text style={styles.loadingText}>Chargement…</Text>
+        </SafeAreaView>
+      );
+    }
 
-  if (onboardingCompleted === undefined) {
-    return (
-      <SafeAreaView style={styles.loading}>
-        <Text style={styles.loadingText}>Chargement…</Text>
-      </SafeAreaView>
-    );
-  }
+    if (session === null) {
+      return <LoginScreen />;
+    }
 
-  if (!onboardingCompleted) {
-    return (
-      <OnboardingScreen
-        onDone={() => {
-          void setOnboardingCompleted(true);
-          setOnboardingCompletedState(true);
-        }}
-      />
-    );
-  }
+    if (onboardingCompleted === undefined) {
+      return (
+        <SafeAreaView style={styles.loading}>
+          <Text style={styles.loadingText}>Chargement…</Text>
+        </SafeAreaView>
+      );
+    }
 
-  return <RootNavigator session={session} />;
+    if (!onboardingCompleted) {
+      return (
+        <OnboardingScreen
+          onDone={() => {
+            void setOnboardingCompleted(true);
+            setOnboardingCompletedState(true);
+          }}
+        />
+      );
+    }
+
+    return <RootNavigator session={session} />;
+  }
 }
 
 const styles = StyleSheet.create({
