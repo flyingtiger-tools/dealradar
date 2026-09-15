@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Animated, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
-import { colors, radius, spacing, typography } from "../../theme/tokens";
+import { borderWidth, colors, opacity, radius, spacing, typography } from "../../theme/tokens";
 
 export interface AppButtonProps {
   title: string;
@@ -48,7 +48,7 @@ export function AppButton({ title, onPress, variant = "primary", disabled = fals
 
 const VARIANT_STYLES: Record<NonNullable<AppButtonProps["variant"]>, StyleProp<ViewStyle>> = {
   primary: { backgroundColor: colors.primary },
-  secondary: { backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border },
+  secondary: { backgroundColor: colors.surfaceRaised, borderWidth: borderWidth.thin, borderColor: colors.border },
   ghost: { backgroundColor: "transparent" },
   danger: { backgroundColor: colors.danger },
 };
@@ -62,8 +62,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
-  pressed: { opacity: 0.9 },
-  disabled: { opacity: 0.4 },
+  pressed: { opacity: opacity.pressed },
+  disabled: { opacity: opacity.disabled },
   label: { ...typography.bodyStrong },
   labelSolid: { color: colors.textOnPrimary },
   labelGhost: { color: colors.primary },

@@ -9,7 +9,7 @@ import { VerdictBanner } from "../../components/ui/VerdictBanner";
 import { ScoreConfidenceRow } from "../../components/ui/ScoreConfidenceRow";
 import { WhyPanel } from "../../components/ui/WhyPanel";
 import { getDealTierFromDecision, getRafStateForDealTier, getRafStateForIdentificationStatus } from "../../theme/raf-mapping";
-import { colors, spacing, typography } from "../../theme/tokens";
+import { borderWidth, colors, spacing, typography } from "../../theme/tokens";
 
 export interface ResultScreenProps {
   view: ResultViewModel;
@@ -119,11 +119,11 @@ function InfoRow({ label, value }: { label: string; value: string | null }) {
 const styles = StyleSheet.create({
   container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
   section: { gap: spacing.xs },
-  sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.xs },
+  sectionTitle: { ...typography.sectionTitle, color: colors.textPrimary, marginBottom: spacing.xs },
   infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
   infoLabel: { ...typography.body, color: colors.textSecondary },
   infoValue: { ...typography.bodyStrong, color: colors.textPrimary },
-  priceRow: { paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, gap: 2 },
+  priceRow: { paddingVertical: spacing.sm, borderBottomWidth: borderWidth.hairline, borderBottomColor: colors.border, gap: 2 },
   priceSource: { ...typography.captionStrong, color: colors.textSecondary },
   priceAmount: { ...typography.subtitle, color: colors.textPrimary },
   priceConverted: { ...typography.caption, color: colors.textMuted },

@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   header: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.md },
   email: { ...typography.subtitle, color: colors.textPrimary },
   section: { gap: spacing.xs },
-  sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.xs },
+  sectionTitle: { ...typography.sectionTitle, color: colors.textPrimary, marginBottom: spacing.xs },
   row: { ...typography.body, color: colors.textPrimary },
   rowMuted: { ...typography.body, color: colors.textSecondary },
   internalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },

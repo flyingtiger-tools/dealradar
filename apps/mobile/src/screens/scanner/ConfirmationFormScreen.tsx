@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { TcgCardProvidedHints } from "@dealradar/contracts";
 import { AppButton } from "../../components/ui/AppButton";
-import { colors, radius, spacing, typography } from "../../theme/tokens";
+import { borderWidth, colors, radius, spacing, typography } from "../../theme/tokens";
 
 const CONFIRMATION_FIELDS: { key: keyof TcgCardProvidedHints; label: string }[] = [
   { key: "cardName", label: "Nom de la carte" },
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   fieldRow: { gap: spacing.xs },
   fieldLabel: { ...typography.caption, color: colors.textSecondary },
   input: {
-    borderWidth: 1,
+    borderWidth: borderWidth.thin,
     borderColor: colors.border,
     borderRadius: radius.md,
     padding: spacing.md,

@@ -1,3 +1,5 @@
+import { StyleSheet } from "react-native";
+
 /**
  * Design tokens DealRadar (LOT "fondation produit Raf", 2026-09-15).
  *
@@ -69,15 +71,39 @@ export const radius = {
   pill: 999,
 } as const;
 
+/** Épaisseurs de bordure — remplace les `borderWidth: 1` dispersés (Phase 4, LOT "package V3"). `hairline` suit la densité de pixels de l'appareil (`StyleSheet.hairlineWidth`), `thin` est une valeur fixe pour les tracés volontairement plus visibles (cadre de capture, etc.). */
+export const borderWidth = {
+  hairline: StyleSheet.hairlineWidth,
+  thin: 1,
+  medium: 2,
+} as const;
+
+/** Échelle d'opacité — remplace les valeurs `opacity: 0.4`/`0.9` dispersées (désactivé, pressé, voile). */
+export const opacity = {
+  disabled: 0.4,
+  pressed: 0.9,
+  overlay: 0.6,
+} as const;
+
 export const typography = {
   display: { fontSize: 28, fontWeight: "700" as const, lineHeight: 34 },
   title: { fontSize: 20, fontWeight: "700" as const, lineHeight: 26 },
+  sectionTitle: { fontSize: 17, fontWeight: "700" as const, lineHeight: 22 },
   subtitle: { fontSize: 16, fontWeight: "600" as const, lineHeight: 22 },
   body: { fontSize: 14, fontWeight: "400" as const, lineHeight: 20 },
   bodyStrong: { fontSize: 14, fontWeight: "600" as const, lineHeight: 20 },
+  label: { fontSize: 13, fontWeight: "600" as const, lineHeight: 18, letterSpacing: 0.2 },
   caption: { fontSize: 12, fontWeight: "400" as const, lineHeight: 16 },
   captionStrong: { fontSize: 12, fontWeight: "600" as const, lineHeight: 16 },
-} as const;
+  /** Chiffres mis en avant (score, prix) — `fontVariant: ["tabular-nums"]` évite que les chiffres ne "sautent" en largeur pendant une mise à jour. */
+  metric: { fontSize: 32, fontWeight: "800" as const, lineHeight: 38, fontVariant: ["tabular-nums" as const] },
+  // Pas de `as const` sur cet objet englobant (contrairement aux autres
+  // groupes de tokens ci-dessus) : chaque `fontWeight` porte déjà son
+  // propre `as const` (littéral nécessaire pour le type `TextStyle.
+  // fontWeight` de React Native) — un `as const` global rendrait aussi
+  // `metric.fontVariant` profondément `readonly`, incompatible avec le
+  // type mutable `FontVariant[]` attendu par `StyleSheet.create`.
+};
 
 /**
  * Ombres portées — react-native ne supporte pas `box-shadow` CSS, seulement
@@ -103,5 +129,5 @@ export const shadows = {
   },
 } as const;
 
-export const theme = { colors, spacing, radius, typography, shadows } as const;
+export const theme = { colors, spacing, radius, typography, shadows, borderWidth, opacity } as const;
 export type Theme = typeof theme;

@@ -10,7 +10,8 @@ import { ErrorState } from "../../components/errors/ErrorState";
 import { ResultScreen } from "../result/ResultScreen";
 import { DEMO_RESULT_FIXTURES } from "../../fixtures/demo-results";
 import { ALL_RAF_STATES } from "../../theme/raf-mapping";
-import { colors, spacing, typography } from "../../theme/tokens";
+import { getRafAsset } from "../../assets/raf/registry";
+import { borderWidth, colors, radius, spacing, typography } from "../../theme/tokens";
 
 export interface UiPreviewScreenProps {
   onBack: () => void;
@@ -32,12 +33,16 @@ export function UiPreviewScreen({ onBack }: UiPreviewScreenProps) {
 
       <Section title="Raf — tous les états">
         <View style={styles.wrapRow}>
-          {ALL_RAF_STATES.map((state) => (
-            <View key={state} style={styles.rafCell}>
-              <RafAvatar state={state} size={48} />
-              <Text style={styles.rafLabel}>{state}</Text>
-            </View>
-          ))}
+          {ALL_RAF_STATES.map((state) => {
+            const asset = getRafAsset(state);
+            return (
+              <View key={state} style={styles.rafCell}>
+                <RafAvatar state={state} size={48} />
+                <Text style={styles.rafLabel}>{state}</Text>
+                <Badge label={asset.kind === "image" ? "PRODUCTION" : "FALLBACK"} tone={asset.kind === "image" ? "success" : "neutral"} />
+              </View>
+            );
+          })}
         </View>
       </Section>
 
@@ -109,12 +114,12 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   title: { ...typography.title, color: colors.textPrimary },
   section: { gap: spacing.sm },
-  sectionTitle: { ...typography.subtitle, color: colors.textPrimary },
+  sectionTitle: { ...typography.sectionTitle, color: colors.textPrimary },
   wrapRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  rafCell: { alignItems: "center", gap: spacing.xs, width: 72 },
+  rafCell: { alignItems: "center", gap: spacing.xs, width: 96 },
   rafLabel: { ...typography.caption, color: colors.textSecondary, textAlign: "center" },
   stack: { gap: spacing.sm },
   demoBlock: { gap: spacing.xs },
   demoLabel: { ...typography.captionStrong, color: colors.textSecondary },
-  demoResultBox: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, overflow: "hidden" },
+  demoResultBox: { borderWidth: borderWidth.thin, borderColor: colors.border, borderRadius: radius.lg, overflow: "hidden" },
 });

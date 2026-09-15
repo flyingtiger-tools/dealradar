@@ -22,8 +22,10 @@ export function Badge({ label, tone = "neutral" }: BadgeProps) {
 // textOnPrimary 4.91:1. `danger` utilisait `textOnPrimary` (blanc) sur
 // `#FF4D4F`, qui ne fait que 3.12:1 (échoue AA) — corrigé vers
 // `colors.background` (5.46:1), même motif texte-sombre-sur-fond-vif que
-// success/warning.
-const TONE_COLORS: Record<NonNullable<BadgeProps["tone"]>, { bg: string; fg: string }> = {
+// success/warning. Exporté pour que `__tests__/badge-contrast.test.ts`
+// puisse vérifier ces ratios mécaniquement — jamais recalculés à la main
+// une seule fois puis oubliés.
+export const TONE_COLORS: Record<NonNullable<BadgeProps["tone"]>, { bg: string; fg: string }> = {
   neutral: { bg: colors.surfaceRaised, fg: colors.textSecondary },
   success: { bg: colors.success, fg: colors.background },
   warning: { bg: colors.warning, fg: colors.background },

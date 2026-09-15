@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import { signInWithPassword } from "../auth/session";
 import { AppButton } from "../components/ui/AppButton";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { borderWidth, colors, radius, spacing, typography } from "../theme/tokens";
 
 /**
  * Écran de connexion (LOT 9, restylé LOT "package visuel Raf" — Phase
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
   subtitle: { ...typography.body, color: colors.textSecondary, textAlign: "center", marginBottom: spacing.sm },
   form: { gap: spacing.md },
   input: {
-    borderWidth: 1,
+    borderWidth: borderWidth.thin,
     borderColor: colors.border,
     borderRadius: radius.md,
     padding: spacing.md,

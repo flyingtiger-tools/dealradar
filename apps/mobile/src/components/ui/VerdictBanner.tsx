@@ -3,7 +3,10 @@ import type { BusinessDecision } from "../../theme/raf-mapping";
 import { getVerdictLabel } from "../../theme/raf-mapping";
 import { colors, radius, spacing, typography } from "../../theme/tokens";
 
-const DECISION_COLOR: Record<BusinessDecision, string> = {
+// Texte toujours `colors.background` (sombre) — exporté pour que
+// `__tests__/badge-contrast.test.ts` vérifie mécaniquement le contraste
+// contre chacune des 4 couleurs de fond ci-dessous.
+export const DECISION_COLOR: Record<BusinessDecision, string> = {
   BUY: colors.verdictBuy,
   REVIEW: colors.verdictReview,
   PASS: colors.verdictPass,
