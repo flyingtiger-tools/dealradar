@@ -37,6 +37,17 @@ jest.mock("../../api/analyses-client", () => ({
   AnalysesApiError: MockAnalysesApiError,
 }));
 
+// Ce fichier teste le chemin PRODUCTION (file d'attente pg-boss + worker,
+// jamais supprimé — voir tcg-adapter.ts) : force `INTERNAL_TOOLS_ENABLED`
+// à `false` explicitement, sans quoi `__DEV__ === true` sous Jest ferait
+// systématiquement prendre le nouveau chemin serverless direct (voir
+// tcg-analyze-client.test.ts pour CE chemin). `tcg-analyze-client` reste
+// mocké même si sa branche n'est jamais exécutée ici : l'import statique
+// de `tcg-adapter.ts` le charge quoi qu'il arrive (transitivement jusqu'à
+// `react-native-url-polyfill`, jamais transformable sous Jest sans mock).
+jest.mock("../../config/internal-tools", () => ({ INTERNAL_TOOLS_ENABLED: false }));
+jest.mock("../../api/tcg-analyze-client", () => ({ analyzeTcgCard: jest.fn() }));
+
 import { tcgAdapter } from "../tcg-adapter";
 import type { UniversalCaptureResult } from "../../capture/types";
 import type { TcgCardAnalysisResult } from "@dealradar/contracts";

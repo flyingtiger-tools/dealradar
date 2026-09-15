@@ -6,7 +6,9 @@ import type { TcgCardProvidedHints } from "@dealradar/contracts";
 import { tcgScanReducer, initialTcgScanState, type TcgScanState } from "../state/tcg-scan-state";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
+import { analyzeTcgCard } from "../api/tcg-analyze-client";
 import { cleanUserMessage } from "../identification/user-messages";
+import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
 
 /**
  * Écran de scan photo carte Pokémon (LOT 8, authentification réelle LOT 9)
@@ -16,6 +18,14 @@ import { cleanUserMessage } from "../identification/user-messages";
  * ici : `analyses-client.ts`/`tcg-upload-client.ts` le tirent automatiquement
  * de la session Supabase courante (`auth/session.ts`) — cet écran n'est
  * jamais monté sans session active (`App.tsx` affiche `LoginScreen` sinon).
+ *
+ * Deux chemins réseau, choisis via `INTERNAL_TOOLS_ENABLED` (lot "journée
+ * autonome", Priorité 7/8) : en build interne, `analyzeTcgCard()` appelle
+ * `POST /api/internal/tcg/analyze` (Vercel, synchrone, aucun worker requis)
+ * — sinon `createAnalysis()` + `pollAnalysisUntilSettled()` (file d'attente
+ * `pg-boss` + worker Railway, chemin de production future, JAMAIS supprimé).
+ * Le worker Railway étant hors ligne (trial expiré, jamais payé), le chemin
+ * interne est aujourd'hui le seul qui aboutit réellement.
  */
 
 const CONSENT_VERSION = "1";
@@ -66,6 +76,15 @@ export function TcgScanScreen() {
       dispatch({ type: "UPLOAD_STARTED" });
       const { url } = await uploadTcgCardPhoto(clientRequestId, state.imageUri);
       uploaded = true;
+
+      if (INTERNAL_TOOLS_ENABLED) {
+        dispatch({ type: "SUBMIT_STARTED", requestId: clientRequestId });
+        const { status, result } = await analyzeTcgCard({ imageUrl: url });
+        void deleteTcgCardPhoto(clientRequestId);
+        dispatch({ type: "RESULT_RECEIVED", result, status });
+        return;
+      }
+
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
@@ -100,6 +119,12 @@ export function TcgScanScreen() {
     if (state.phase !== "needsConfirmation") return;
     dispatch({ type: "CONFIRMATION_SUBMITTED" });
     try {
+      if (INTERNAL_TOOLS_ENABLED) {
+        const { status, result } = await analyzeTcgCard({ providedTcgHints: state.fields });
+        dispatch({ type: "RESULT_RECEIVED", result, status });
+        return;
+      }
+
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,

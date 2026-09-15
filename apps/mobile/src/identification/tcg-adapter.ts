@@ -3,6 +3,8 @@ import type { TcgCardAnalysisResult } from "@dealradar/contracts";
 import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
+import { analyzeTcgCard } from "../api/tcg-analyze-client";
+import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
 import type { UniversalCaptureResult } from "../capture/types";
 import type { CategoryAdapter, IdentificationCandidate, OnAnalysisProgress, RafAnalysis } from "./types";
 import { failedAnalysis } from "./raf-analysis-helpers";
@@ -125,6 +127,21 @@ export const tcgAdapter: CategoryAdapter = {
       uploaded = true;
 
       onProgress?.("submitting");
+
+      // Chemin serverless synchrone (build interne, lot "journée autonome",
+      // Priorité 11 — "branche Capture universelle sur le même backend TCG,
+      // pas de nouveau pipeline") : même endpoint et même mapping de
+      // résultat que `TcgScanScreen`, jamais une seconde implémentation.
+      if (INTERNAL_TOOLS_ENABLED) {
+        onProgress?.("polling");
+        const { result } = await analyzeTcgCard({ imageUrl: url });
+        void deleteTcgCardPhoto(clientRequestId);
+        if (result.kind !== "pokemon_tcg_card") {
+          return failedAnalysis(CATEGORY, "Réponse du serveur inattendue pour une carte TCG.");
+        }
+        return fromTcgCardResult(result, clientRequestId);
+      }
+
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
