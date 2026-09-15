@@ -1,0 +1,52 @@
+import Constants from "expo-constants";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Card } from "../../components/ui/Card";
+import { AppButton } from "../../components/ui/AppButton";
+import { INTERNAL_TOOLS_ENABLED } from "../../config/internal-tools";
+import { colors, spacing, typography } from "../../theme/tokens";
+
+export interface BuildInfoScreenProps {
+  onBack: () => void;
+}
+
+/**
+ * Build info (Phase 14/33) — infos réelles issues d'`expo-constants`/
+ * `internal-tools.ts`, jamais une valeur inventée. Utile pour confirmer
+ * sur le Samsung qu'un build donné est bien le build interne attendu
+ * (`applicationId`/nom distincts — voir docs/mobile/internal-build.md).
+ */
+export function BuildInfoScreen({ onBack }: BuildInfoScreenProps) {
+  const appConfig = Constants.expoConfig;
+  const rows: [string, string][] = [
+    ["Nom", appConfig?.name ?? "—"],
+    ["Version", appConfig?.version ?? "—"],
+    ["Package Android", appConfig?.android?.package ?? "—"],
+    ["Bundle iOS", appConfig?.ios?.bundleIdentifier ?? "—"],
+    ["Outils internes actifs", INTERNAL_TOOLS_ENABLED ? "oui" : "non"],
+    ["Runtime", Constants.appOwnership ?? "standalone"],
+  ];
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Build info</Text>
+      <Card style={styles.section}>
+        {rows.map(([label, value]) => (
+          <View key={label} style={styles.row}>
+            <Text style={styles.label}>{label}</Text>
+            <Text style={styles.value}>{value}</Text>
+          </View>
+        ))}
+      </Card>
+      <AppButton title="Retour" onPress={onBack} variant="ghost" />
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
+  title: { ...typography.title, color: colors.textPrimary },
+  section: { gap: spacing.sm },
+  row: { flexDirection: "row", justifyContent: "space-between" },
+  label: { ...typography.body, color: colors.textSecondary },
+  value: { ...typography.bodyStrong, color: colors.textPrimary },
+});

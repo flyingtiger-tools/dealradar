@@ -1,14 +1,19 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Button, Image, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Crypto from "expo-crypto";
-import type { TcgCardProvidedHints } from "@dealradar/contracts";
 import { tcgScanReducer, initialTcgScanState, type TcgScanState } from "../state/tcg-scan-state";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
 import { analyzeTcgCard } from "../api/tcg-analyze-client";
-import { cleanUserMessage } from "../identification/user-messages";
 import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
+import { CaptureGuideScreen } from "./scanner/CaptureGuideScreen";
+import { PreviewScreen } from "./scanner/PreviewScreen";
+import { AnalysisLoadingScreen } from "./scanner/AnalysisLoadingScreen";
+import { ConfirmationFormScreen } from "./scanner/ConfirmationFormScreen";
+import { ResultScreen } from "./result/ResultScreen";
+import { mapTcgResultToViewModel } from "./result/result-view-model";
+import { colors } from "../theme/tokens";
 
 /**
  * Écran de scan photo carte Pokémon (LOT 8, authentification réelle LOT 9)
@@ -29,16 +34,6 @@ import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
  */
 
 const CONSENT_VERSION = "1";
-
-const CONFIRMATION_FIELDS: { key: keyof TcgCardProvidedHints; label: string }[] = [
-  { key: "cardName", label: "Nom de la carte" },
-  { key: "setName", label: "Set / extension" },
-  { key: "cardNumber", label: "Numéro" },
-  { key: "variant", label: "Variante" },
-  { key: "language", label: "Langue" },
-  { key: "gradingCompany", label: "Société de gradation" },
-  { key: "grade", label: "Note" },
-];
 
 export function TcgScanScreen() {
   const [state, setState] = useState<TcgScanState>(initialTcgScanState);
@@ -151,175 +146,73 @@ export function TcgScanScreen() {
     }
   }, [state, dispatch]);
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Scanner une carte Pokémon</Text>
-
-      {(state.phase === "idle" || state.phase === "error") && (
-        <View style={styles.captureGuide}>
-          {/* Repère visuel statique (aucune dépendance caméra native, LOT 8A) — aide à cadrer avant d'ouvrir l'appareil photo natif, ne contraint rien techniquement. */}
-          <View style={styles.cardFrame} />
-          <Text style={styles.captureInstruction}>Carte bien droite, sans reflet, numéro du bas lisible</Text>
-          <View style={styles.actions}>
-            <Button title="Prendre une photo" onPress={pickFromCamera} />
-            <Button title="Choisir depuis la galerie" onPress={pickFromGallery} />
-          </View>
-          {/* Identification + prix 100% déterministes (catalogue + pricing), aucun appel IA —
-              utile quand l'identification automatique par photo est indisponible (voir
-              docs/mobile/internal-build.md). Réutilise le même formulaire/mécanisme
-              `providedTcgHints` que la confirmation post-extraction. */}
-          <Button title="Je connais déjà les infos de la carte" onPress={() => dispatch({ type: "MANUAL_ENTRY_STARTED" })} />
-        </View>
-      )}
-
-      {state.phase === "error" && <Text style={styles.error}>{cleanUserMessage(state.message) ?? state.message}</Text>}
-
-      {state.phase === "previewingImage" && (
-        <View style={styles.previewBox}>
-          <Image source={{ uri: state.imageUri }} style={styles.preview} />
-          <View style={styles.actions}>
-            <Button title="Annuler" onPress={() => dispatch({ type: "CANCELLED" })} />
-            <Button title="Analyser" onPress={submitScan} />
-          </View>
-        </View>
-      )}
-
-      {(state.phase === "uploading" || state.phase === "polling" || state.phase === "resubmitting") && (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" />
-          <Text>
-            {state.phase === "uploading" ? "Envoi de la photo…" : "Identification et recherche des prix en cours…"}
-          </Text>
-        </View>
-      )}
-
-      {state.phase === "needsConfirmation" && (
-        <View style={styles.confirmBox}>
-          <Text style={styles.subtitle}>
-            {state.requestId === ""
-              ? "Renseigne les informations imprimées sur la carte"
-              : "Confirme ou corrige les champs détectés"}
-          </Text>
-          {CONFIRMATION_FIELDS.map(({ key, label }) => (
-            <View key={key} style={styles.fieldRow}>
-              <Text style={styles.fieldLabel}>{label}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={label}
-                value={state.fields[key] ?? ""}
-                onChangeText={(text) => dispatch({ type: "CONFIRMATION_FIELD_CHANGED", field: key, value: text.length > 0 ? text : null })}
-              />
-            </View>
-          ))}
-          <Button
-            title="Rechercher avec ces informations"
-            onPress={resubmitWithCorrections}
-            disabled={!state.fields.cardName}
-          />
-        </View>
-      )}
-
-      {state.phase === "result" && (
-        <TcgScanResultView status={state.status} result={state.result} onScanAnother={() => dispatch({ type: "RESET" })} />
-      )}
-    </ScrollView>
-  );
-}
-
-function TcgScanResultView({
-  result,
-  onScanAnother,
-}: {
-  status: "completed" | "insufficient_data" | "failed";
-  result: import("@dealradar/contracts").TcgCardAnalysisResult | null;
-  onScanAnother: () => void;
-}) {
-  // Le signal de vérité est `result.identity`, jamais `status` seul : une
-  // carte identifiée avec confiance mais sans source de pricing exacte
-  // renvoie `status: "insufficient_data"` (le pricing EST insuffisant) tout
-  // en gardant `identity` renseignée (voir orchestrate-pokemon-pipeline.ts /
-  // process-tcg-card-analysis.ts) — avant ce correctif, cet écran traitait
-  // ce cas comme un échec total d'identification, perdant une information
-  // réelle et utile.
-  if (!result || !result.identity) {
+  // Présentation uniquement à partir d'ici — aucun des branchements
+  // ci-dessus (pickFromCamera/pickFromGallery/submitScan/
+  // resubmitWithCorrections/dispatch) n'est touché : cet écran délègue
+  // seulement le RENDU à des composants présentationnels dédiés
+  // (Phase 1/5/6/7/8, LOT "fondation produit Raf") — même state machine,
+  // mêmes appels réseau qu'avant ce lot.
+  if (state.phase === "idle" || state.phase === "error") {
     return (
-      <View style={styles.resultBox}>
-        <Text style={styles.subtitle}>Carte non identifiée</Text>
-        <Text>{cleanUserMessage(result?.reason) ?? "Identification impossible avec les informations disponibles."}</Text>
-        <Button title="Nouveau scan" onPress={onScanAnother} />
+      <View style={styles.root}>
+        <CaptureGuideScreen
+          errorMessage={state.phase === "error" ? state.message : null}
+          onTakePhoto={pickFromCamera}
+          onPickFromGallery={pickFromGallery}
+          onManualEntry={() => dispatch({ type: "MANUAL_ENTRY_STARTED" })}
+        />
       </View>
     );
   }
 
-  const { identity, priceObservations } = result;
-  const hasPricing = priceObservations.length > 0;
+  if (state.phase === "previewingImage") {
+    return (
+      <View style={styles.root}>
+        <PreviewScreen imageUri={state.imageUri} onRetake={() => dispatch({ type: "CANCELLED" })} onAnalyze={submitScan} />
+      </View>
+    );
+  }
 
+  if (state.phase === "uploading" || state.phase === "polling" || state.phase === "resubmitting") {
+    return (
+      <View style={styles.root}>
+        <AnalysisLoadingScreen phase={state.phase === "uploading" ? "uploading" : "polling"} />
+      </View>
+    );
+  }
+
+  if (state.phase === "needsConfirmation") {
+    return (
+      <View style={styles.root}>
+        <ConfirmationFormScreen
+          isManualEntry={state.requestId === ""}
+          fields={state.fields}
+          onFieldChange={(field, value) => dispatch({ type: "CONFIRMATION_FIELD_CHANGED", field, value })}
+          onSubmit={resubmitWithCorrections}
+        />
+      </View>
+    );
+  }
+
+  if (state.phase === "result") {
+    return (
+      <View style={styles.root}>
+        <ResultScreen view={mapTcgResultToViewModel(state.result, state.status)} onScanAnother={() => dispatch({ type: "RESET" })} />
+      </View>
+    );
+  }
+
+  // `state.phase === "submitting"` : jamais réellement atteint (le reducer
+  // transitionne "uploading" -> "polling" directement, voir
+  // `tcg-scan-state.ts`) — présent dans le type par exhaustivité seulement.
+  // Repli défensif identique à l'écran de chargement plutôt qu'un écran vide.
   return (
-    <View style={styles.resultBox}>
-      <Text style={styles.identifiedBadge}>✓ Carte identifiée</Text>
-      <Text style={styles.subtitle}>{identity.name}</Text>
-      <Text>
-        {identity.setName ?? "Set inconnu"} {identity.cardNumber ? `#${identity.cardNumber}` : ""}
-      </Text>
-      <Text>
-        {identity.variant ?? "Variante non départagée"} · {identity.language ?? "Langue non confirmée"} ·{" "}
-        {identity.productKind === "graded_card" ? `Gradé ${identity.gradingCompany ?? ""} ${identity.grade ?? ""}` : "Brut"}
-      </Text>
-      <Text>Confiance identité : {Math.round(identity.confidence * 100)}%</Text>
-
-      <Text style={styles.subtitle}>Prix par source</Text>
-      {hasPricing ? (
-        priceObservations.map((obs, i) => (
-          <View key={i} style={styles.priceRow}>
-            <Text>
-              {obs.source} · {(obs.amountCents / 100).toFixed(2)} {obs.currency}
-              {obs.condition ? ` · ${obs.condition}` : ""}
-            </Text>
-            {obs.conversion && (
-              <Text style={styles.conversion}>
-                ≈ {(obs.conversion.convertedAmountCents / 100).toFixed(2)} {obs.conversion.convertedCurrency} (indicatif)
-              </Text>
-            )}
-          </View>
-        ))
-      ) : (
-        <Text style={styles.warning}>Prix temporairement indisponible pour cette carte.</Text>
-      )}
-
-      {/* Avertissements de qualité de données (variante ambiguë, conversion indicative, etc.)
-          — des disclaimers utiles pour l'utilisateur, pas du texte technique brut (voir cleanUserMessage
-          pour ce qui EST filtré : codes d'erreur, statuts internes). */}
-      {result.warnings.map((w, i) => (
-        <Text key={i} style={styles.warning}>
-          {w}
-        </Text>
-      ))}
-
-      <Button title="Nouveau scan" onPress={onScanAnother} />
+    <View style={styles.root}>
+      <AnalysisLoadingScreen phase="uploading" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, gap: 12 },
-  title: { fontSize: 20, fontWeight: "600" },
-  subtitle: { fontSize: 16, fontWeight: "600", marginTop: 12 },
-  actions: { flexDirection: "row", gap: 12, flexWrap: "wrap" },
-  captureGuide: { gap: 12, alignItems: "center" },
-  // Proportions carte TCG standard (63mm x 88mm ≈ 0.716) — repère visuel uniquement, aucun cadrage forcé.
-  cardFrame: { width: 172, height: 240, borderWidth: 2, borderColor: "#999", borderStyle: "dashed", borderRadius: 12 },
-  captureInstruction: { fontSize: 13, color: "#444", textAlign: "center" },
-  error: { color: "#b91c1c" },
-  warning: { color: "#b45309", fontSize: 12 },
-  previewBox: { gap: 8 },
-  preview: { width: "100%", height: 240, resizeMode: "contain", backgroundColor: "#eee" },
-  loading: { alignItems: "center", gap: 8, paddingVertical: 24 },
-  confirmBox: { gap: 8 },
-  fieldRow: { gap: 4 },
-  fieldLabel: { fontSize: 12, color: "#666" },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 8 },
-  resultBox: { gap: 4 },
-  identifiedBadge: { fontSize: 14, fontWeight: "600", color: "#15803d" },
-  priceRow: { paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#ddd" },
-  conversion: { fontSize: 12, color: "#666" },
+  root: { flex: 1, backgroundColor: colors.background },
 });

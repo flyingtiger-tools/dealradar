@@ -9,6 +9,7 @@
     "node_modules",
     "android",
     "ios",
-    "src/dataset-capture/__tests__/no-network-invariant.test.ts"
+    "src/dataset-capture/__tests__/no-network-invariant.test.ts",
+    "src/navigation/__tests__/structure-isolation.test.ts"
   ]
 }

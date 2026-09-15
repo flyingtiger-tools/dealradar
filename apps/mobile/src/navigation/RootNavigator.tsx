@@ -1,0 +1,111 @@
+import type { Session } from "@supabase/supabase-js";
+import { useState } from "react";
+import { StyleSheet, View } from "react-native";
+import { BottomTabBar } from "./BottomTabBar";
+import type { PushedScreen, RootTab } from "./types";
+import { HomeScreen } from "../screens/HomeScreen";
+import { HistoryScreen } from "../screens/HistoryScreen";
+import { FavoritesScreen } from "../screens/FavoritesScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
+import { TcgScanScreen } from "../screens/TcgScanScreen";
+import { OnboardingScreen } from "../screens/OnboardingScreen";
+import { TcgDatasetCaptureTool } from "../screens/TcgDatasetCaptureTool";
+import { UniversalCaptureBetaScreen } from "../screens/UniversalCaptureBetaScreen";
+import { InternalToolsScreen } from "../screens/internal/InternalToolsScreen";
+import { UiPreviewScreen } from "../screens/internal/UiPreviewScreen";
+import { BuildInfoScreen } from "../screens/internal/BuildInfoScreen";
+import { CopilotScreen } from "../screens/internal/CopilotScreen";
+import { signOut } from "../auth/session";
+import { colors } from "../theme/tokens";
+
+export interface RootNavigatorProps {
+  session: Session;
+}
+
+/**
+ * Navigation consommateur (Phase 3, LOT "fondation produit Raf") — 5
+ * onglets (Home/Scanner/Historique/Favoris/Profil) + une pile d'écrans
+ * "poussés" pour Outils internes, jamais visible hors
+ * `INTERNAL_TOOLS_ENABLED` (garde déjà faite dans `ProfileScreen`, qui
+ * n'expose l'entrée "Outils internes" que sous ce flag — `RootNavigator`
+ * ne duplique pas cette garde, il fait seulement confiance à l'appelant).
+ *
+ * Implémentation "maison" (état React, pas `@react-navigation`) —
+ * volontairement, pour ne pas ajouter de dépendance native tant que le
+ * build natif n'est pas vérifiable dans cet environnement (voir
+ * `BottomTabBar.tsx`, docs/mobile/ui-product-foundation.md).
+ */
+export function RootNavigator({ session }: RootNavigatorProps) {
+  const [activeTab, setActiveTab] = useState<RootTab>("home");
+  const [pushed, setPushed] = useState<PushedScreen | null>(null);
+
+  if (pushed) {
+    return <View style={styles.root}>{renderPushedScreen(pushed, setPushed)}</View>;
+  }
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.content}>{renderTab(activeTab, setActiveTab, setPushed, session)}</View>
+      <BottomTabBar active={activeTab} onSelect={setActiveTab} />
+    </View>
+  );
+}
+
+function renderTab(
+  tab: RootTab,
+  setActiveTab: (tab: RootTab) => void,
+  setPushed: (screen: PushedScreen | null) => void,
+  session: Session,
+) {
+  switch (tab) {
+    case "home":
+      return <HomeScreen onOpenScanner={() => setActiveTab("scanner")} />;
+    case "scanner":
+      return <TcgScanScreen />;
+    case "history":
+      return <HistoryScreen />;
+    case "favorites":
+      return <FavoritesScreen />;
+    case "profile":
+      return <ProfileScreen session={session} onSignOut={() => void signOut()} onOpenInternalTools={() => setPushed("internalTools")} />;
+  }
+}
+
+function renderPushedScreen(screen: PushedScreen, setPushed: (screen: PushedScreen | null) => void) {
+  const back = () => setPushed(null);
+  switch (screen) {
+    case "internalTools":
+      return (
+        <InternalToolsScreen
+          onOpenDatasetTcg={() => setPushed("datasetTcg")}
+          onOpenUiPreview={() => setPushed("uiPreview")}
+          onOpenBuildInfo={() => setPushed("buildInfo")}
+          onOpenUniversalCapture={() => setPushed("universalCapture")}
+          onOpenCopilot={() => setPushed("copilot")}
+          onOpenOnboardingPreview={() => setPushed("onboardingPreview")}
+          onBack={back}
+        />
+      );
+    case "datasetTcg":
+      // Écran RÉEL inchangé (Phase 28 : ne pas casser Dataset TCG) — sa propre
+      // garde `INTERNAL_TOOLS_ENABLED` reste en place à l'intérieur du composant.
+      return <TcgDatasetCaptureTool onExit={back} />;
+    case "universalCapture":
+      // Écran RÉEL inchangé (Phase 29 : conserver le câblage réel, harmoniser
+      // seulement l'UX — ce lot ne retouche pas son JSX aujourd'hui).
+      return <UniversalCaptureBetaScreen onExit={back} />;
+    case "copilot":
+      return <CopilotScreen onBack={back} />;
+    case "uiPreview":
+      return <UiPreviewScreen onBack={back} />;
+    case "buildInfo":
+      return <BuildInfoScreen onBack={back} />;
+    case "onboardingPreview":
+      return <OnboardingScreen onDone={back} />;
+  }
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
+  content: { flex: 1 },
+});
