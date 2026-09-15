@@ -1,6 +1,7 @@
 import {
   createFrankfurterProvider,
   createJustTcgPricingConnector,
+  createNoopPricingConnector,
   createPokemonTcgCatalogConnector,
   createTcgdexCatalogConnector,
   createTcgdexPricingConnector,
@@ -20,17 +21,22 @@ export type { TcgPipelineConnectors };
  * (déplacé avec `processTcgCardAnalysis` — lot "journée autonome") : cette
  * fonction de wiring reste ici, spécifique à l'environnement des workers, et
  * est réutilisable telle quelle par tout appelant Node standard.
+ *
+ * Ne retourne plus jamais `undefined` (lot "journée autonome", même
+ * correctif que la version web) : JustTCG absent bascule sur un connecteur
+ * "vide" plutôt que de rendre tout le pipeline indisponible — Pokémon TCG
+ * API + TCGdex (identification ET pricing, tous deux gratuits) restent
+ * exploitables sans JustTCG.
  */
-
-/** Retourne `undefined` (jamais une erreur) si `JUSTTCG_API_KEY` est absent — dégradation gracieuse, même esprit que `buildAiExtractionConfigFromEnv`. */
-export function buildTcgPipelineConnectorsFromEnv(): TcgPipelineConnectors | undefined {
+export function buildTcgPipelineConnectorsFromEnv(): TcgPipelineConnectors {
   const justTcgApiKey = process.env.JUSTTCG_API_KEY;
-  if (!justTcgApiKey) return undefined;
 
   return {
     pokemonCatalogConnector: createPokemonTcgCatalogConnector({}),
     tcgdexCatalogConnector: createTcgdexCatalogConnector({}),
-    justTcgPricingConnector: createJustTcgPricingConnector({ apiKey: justTcgApiKey }),
+    justTcgPricingConnector: justTcgApiKey
+      ? createJustTcgPricingConnector({ apiKey: justTcgApiKey })
+      : createNoopPricingConnector("justtcg", "JUSTTCG_API_KEY absent — source ignorée, jamais un échec du pipeline entier."),
     tcgdexPricingConnector: createTcgdexPricingConnector({}),
     fxProvider: createFrankfurterProvider({}),
   };

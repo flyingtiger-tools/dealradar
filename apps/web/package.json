@@ -11,8 +11,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dealradar/ai": "workspace:*",
     "@dealradar/connectors": "workspace:*",
+    "@dealradar/contracts": "workspace:*",
     "@dealradar/core": "workspace:*",
+    "@dealradar/ingestion": "workspace:*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
     "lucide-react": "^1.28.0",

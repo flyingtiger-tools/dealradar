@@ -12,6 +12,10 @@ describe("findProviderCapabilities", () => {
     expect(capabilities!.vision).toBe(false);
   });
 
+  it("modèle vision GRATUIT (groq/qwen/qwen3.6-27b) : vision true, jsonMode true — provider vision par défaut", () => {
+    expect(findProviderCapabilities("groq", "qwen/qwen3.6-27b")).toEqual({ vision: true, jsonMode: true, usageReporting: true });
+  });
+
   it("modèle absent de la table : null (capacités inconnues), jamais une capacité devinée", () => {
     expect(findProviderCapabilities("openai", "un-modele-jamais-releve")).toBeNull();
     expect(findProviderCapabilities("provider-inconnu", "x")).toBeNull();

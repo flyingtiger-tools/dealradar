@@ -40,6 +40,23 @@ export const COST_TABLE: CostTableEntry[] = [
     outputPerMTokUsd: 10,
     effectiveFrom: "2026-08-02",
   },
+  /**
+   * Tier gratuit Groq (compte Developer, sans carte bancaire) — pas de
+   * facturation au token sur ce tier, seulement des limites de débit (30
+   * req/min, 1000 req/jour pour ce modèle précis, relevé le 2026-09-15 sur
+   * console.groq.com/docs/rate-limits) : un dépassement de limite fait
+   * échouer la requête (429), jamais une facture. $0 est donc une valeur
+   * réelle ici, pas une approximation — contrairement aux entrées ci-dessus
+   * (OpenAI/Anthropic), jamais une garantie permanente si Groq introduit
+   * un tier payant pour ce modèle plus tard.
+   */
+  {
+    provider: "groq",
+    model: "qwen/qwen3.6-27b",
+    inputPerMTokUsd: 0,
+    outputPerMTokUsd: 0,
+    effectiveFrom: "2026-09-15",
+  },
 ];
 
 export function findCostTableEntry(provider: string, model: string): CostTableEntry | null {

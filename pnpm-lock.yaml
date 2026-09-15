@@ -110,12 +110,21 @@ importers:
 
   apps/web:
     dependencies:
+      '@dealradar/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@dealradar/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
+      '@dealradar/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@dealradar/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@dealradar/ingestion':
+        specifier: workspace:*
+        version: link:../../packages/ingestion
       '@supabase/ssr':
         specifier: ^0.5.2
         version: 0.5.2(@supabase/supabase-js@2.110.8)
@@ -1610,7 +1619,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {node: '>=0.10.0'}
+    engines: {'0': node >=0.10.0}
 
   '@expo/cli@0.22.28':
     resolution: {integrity: sha512-lvt72KNitGuixYD2l3SZmRKVu2G4zJpmg5V7WfUBNpmUU5oODBw/6qmiJ6kSLAlfDozscUk+BBGknBBzxUrwrA==}

@@ -58,6 +58,23 @@ const CAPABILITY_TABLE: CapabilityTableEntry[] = [
     capabilities: { vision: false, jsonMode: true, usageReporting: true },
     notedAt: "2026-09-10",
   },
+  /**
+   * Relevé le 2026-09-15 (`console.groq.com/docs/vision`, documentation
+   * officielle, jamais une note d'un tiers) — modèle vision GRATUIT (tier
+   * Developer/no-card, confirmé via `console.groq.com/docs/rate-limits` :
+   * 30 req/min, 1000 req/jour pour ce modèle précis), production-ready
+   * (pas "preview"), jusqu'à 5 images/requête, 20 Mo max/image, JSON mode
+   * supporté. Choisi comme provider vision par défaut pour l'extraction TCG
+   * (voir docs/mobile/vision-provider-evaluation.md) précisément parce
+   * qu'il ne nécessite aucun changement de code : `groq.ts` envoie déjà les
+   * images en `image_url` sans liste de modèles codée en dur.
+   */
+  {
+    provider: "groq",
+    model: "qwen/qwen3.6-27b",
+    capabilities: { vision: true, jsonMode: true, usageReporting: true },
+    notedAt: "2026-09-15",
+  },
   {
     provider: "openrouter",
     model: "openai/gpt-4o-mini",
