@@ -1,5 +1,6 @@
 import { useRef } from "react";
-import { Animated, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { Icon, type IconName } from "./Icon";
 import { borderWidth, colors, opacity, radius, spacing, typography } from "../../theme/tokens";
 
 export interface AppButtonProps {
@@ -7,6 +8,10 @@ export interface AppButtonProps {
   onPress: () => void;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   disabled?: boolean;
+  /** Remplace le libellé par un indicateur de chargement, désactive le bouton (Phase 24 : "même height/radius/font/feedback/disabled/loading" pour tous les boutons — jamais un état de chargement improvisé écran par écran). */
+  loading?: boolean;
+  /** Icône de tête, jamais seule (toujours accompagnée d'un libellé) — voir `Icon.tsx` pour la famille unique. */
+  icon?: IconName;
   style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
 }
@@ -17,11 +22,14 @@ export interface AppButtonProps {
  * historiques. Retour au press (Phase 27 motion) : `scale(0.97)`, 120ms,
  * natif via `Animated` — aucune librairie ajoutée.
  */
-export function AppButton({ title, onPress, variant = "primary", disabled = false, style, accessibilityHint }: AppButtonProps) {
+export function AppButton({ title, onPress, variant = "primary", disabled = false, loading = false, icon, style, accessibilityHint }: AppButtonProps) {
   const scale = useRef(new Animated.Value(1)).current;
+  const isDisabled = disabled || loading;
 
   const pressIn = () => Animated.timing(scale, { toValue: 0.97, duration: 100, useNativeDriver: true }).start();
   const pressOut = () => Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }).start();
+
+  const textColor = variant === "ghost" ? colors.primary : colors.textOnPrimary;
 
   return (
     <Animated.View style={[{ transform: [{ scale }] }, style]}>
@@ -29,18 +37,25 @@ export function AppButton({ title, onPress, variant = "primary", disabled = fals
         onPress={onPress}
         onPressIn={pressIn}
         onPressOut={pressOut}
-        disabled={disabled}
+        disabled={isDisabled}
         accessibilityRole="button"
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled: isDisabled, busy: loading }}
         accessibilityHint={accessibilityHint}
         style={({ pressed }) => [
           styles.base,
           VARIANT_STYLES[variant],
-          disabled && styles.disabled,
-          pressed && !disabled && styles.pressed,
+          isDisabled && styles.disabled,
+          pressed && !isDisabled && styles.pressed,
         ]}
       >
-        <Text style={[styles.label, variant === "ghost" ? styles.labelGhost : styles.labelSolid]}>{title}</Text>
+        {loading ? (
+          <ActivityIndicator color={textColor} size="small" />
+        ) : (
+          <View style={styles.content}>
+            {icon && <Icon name={icon} size={18} color={textColor} />}
+            <Text style={[styles.label, { color: textColor }]}>{title}</Text>
+          </View>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -64,7 +79,6 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: opacity.pressed },
   disabled: { opacity: opacity.disabled },
+  content: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   label: { ...typography.bodyStrong },
-  labelSolid: { color: colors.textOnPrimary },
-  labelGhost: { color: colors.primary },
 });

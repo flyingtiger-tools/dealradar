@@ -1,13 +1,14 @@
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { RootTab } from "./types";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { colors, radius, shadows, spacing, typography } from "../theme/tokens";
 
-const TABS: { key: RootTab; label: string; emoji: string }[] = [
-  { key: "home", label: "Accueil", emoji: "🏠" },
-  { key: "history", label: "Historique", emoji: "🕓" },
-  { key: "scanner", label: "Scanner", emoji: "📷" },
-  { key: "favorites", label: "Favoris", emoji: "⭐" },
-  { key: "profile", label: "Profil", emoji: "👤" },
+const TABS: { key: RootTab; label: string; icon: IconName; iconActive: IconName }[] = [
+  { key: "home", label: "Accueil", icon: "home-outline", iconActive: "home" },
+  { key: "history", label: "Historique", icon: "time-outline", iconActive: "time" },
+  { key: "scanner", label: "Scanner", icon: "camera", iconActive: "camera" },
+  { key: "favorites", label: "Favoris", icon: "star-outline", iconActive: "star" },
+  { key: "profile", label: "Profil", icon: "person-outline", iconActive: "person" },
 ];
 
 export interface BottomTabBarProps {
@@ -16,8 +17,11 @@ export interface BottomTabBarProps {
 }
 
 /**
- * Barre d'onglets consommateur (Phase 3) — 5 onglets fixes, Scanner
- * visuellement prioritaire (bouton central surélevé, couleur primaire).
+ * Barre d'onglets consommateur (Phase 3, polish visuel Phase 22 du LOT
+ * "visual product pass") — 5 onglets fixes, Scanner visuellement
+ * prioritaire (bouton central surélevé, couleur primaire, ombre marquée).
+ * Icônes réelles (`components/ui/Icon.tsx`, Ionicons déjà résolu par
+ * `expo`) plutôt que des emoji (Phase 23 : "élimine les emoji UI produit").
  * Implémentation "maison" (View/Pressable), volontairement sans
  * `@react-navigation` : éviter une dépendance native supplémentaire tant
  * que le build natif (`apps/mobile/android/`) n'est pas vérifiable dans cet
@@ -39,10 +43,10 @@ export function BottomTabBar({ active, onSelect }: BottomTabBarProps) {
               accessibilityRole="button"
               accessibilityLabel={tab.label}
               accessibilityState={{ selected: isActive }}
-              style={styles.scannerButton}
+              style={({ pressed }) => [styles.scannerButton, pressed && styles.scannerButtonPressed]}
               hitSlop={8}
             >
-              <Text style={styles.scannerEmoji}>{tab.emoji}</Text>
+              <Icon name={tab.icon} size={26} color={colors.textOnPrimary} />
             </Pressable>
           );
         }
@@ -53,10 +57,10 @@ export function BottomTabBar({ active, onSelect }: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityLabel={tab.label}
             accessibilityState={{ selected: isActive }}
-            style={styles.tabButton}
+            style={({ pressed }) => [styles.tabButton, pressed && styles.tabButtonPressed]}
             hitSlop={8}
           >
-            <Text style={styles.emoji}>{tab.emoji}</Text>
+            <Icon name={isActive ? tab.iconActive : tab.icon} size={22} color={isActive ? colors.primary : colors.textMuted} />
             <Text style={[styles.label, isActive && styles.labelActive]}>{tab.label}</Text>
           </Pressable>
         );
@@ -81,10 +85,10 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === "android" ? spacing.lg : spacing.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: colors.borderSubtle,
   },
-  tabButton: { alignItems: "center", gap: 2, minWidth: 56, minHeight: 48, justifyContent: "center" },
-  emoji: { fontSize: 20 },
+  tabButton: { alignItems: "center", gap: 3, minWidth: 56, minHeight: 48, justifyContent: "center" },
+  tabButtonPressed: { opacity: 0.6 },
   label: { ...typography.caption, color: colors.textMuted },
   labelActive: { color: colors.primary },
   scannerButton: {
@@ -97,6 +101,7 @@ const styles = StyleSheet.create({
     marginTop: -24,
     borderWidth: 4,
     borderColor: colors.surface,
+    ...shadows.raised,
   },
-  scannerEmoji: { fontSize: 26 },
+  scannerButtonPressed: { transform: [{ scale: 0.95 }] },
 });

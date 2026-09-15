@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { RafIllustration } from "../components/raf/RafIllustration";
 import { AppButton } from "../components/ui/AppButton";
 import type { RafState } from "../theme/raf-mapping";
-import { colors, spacing, typography } from "../theme/tokens";
+import { colors, radius, spacing, typography } from "../theme/tokens";
 
 export interface OnboardingScreenProps {
   onDone: () => void;
@@ -11,28 +11,36 @@ export interface OnboardingScreenProps {
 
 interface OnboardingStep {
   state: RafState;
+  title: string;
   text: string;
 }
 
+// 3 étapes maximum (Phase 6, LOT "visual product pass" : "gros titre + 1
+// phrase, pas de paragraphe, pas de mascotte fake") — un titre marquant
+// plutôt qu'une simple phrase d'accroche, chaque étape ne portant qu'UNE
+// idée (scanner / comprendre / décider).
 const STEPS: OnboardingStep[] = [
-  { state: "happy", text: "Salut, moi c'est Raf." },
-  { state: "scanning", text: "Scanne ou partage un produit." },
-  { state: "searching", text: "Je compare le marché." },
-  { state: "goodDeal", text: "Tu sais quand acheter, attendre ou vendre." },
+  { state: "scanning", title: "Scanne", text: "Prends en photo n'importe quelle carte." },
+  { state: "searching", title: "Comprends le marché", text: "Raf compare les prix en un instant." },
+  { state: "goodDeal", title: "Sache quand acheter", text: "Un verdict clair : acheter, attendre, ou passer." },
 ];
 
 /**
- * Onboarding (Phase 21) — structure prête, 4 écrans max, PAS ENCORE
- * branché sur le flux d'authentification (`App.tsx`/`RootNavigator.tsx`
- * ne l'affichent jamais automatiquement aujourd'hui) : le brancher
- * demanderait de décider où stocker "déjà vu" (AsyncStorage ? profil
- * Supabase ?) et de le tester sur le vrai flux de session — hors périmètre
- * de ce lot ("ne force pas encore l'affichage si cela risque de casser
- * auth/session"). Reste consultable depuis Outils internes → "Onboarding
- * (aperçu)" en attendant.
+ * Onboarding (Phase 6, LOT "visual product pass") — 3 étapes réelles,
+ * titre + phrase + progress indicator + CTA évident. Toujours PAS ENCORE
+ * forcé sur le flux d'authentification par ce fichier lui-même :
+ * `App.tsx` (LOT "beta product readiness", Phase 30) décide seul du
+ * moment où l'afficher — ce composant reste purement présentationnel.
  */
 export function OnboardingScreen({ onDone }: OnboardingScreenProps) {
   const [index, setIndex] = useState(0);
+  const fade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    fade.setValue(0);
+    Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  }, [index, fade]);
+
   // STEPS est un tableau constant non vide et `index` toujours dans ses
   // bornes (voir la clause `isLast` ci-dessous) — l'assertion non-nulle est
   // sûre ici, jamais un accès hors bornes réel.
@@ -41,25 +49,37 @@ export function OnboardingScreen({ onDone }: OnboardingScreenProps) {
 
   return (
     <View style={styles.container}>
-      <RafIllustration state={step.state} size={160} />
-      <Text style={styles.text}>{step.text}</Text>
+      <Pressable onPress={onDone} accessibilityRole="button" accessibilityLabel="Passer l'introduction" style={styles.skip}>
+        <Text style={styles.skipLabel}>Passer</Text>
+      </Pressable>
 
-      <View style={styles.dots}>
-        {STEPS.map((_, i) => (
-          <View key={i} style={[styles.dot, i === index && styles.dotActive]} />
-        ))}
+      <Animated.View style={[styles.content, { opacity: fade }]}>
+        <RafIllustration state={step.state} size={140} />
+        <Text style={styles.title}>{step.title}</Text>
+        <Text style={styles.text}>{step.text}</Text>
+      </Animated.View>
+
+      <View style={styles.footer}>
+        <View style={styles.dots}>
+          {STEPS.map((_, i) => (
+            <View key={i} style={[styles.dot, i === index && styles.dotActive]} />
+          ))}
+        </View>
+        <AppButton title={isLast ? "Commencer" : "Suivant"} onPress={() => (isLast ? onDone() : setIndex((i) => i + 1))} />
       </View>
-
-      <AppButton title={isLast ? "Commencer" : "Suivant"} onPress={() => (isLast ? onDone() : setIndex((i) => i + 1))} />
-      {!isLast && <AppButton title="Passer" onPress={onDone} variant="ghost" />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xl, padding: spacing.xl, backgroundColor: colors.background },
-  text: { ...typography.title, color: colors.textPrimary, textAlign: "center" },
-  dots: { flexDirection: "row", gap: spacing.sm },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
-  dotActive: { backgroundColor: colors.primary },
+  container: { flex: 1, justifyContent: "space-between", padding: spacing.xl, backgroundColor: colors.background },
+  skip: { alignSelf: "flex-end", padding: spacing.sm },
+  skipLabel: { ...typography.body, color: colors.textSecondary },
+  content: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
+  title: { ...typography.hero, color: colors.textPrimary, textAlign: "center" },
+  text: { ...typography.subtitle, color: colors.textSecondary, textAlign: "center" },
+  footer: { gap: spacing.lg },
+  dots: { flexDirection: "row", justifyContent: "center", gap: spacing.sm },
+  dot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.borderStrong },
+  dotActive: { width: 22, backgroundColor: colors.primary },
 });

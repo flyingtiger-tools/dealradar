@@ -28,7 +28,13 @@ export const colors = {
   background: palette.dark,
   surface: "#182236",
   surfaceRaised: "#212D45",
+  /** Surface d'un élément tapable au repos (ligne de liste, rangée de réglage) — un cran plus clair que `surfaceRaised` pour rester distincte d'une carte purement informative (LOT "visual product pass"). */
+  surfaceInteractive: "#26314A",
+  /** Alias historique de `borderSubtle` — conservé pour ne pas casser les fichiers non touchés par ce lot (Phase 26 : "ne fais pas aveuglément de search/replace"). Nouveaux écrans : préférer `borderSubtle`/`borderStrong` directement. */
   border: "#2C3A57",
+  borderSubtle: "#2C3A57",
+  /** Séparation plus marquée — bordure de champ de saisie, contour du cadre de scan, contraste volontairement plus fort qu'une simple ligne de carte. */
+  borderStrong: "#3D4C6B",
 
   // Texte
   textPrimary: palette.offWhite,
@@ -86,6 +92,9 @@ export const opacity = {
 } as const;
 
 export const typography = {
+  /** Petit label capitales + tracking large au-dessus d'un titre ("KNOW WHEN.", en-têtes de section) — LOT "visual product pass", inspiré des interfaces Linear/Stripe/Vercel. Jamais réutilisé pour un corps de texte normal. */
+  eyebrow: { fontSize: 12, fontWeight: "700" as const, lineHeight: 16, letterSpacing: 1.5 },
+  hero: { fontSize: 34, fontWeight: "800" as const, lineHeight: 40, letterSpacing: -0.5 },
   display: { fontSize: 28, fontWeight: "700" as const, lineHeight: 34 },
   title: { fontSize: 20, fontWeight: "700" as const, lineHeight: 26 },
   sectionTitle: { fontSize: 17, fontWeight: "700" as const, lineHeight: 22 },

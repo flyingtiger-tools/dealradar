@@ -64,13 +64,13 @@ function renderTab(
 ) {
   switch (tab) {
     case "home":
-      return <HomeScreen onOpenScanner={() => setActiveTab("scanner")} />;
+      return <HomeScreen onOpenScanner={() => setActiveTab("scanner")} onOpenHistory={() => setActiveTab("history")} />;
     case "scanner":
       return <TcgScanScreen />;
     case "history":
-      return <HistoryScreen />;
+      return <HistoryScreen onOpenScanner={() => setActiveTab("scanner")} />;
     case "favorites":
-      return <FavoritesScreen />;
+      return <FavoritesScreen onOpenHistory={() => setActiveTab("history")} />;
     case "profile":
       return <ProfileScreen session={session} onSignOut={() => void signOut()} onOpenInternalTools={() => setPushed("internalTools")} />;
   }
