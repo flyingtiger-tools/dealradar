@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Crypto from "expo-crypto";
@@ -13,6 +13,8 @@ import { AnalysisLoadingScreen } from "./scanner/AnalysisLoadingScreen";
 import { ConfirmationFormScreen } from "./scanner/ConfirmationFormScreen";
 import { ResultScreen } from "./result/ResultScreen";
 import { mapTcgResultToViewModel } from "./result/result-view-model";
+import { saveAnalysisResultToHistory } from "../history/save-result";
+import type { HistoryEntry } from "../history/types";
 import { colors } from "../theme/tokens";
 
 /**
@@ -40,6 +42,27 @@ export function TcgScanScreen() {
   const dispatch = useCallback((action: Parameters<typeof tcgScanReducer>[1]) => {
     setState((current) => tcgScanReducer(current, action));
   }, []);
+
+  // Persistance de l'historique (Phase 12/13/23, LOT "beta product
+  // readiness") — déclenchée une seule fois par requête (`savedRequestId`
+  // évite un second appel si l'écran se re-rend sans changement de phase,
+  // ex. un parent qui re-render pour une autre raison). Le résultat est
+  // déjà affiché par le rendu ci-dessous quoi qu'il arrive : cet effet ne
+  // fait jamais partie du chemin qui construit l'écran, une persistence
+  // qui échoue ne peut donc jamais faire disparaître le résultat.
+  // `savedEntry` alimente le bouton favori de `ResultScreen` (Phase 20) —
+  // `undefined` tant que la sauvegarde est en cours/n'a pas encore eu
+  // lieu, `null` une fois établi qu'aucune entrée n'a été créée (non
+  // identifié, doublon immédiat, DEMO — jamais ce cas ici en pratique).
+  const savedRequestIdRef = useRef<string | null>(null);
+  const [savedEntry, setSavedEntry] = useState<HistoryEntry | null | undefined>(undefined);
+  useEffect(() => {
+    if (state.phase !== "result") return;
+    if (savedRequestIdRef.current === state.requestId) return;
+    savedRequestIdRef.current = state.requestId;
+    setSavedEntry(undefined);
+    void saveAnalysisResultToHistory(mapTcgResultToViewModel(state.result, state.status)).then(setSavedEntry);
+  }, [state]);
 
   const pickFromCamera = useCallback(async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -76,7 +99,7 @@ export function TcgScanScreen() {
         dispatch({ type: "SUBMIT_STARTED", requestId: clientRequestId });
         const { status, result } = await analyzeTcgCard({ imageUrl: url });
         void deleteTcgCardPhoto(clientRequestId);
-        dispatch({ type: "RESULT_RECEIVED", result, status });
+        dispatch({ type: "RESULT_RECEIVED", requestId: clientRequestId, result, status });
         return;
       }
 
@@ -99,6 +122,7 @@ export function TcgScanScreen() {
       void deleteTcgCardPhoto(clientRequestId);
       dispatch({
         type: "RESULT_RECEIVED",
+        requestId: created.id,
         result: settled.result && "kind" in settled.result ? settled.result : null,
         status: settled.status === "completed" || settled.status === "insufficient_data" || settled.status === "failed" ? settled.status : "failed",
       });
@@ -112,11 +136,17 @@ export function TcgScanScreen() {
 
   const resubmitWithCorrections = useCallback(async () => {
     if (state.phase !== "needsConfirmation") return;
+    // Capturé avant le `dispatch` suivant : `state.requestId` reste celui de
+    // la phase "needsConfirmation" ("" pour une saisie manuelle, l'id
+    // d'origine pour une confirmation post-extraction) — c'est aussi celui
+    // que "resubmitting" porte ensuite (voir `tcg-scan-state.ts`,
+    // CONFIRMATION_SUBMITTED), donc la comparaison dans RESULT_RECEIVED reste valide.
+    const requestId = state.requestId;
     dispatch({ type: "CONFIRMATION_SUBMITTED" });
     try {
       if (INTERNAL_TOOLS_ENABLED) {
         const { status, result } = await analyzeTcgCard({ providedTcgHints: state.fields });
-        dispatch({ type: "RESULT_RECEIVED", result, status });
+        dispatch({ type: "RESULT_RECEIVED", requestId, result, status });
         return;
       }
 
@@ -138,6 +168,7 @@ export function TcgScanScreen() {
       const settled = await pollAnalysisUntilSettled(created.id);
       dispatch({
         type: "RESULT_RECEIVED",
+        requestId: created.id,
         result: settled.result && "kind" in settled.result ? settled.result : null,
         status: settled.status === "completed" || settled.status === "insufficient_data" || settled.status === "failed" ? settled.status : "failed",
       });
@@ -197,7 +228,12 @@ export function TcgScanScreen() {
   if (state.phase === "result") {
     return (
       <View style={styles.root}>
-        <ResultScreen view={mapTcgResultToViewModel(state.result, state.status)} onScanAnother={() => dispatch({ type: "RESET" })} />
+        <ResultScreen
+          view={mapTcgResultToViewModel(state.result, state.status)}
+          onScanAnother={() => dispatch({ type: "RESET" })}
+          historyEntryId={savedEntry?.id ?? null}
+          initialFavorite={savedEntry?.favorite ?? false}
+        />
       </View>
     );
   }
