@@ -14,6 +14,7 @@ import { UniversalCaptureBetaScreen } from "../screens/UniversalCaptureBetaScree
 import { InternalToolsScreen } from "../screens/internal/InternalToolsScreen";
 import { UiPreviewScreen } from "../screens/internal/UiPreviewScreen";
 import { BuildInfoScreen } from "../screens/internal/BuildInfoScreen";
+import { DiagnosticsScreen } from "../screens/internal/DiagnosticsScreen";
 import { CopilotScreen } from "../screens/internal/CopilotScreen";
 import { signOut } from "../auth/session";
 import { colors } from "../theme/tokens";
@@ -84,6 +85,7 @@ function renderPushedScreen(screen: PushedScreen, setPushed: (screen: PushedScre
           onOpenDatasetTcg={() => setPushed("datasetTcg")}
           onOpenUiPreview={() => setPushed("uiPreview")}
           onOpenBuildInfo={() => setPushed("buildInfo")}
+          onOpenDiagnostics={() => setPushed("diagnostics")}
           onOpenUniversalCapture={() => setPushed("universalCapture")}
           onOpenCopilot={() => setPushed("copilot")}
           onOpenOnboardingPreview={() => setPushed("onboardingPreview")}
@@ -104,6 +106,8 @@ function renderPushedScreen(screen: PushedScreen, setPushed: (screen: PushedScre
       return <UiPreviewScreen onBack={back} />;
     case "buildInfo":
       return <BuildInfoScreen onBack={back} />;
+    case "diagnostics":
+      return <DiagnosticsScreen onBack={back} />;
     case "onboardingPreview":
       return <OnboardingScreen onDone={back} />;
   }

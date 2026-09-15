@@ -24,6 +24,12 @@ export function BuildInfoScreen({ onBack }: BuildInfoScreenProps) {
     ["Bundle iOS", appConfig?.ios?.bundleIdentifier ?? "—"],
     ["Outils internes actifs", INTERNAL_TOOLS_ENABLED ? "oui" : "non"],
     ["Runtime", Constants.appOwnership ?? "standalone"],
+    // Phase 52 (LOT "beta product readiness") : aucune injection de commit/
+    // SHA au build n'existe dans ce repo aujourd'hui (aucune variable
+    // EXPO_PUBLIC_GIT_SHA ni équivalent) — jamais une valeur inventée ou
+    // figée en dur ici ; honnêtement "non disponible" tant que ce
+    // mécanisme n'est pas mis en place côté build.
+    ["Commit source", "non disponible (aucune injection au build)"],
   ];
 
   return (

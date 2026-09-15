@@ -8,4 +8,4 @@ export type RootTab = "home" | "scanner" | "history" | "favorites" | "profile";
  * RÉELS existants (jamais recréés), `uiPreview`/`buildInfo`/`internalTools`
  * sont nouveaux (Phases 14/15).
  */
-export type PushedScreen = "internalTools" | "datasetTcg" | "uiPreview" | "buildInfo" | "universalCapture" | "copilot" | "onboardingPreview";
+export type PushedScreen = "internalTools" | "datasetTcg" | "uiPreview" | "buildInfo" | "diagnostics" | "universalCapture" | "copilot" | "onboardingPreview";
