@@ -2,21 +2,26 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
 import { RafEmptyState } from "../components/raf/RafEmptyState";
 import { HistoryEntryRow } from "../components/history/HistoryEntryRow";
-import { AppButton } from "../components/ui/AppButton";
+import { Icon } from "../components/ui/Icon";
 import { ResultScreen } from "./result/ResultScreen";
 import { mapHistoryEntryToResultViewModel } from "../history/to-result-view-model";
 import { clearHistory, listHistory, removeHistoryEntry, toggleHistoryFavorite } from "../history/storage";
 import type { HistoryEntry } from "../history/types";
 import { colors, spacing, typography } from "../theme/tokens";
 
+export interface HistoryScreenProps {
+  /** Ouvre l'onglet Scanner — utilisé par le CTA de l'état vide (Phase 19, LOT "visual product pass" : "icon/title/explication/CTA", jamais un écran vide avec seulement une phrase grise). */
+  onOpenScanner: () => void;
+}
+
 /**
- * Historique (LOT "beta product readiness", Phase 16/17/18) — branché sur
- * `history/storage.ts` (persistence locale réelle), plus un simple état
- * vide permanent. Le détail réutilise `ResultScreen` tel quel (Phase 17 :
- * "ne duplique pas l'écran de résultat") via
- * `history/to-result-view-model.ts`.
+ * Historique (LOT "beta product readiness", Phase 16/17/18 — polish
+ * visuel LOT "visual product pass", Phase 17/19) — branché sur
+ * `history/storage.ts` (persistence locale réelle). Le détail réutilise
+ * `ResultScreen` tel quel (Phase 17 : "ne duplique pas l'écran de
+ * résultat") via `history/to-result-view-model.ts`.
  */
-export function HistoryScreen() {
+export function HistoryScreen({ onOpenScanner }: HistoryScreenProps) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -79,7 +84,12 @@ export function HistoryScreen() {
   if (entries.length === 0) {
     return (
       <View style={styles.container}>
-        <RafEmptyState state="neutral" title="Aucune analyse pour l'instant" subtitle="Raf attend sa première mission." />
+        <RafEmptyState
+          state="neutral"
+          title="Aucune analyse pour l'instant"
+          subtitle="Raf attend sa première mission."
+          action={{ title: "Scanner un produit", onPress: onOpenScanner }}
+        />
       </View>
     );
   }
@@ -87,8 +97,13 @@ export function HistoryScreen() {
   return (
     <View style={styles.listContainer}>
       <View style={styles.header}>
-        <Text style={styles.title}>Historique</Text>
-        <AppButton title="Effacer tout" onPress={handleClearAll} variant="ghost" />
+        <View style={styles.headerTitle}>
+          <Icon name="time" size={20} color={colors.textPrimary} />
+          <Text style={styles.title}>Historique</Text>
+        </View>
+        <Text style={styles.clearAll} onPress={handleClearAll}>
+          Effacer tout
+        </Text>
       </View>
       <FlatList
         data={entries}
@@ -111,6 +126,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background, justifyContent: "center" },
   listContainer: { flex: 1, backgroundColor: colors.background },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.lg },
+  headerTitle: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   title: { ...typography.title, color: colors.textPrimary },
+  clearAll: { ...typography.captionStrong, color: colors.textSecondary },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm },
 });

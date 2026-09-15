@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { HistoryEntry } from "../../history/types";
 import { formatMoneyRange } from "../../format/money";
 import { formatAnalysisDate } from "../../format/date";
+import { Icon } from "../ui/Icon";
 import { colors, radius, spacing, typography } from "../../theme/tokens";
 
 export interface HistoryEntryRowProps {
@@ -14,9 +15,11 @@ export interface HistoryEntryRowProps {
 
 /**
  * Ligne compacte partagée par Historique et Favoris (LOT "beta product
- * readiness", Phase 16/21 : "même état" entre les deux écrans) — produit,
- * set/numéro, verdict si connu, prix marché formaté, date, favori. Jamais
- * un mock : cette ligne ne reçoit que de vraies `HistoryEntry` persistées.
+ * readiness", Phase 16/21 : "même état" entre les deux écrans, icônes
+ * réelles ajoutées LOT "visual product pass", Phase 23) — produit, set/
+ * numéro (tronqué si trop long, Phase 30 "long content"), prix marché
+ * formaté, date, favori. Jamais un mock : cette ligne ne reçoit que de
+ * vraies `HistoryEntry` persistées.
  */
 export function HistoryEntryRow({ entry, onPress, onToggleFavorite, onDelete }: HistoryEntryRowProps) {
   const subtitleParts = [entry.identity.setName, entry.identity.collectorNumber ? `#${entry.identity.collectorNumber}` : null].filter(Boolean);
@@ -27,17 +30,21 @@ export function HistoryEntryRow({ entry, onPress, onToggleFavorite, onDelete }: 
         <Text style={styles.name} numberOfLines={1}>
           {entry.identity.name ?? "Produit identifié"}
         </Text>
-        {subtitleParts.length > 0 && <Text style={styles.subtitle}>{subtitleParts.join(" · ")}</Text>}
+        {subtitleParts.length > 0 && (
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {subtitleParts.join(" · ")}
+          </Text>
+        )}
         <Text style={styles.date}>{formatAnalysisDate(entry.createdAt)}</Text>
       </View>
       <View style={styles.trailing}>
         <Text style={styles.value}>{entry.marketValue ? formatMoneyRange(entry.marketValue.low, entry.marketValue.high, entry.marketValue.currency) : "—"}</Text>
         <View style={styles.iconRow}>
           <Pressable onPress={onToggleFavorite} accessibilityRole="button" accessibilityLabel={entry.favorite ? "Retirer des favoris" : "Ajouter aux favoris"} hitSlop={8}>
-            <Text style={styles.favoriteIcon}>{entry.favorite ? "♥" : "♡"}</Text>
+            <Icon name={entry.favorite ? "heart" : "heart-outline"} size={18} color={entry.favorite ? colors.danger : colors.textMuted} />
           </Pressable>
           <Pressable onPress={onDelete} accessibilityRole="button" accessibilityLabel="Supprimer" hitSlop={8}>
-            <Text style={styles.deleteIcon}>🗑</Text>
+            <Icon name="trash-outline" size={16} color={colors.textMuted} />
           </Pressable>
         </View>
       </View>
@@ -63,6 +70,4 @@ const styles = StyleSheet.create({
   trailing: { alignItems: "flex-end", gap: spacing.xs },
   value: { ...typography.bodyStrong, color: colors.textPrimary },
   iconRow: { flexDirection: "row", gap: spacing.md },
-  favoriteIcon: { fontSize: 20, color: colors.danger },
-  deleteIcon: { fontSize: 16, opacity: 0.7 },
 });
