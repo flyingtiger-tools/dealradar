@@ -27,7 +27,7 @@ import {
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
-import { processTcgCardAnalysis } from "./process-tcg-card-analysis";
+import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
 
 /**
@@ -180,6 +180,7 @@ export async function processAnalysis(
             }
           : undefined,
         connectors: buildTcgPipelineConnectorsFromEnv(),
+        logger,
       },
     );
 

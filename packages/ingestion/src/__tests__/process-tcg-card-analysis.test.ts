@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { logger } from "../../logger";
 
 const extractTcgCardFromPhoto = vi.fn();
 const orchestratePokemonPipeline = vi.fn();
@@ -11,7 +10,10 @@ vi.mock("@dealradar/ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dealradar/ai")>()),
   extractTcgCardFromPhoto: (...args: unknown[]) => extractTcgCardFromPhoto(...args),
 }));
-vi.mock("@dealradar/ingestion", () => ({ orchestratePokemonPipeline: (...args: unknown[]) => orchestratePokemonPipeline(...args) }));
+// Mock relatif (pas `@dealradar/ingestion`) : `processTcgCardAnalysis` vit maintenant dans ce même
+// package (déplacé depuis apps/workers — voir process-tcg-card-analysis.ts) et importe
+// `orchestratePokemonPipeline` via un chemin relatif, pas via le point d'entrée du package.
+vi.mock("../orchestrate-pokemon-pipeline", () => ({ orchestratePokemonPipeline: (...args: unknown[]) => orchestratePokemonPipeline(...args) }));
 
 const { processTcgCardAnalysis } = await import("../process-tcg-card-analysis");
 
@@ -19,7 +21,8 @@ const { processTcgCardAnalysis } = await import("../process-tcg-card-analysis");
  * Teste uniquement la logique de branchement/mapping propre à
  * `process-tcg-card-analysis.ts` — `extractTcgCardFromPhoto` et
  * `orchestratePokemonPipeline` sont déjà couverts en profondeur ailleurs
- * (`packages/ai`, `packages/ingestion`), mockés ici pour isoler ce module.
+ * (`packages/ai`, ce même package pour `orchestratePokemonPipeline`),
+ * mockés ici pour isoler ce module.
  */
 
 function fakeDb(signedUrl: string | null = "https://storage.example.test/signed.jpg?token=x"): SupabaseClient {
@@ -32,6 +35,10 @@ function fakeDb(signedUrl: string | null = "https://storage.example.test/signed.
       }),
     },
   } as unknown as SupabaseClient;
+}
+
+function fakeLogger(): { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
+  return { warn: vi.fn(), error: vi.fn() };
 }
 
 const fullExtraction = {
@@ -146,13 +153,13 @@ describe("processTcgCardAnalysis", () => {
     expect(result.result.priceObservations[0]!.amountCents).toBe(768);
   });
 
-  it("pipeline refusé (cross_match_refused) : insufficient_data, aucune identité", async () => {
+  it("pipeline refusé (cross_match_refused, sans candidat) : insufficient_data, aucune identité", async () => {
     extractTcgCardFromPhoto.mockResolvedValueOnce({ extraction: fullExtraction, source: "ai", warnings: [], telemetry: {} });
     orchestratePokemonPipeline.mockResolvedValueOnce({
       stage: "cross_match_refused",
       candidate: null,
       warnings: [],
-      reason: "Aucune source de pricing n'a produit d'exact_match.",
+      reason: "Aucune carte catalogue résolue pour ces indices.",
     });
 
     const result = await processTcgCardAnalysis(
@@ -163,7 +170,7 @@ describe("processTcgCardAnalysis", () => {
 
     expect(result.status).toBe("insufficient_data");
     expect(result.result.identity).toBeNull();
-    expect(result.result.reason).toContain("exact_match");
+    expect(result.result.reason).toContain("catalogue");
   });
 
   it("providedTcgHints présent : saute l'extraction, lance directement la corroboration avec les valeurs corrigées", async () => {
@@ -215,7 +222,7 @@ describe("processTcgCardAnalysis", () => {
     expect(result.result.extractedFields.confidence).toBe(1);
   });
 
-  it("identifiée mais aucun prix exploitable (cross_match_refused) : insufficient_data avec identity renseignée, jamais identity:null — distingue une identification réussie d'un échec total", async () => {
+  it("identifiée mais aucun prix exploitable (cross_match_refused avec candidat) : insufficient_data avec identity renseignée, jamais identity:null — distingue une identification réussie d'un échec total", async () => {
     orchestratePokemonPipeline.mockResolvedValueOnce({
       stage: "cross_match_refused",
       warnings: ["Carte identifiée, mais aucune source de pricing n'a produit de correspondance exacte — jamais exploité automatiquement."],
@@ -329,8 +336,8 @@ describe("processTcgCardAnalysis", () => {
     expect((db.storage.from("analysis-uploads") as unknown as { remove: ReturnType<typeof vi.fn> }).remove).toHaveBeenCalledWith(["u1/req-11/photo.jpg"]);
   });
 
-  it("échec provider (télémétrie status=error) : journalise provider/modèle/statut HTTP/code/message nettoyé, jamais un secret ni l'image", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+  it("échec provider (télémétrie status=error) : journalise provider/modèle/statut HTTP/code/message nettoyé (via le logger injecté), jamais un secret ni l'image", async () => {
+    const logger = fakeLogger();
     extractTcgCardFromPhoto.mockResolvedValueOnce({
       extraction: weakExtraction,
       source: "ai",
@@ -348,10 +355,10 @@ describe("processTcgCardAnalysis", () => {
     await processTcgCardAnalysis(
       fakeDb(),
       { id: "req-12", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-12/photo.jpg" }], providedTcgHints: null },
-      { extractionOptions, connectors },
+      { extractionOptions, connectors, logger },
     );
 
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisRequestId: "req-12",
         provider: "anthropic",
@@ -362,13 +369,12 @@ describe("processTcgCardAnalysis", () => {
       }),
       expect.any(String),
     );
-    const loggedPayload = JSON.stringify(warnSpy.mock.calls[0]);
+    const loggedPayload = JSON.stringify(logger.warn.mock.calls[0]);
     expect(loggedPayload).not.toMatch(/bearer|x-api-key|sk-ant|sk-proj|base64/i);
-    warnSpy.mockRestore();
   });
 
-  it("échec de validation schéma (INVALID_PROVIDER_RESPONSE) : journalise invalidPaths/invalidCodes/invalidIssues, jamais une valeur de champ extraite", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+  it("échec de validation schéma (INVALID_PROVIDER_RESPONSE) : journalise invalidPaths/invalidCodes/invalidIssues (via le logger injecté), jamais une valeur de champ extraite", async () => {
+    const logger = fakeLogger();
     extractTcgCardFromPhoto.mockResolvedValueOnce({
       extraction: weakExtraction,
       source: "ai",
@@ -387,10 +393,10 @@ describe("processTcgCardAnalysis", () => {
     await processTcgCardAnalysis(
       fakeDb(),
       { id: "req-14", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-14/photo.jpg" }], providedTcgHints: null },
-      { extractionOptions, connectors },
+      { extractionOptions, connectors, logger },
     );
 
-    expect(warnSpy).toHaveBeenCalledWith(
+    expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         analysisRequestId: "req-14",
         errorCode: "INVALID_PROVIDER_RESPONSE",
@@ -399,23 +405,36 @@ describe("processTcgCardAnalysis", () => {
       }),
       expect.any(String),
     );
-    const loggedPayload = JSON.stringify(warnSpy.mock.calls[0]);
+    const loggedPayload = JSON.stringify(logger.warn.mock.calls[0]);
     expect(loggedPayload).not.toMatch(/bearer|x-api-key|sk-ant|sk-proj|base64/i);
-    warnSpy.mockRestore();
   });
 
   it("extraction sans erreur (télémétrie status absent/success) : ne journalise jamais un échec provider inexistant", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
+    const logger = fakeLogger();
     extractTcgCardFromPhoto.mockResolvedValueOnce({ extraction: fullExtraction, source: "ai", warnings: [], telemetry: { status: "success" } });
     orchestratePokemonPipeline.mockResolvedValueOnce({ stage: "cross_match_refused", candidate: null, warnings: [], reason: "test" });
 
     await processTcgCardAnalysis(
       fakeDb(),
       { id: "req-13", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-13/photo.jpg" }], providedTcgHints: null },
-      { extractionOptions, connectors },
+      { extractionOptions, connectors, logger },
     );
 
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("aucun logger injecté : jamais un crash (repli no-op silencieux)", async () => {
+    extractTcgCardFromPhoto.mockResolvedValueOnce({
+      extraction: weakExtraction,
+      source: "ai",
+      warnings: ["PROVIDER_ERROR"],
+      telemetry: { status: "error", provider: "anthropic", model: "claude-haiku-4-5-20251001", errorCode: "UNAUTHORIZED", errorHttpStatus: 401 },
+    });
+    const result = await processTcgCardAnalysis(
+      fakeDb(),
+      { id: "req-15", imageReferences: [{ url: "https://x.supabase.co/storage/v1/object/analysis-uploads/u1/req-15/photo.jpg" }], providedTcgHints: null },
+      { extractionOptions, connectors },
+    );
+    expect(result.status).toBe("insufficient_data");
   });
 });

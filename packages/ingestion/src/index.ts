@@ -6,6 +6,7 @@ export * from "./fx-rate-schemas";
 export * from "./persist-fx-rate";
 export * from "./corroborate-catalog-identity";
 export * from "./orchestrate-pokemon-pipeline";
+export * from "./process-tcg-card-analysis";
 export * from "./run-ingestion";
 export * from "./map-to-intelligence";
 export * from "./analyze-listing";

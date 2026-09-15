@@ -1,28 +1,53 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractTcgCardFromPhoto, isSufficientForAutoCorroboration, type ExtractTcgCardOptions, type TcgCardExtraction } from "@dealradar/ai";
-import { orchestratePokemonPipeline } from "@dealradar/ingestion";
-import { deriveCollectorNumberForCatalogQuery, type TcgCatalogHints } from "@dealradar/connectors";
+import { deriveCollectorNumberForCatalogQuery, type CatalogConnector, type FxRateProvider, type PricingConnector, type TcgCatalogHints } from "@dealradar/connectors";
 import type { TcgCardAnalysisResult, TcgCardExtractedFields, TcgCardProvidedHints } from "@dealradar/core";
-import { logger } from "../logger";
-import type { TcgPipelineConnectors } from "../ingestion/tcg-connector-config";
+import { orchestratePokemonPipeline } from "./orchestrate-pokemon-pipeline";
 
 /**
- * Branche `pokemon_tcg` du job `analysis.process` (LOT 8, mobile) — flux
- * distinct de la branche générique (`process-analysis.ts`, Intelligence
- * Core) : identifie une carte physique et rassemble ses observations de
- * prix traçables, ne produit jamais de décision BUY/REVIEW/PASS ni
- * n'exige de prix d'achat. Réutilise tel quel `orchestratePokemonPipeline()`
- * (ADR 0012, LOT 3-7C) — aucune règle de corroboration/pricing dupliquée
- * ou modifiée ici.
+ * Branche `pokemon_tcg` de l'analyse (LOT 8, mobile) — identifie une carte
+ * physique et rassemble ses observations de prix traçables, ne produit
+ * jamais de décision BUY/REVIEW/PASS ni n'exige de prix d'achat. Réutilise
+ * tel quel `orchestratePokemonPipeline()` (ADR 0012, LOT 3-7C) — aucune
+ * règle de corroboration/pricing dupliquée ou modifiée ici.
+ *
+ * Déplacé depuis `apps/workers/src/jobs/process-tcg-card-analysis.ts` (lot
+ * "journée autonome" — pipeline photo→ID→prix sans worker) : cette fonction
+ * ne dépendait déjà d'aucun code spécifique aux workers au-delà d'un import
+ * relatif (`../logger`) et d'un type de wiring de connecteurs — les deux
+ * appelants réels (le job `analysis.process` d'`apps/workers`, ET le
+ * nouvel endpoint serverless synchrone `apps/web/src/app/api/internal/tcg/
+ * analyze`) ont besoin de la MÊME logique exacte, jamais une seconde
+ * implémentation parallèle. Le logger est maintenant injecté (`deps.logger`,
+ * optionnel) plutôt qu'importé en dur, pour rester utilisable depuis
+ * n'importe quel runtime Node sans imposer `pino`.
  */
 
 const SIGNED_URL_TTL_SECONDS = 300;
 const STORAGE_BUCKET = "analysis-uploads";
 const TARGET_CURRENCY = "CHF";
 
+/** Wiring des connecteurs du pipeline Pokémon — même forme que l'ancien `TcgPipelineConnectors` d'`apps/workers`, déplacée ici pour être partagée par tout appelant (worker en file, ou endpoint serverless synchrone). */
+export interface TcgPipelineConnectors {
+  pokemonCatalogConnector: CatalogConnector;
+  tcgdexCatalogConnector: CatalogConnector;
+  justTcgPricingConnector: PricingConnector;
+  tcgdexPricingConnector: PricingConnector;
+  fxProvider: FxRateProvider;
+}
+
+/** Logger minimal injectable — jamais une dépendance dure à `pino` dans ce package partagé. Un appelant qui ne fournit rien obtient un no-op silencieux (jamais un crash pour un simple diagnostic manquant). */
+export interface MinimalLogger {
+  warn(obj: Record<string, unknown>, message: string): void;
+  error(obj: Record<string, unknown>, message: string): void;
+}
+
+const NOOP_LOGGER: MinimalLogger = { warn: () => undefined, error: () => undefined };
+
 export interface TcgCardAnalysisDeps {
   extractionOptions: ExtractTcgCardOptions | undefined;
   connectors: TcgPipelineConnectors | undefined;
+  logger?: MinimalLogger;
 }
 
 function extractStoragePath(imageUrl: string): string | null {
@@ -110,6 +135,8 @@ export async function processTcgCardAnalysis(
   },
   deps: TcgCardAnalysisDeps,
 ): Promise<{ status: "completed" | "insufficient_data" | "failed"; result: TcgCardAnalysisResult }> {
+  const logger = deps.logger ?? NOOP_LOGGER;
+
   // Cas 1 : l'utilisateur a déjà corrigé/confirmé les champs sur l'écran de
   // confirmation — aucune ré-extraction visuelle, corroboration directe.
   if (request.providedTcgHints) {
@@ -146,7 +173,7 @@ export async function processTcgCardAnalysis(
   // côté mobile après le polling est une optimisation, pas la garantie :
   // il dépend de l'application restée ouverte jusqu'au résultat).
   try {
-    return await processWithPhoto(db, request, storagePath, deps);
+    return await processWithPhoto(db, request, storagePath, deps, logger);
   } finally {
     const { error: removeError } = await db.storage.from(STORAGE_BUCKET).remove([storagePath]);
     if (removeError) {
@@ -160,6 +187,7 @@ async function processWithPhoto(
   request: { id: string },
   storagePath: string,
   deps: TcgCardAnalysisDeps,
+  logger: MinimalLogger,
 ): Promise<{ status: "completed" | "insufficient_data" | "failed"; result: TcgCardAnalysisResult }> {
   if (!deps.extractionOptions) {
     return { status: "failed", result: emptyTcgResult(["AI_EXTRACTION_UNAVAILABLE"], "Extraction visuelle non configurée (IA absente).") };
