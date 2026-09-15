@@ -52,7 +52,12 @@ const styles = StyleSheet.create({
   container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
   title: { ...typography.title, color: colors.textPrimary },
   section: { gap: spacing.sm },
-  row: { flexDirection: "row", justifyContent: "space-between" },
-  label: { ...typography.body, color: colors.textSecondary },
-  value: { ...typography.bodyStrong, color: colors.textPrimary },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md },
+  // `flexShrink: 1` sur les deux (LOT "device QA + first real scan",
+  // même correctif que DiagnosticsScreen — une valeur longue comme
+  // "non disponible (aucune injection au build)" pouvait sinon comprimer
+  // `label` au point de couper le texte lettre par lettre, aucun des
+  // deux n'ayant de flexShrink déclaré ici avant ce correctif).
+  label: { ...typography.body, color: colors.textSecondary, flexShrink: 1 },
+  value: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1, textAlign: "right" },
 });

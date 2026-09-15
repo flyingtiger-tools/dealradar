@@ -111,9 +111,17 @@ const styles = StyleSheet.create({
   container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
   title: { ...typography.title, color: colors.textPrimary },
   section: { gap: spacing.sm },
-  row: { flexDirection: "row", justifyContent: "space-between", gap: spacing.md },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: spacing.md },
   label: { ...typography.body, color: colors.textSecondary, flexShrink: 1 },
-  value: { ...typography.bodyStrong, color: colors.textPrimary },
+  // `flexShrink: 1` ici aussi (LOT "device QA + first real scan", trouvé
+  // sur device réel) — sans lui, Yoga refuse par défaut de rétrécir cet
+  // élément (flexShrink vaut 0 si omis) et fait porter TOUT le manque de
+  // place sur `label`, qui finit par se retrouver compressé au point de
+  // couper "Domaine Supabase" lettre par lettre ("Dom"/"aine"/"Supa"/
+  // "base") dès qu'une valeur (le domaine Vercel/Supabase) est longue.
+  // `textAlign: "right"` aligne proprement une valeur qui se met sur
+  // plusieurs lignes.
+  value: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1, textAlign: "right" },
   mono: { fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), fontWeight: "400" },
   statusValue: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
 });
