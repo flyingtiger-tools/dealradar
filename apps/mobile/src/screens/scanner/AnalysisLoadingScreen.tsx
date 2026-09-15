@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 import { RafIllustration } from "../../components/raf/RafIllustration";
+import { RadarPulse } from "../../components/ui/RadarPulse";
 import { getRafStateForProgress } from "../../theme/raf-mapping";
 import { colors, spacing, typography } from "../../theme/tokens";
 
@@ -24,16 +25,32 @@ export interface AnalysisLoadingScreenProps {
   phase: LoadingPhase;
 }
 
+/**
+ * Écran d'attente (Phase 9, LOT "visual product pass" : "réellement
+ * agréable, sans faux pourcentage, sans fausses étapes"). Le "market
+ * pulse" (`RadarPulse`, anneaux animés) entoure Raf plutôt que de le
+ * remplacer — aucun changement de direction artistique Raf (Phase 32),
+ * juste un décor de fond en mouvement pendant une attente réelle.
+ */
 export function AnalysisLoadingScreen({ phase }: AnalysisLoadingScreenProps) {
   return (
     <View style={styles.container}>
-      <RafIllustration state={getRafStateForProgress(phase)} size={140} pulse />
+      <View style={styles.stack}>
+        <View style={styles.pulseLayer}>
+          <RadarPulse size={200} />
+        </View>
+        <RafIllustration state={getRafStateForProgress(phase)} size={120} pulse />
+      </View>
       <Text style={styles.label}>{PHASE_LABEL[phase]}</Text>
+      <Text style={styles.sublabel}>Un instant.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.lg, padding: spacing.xl },
+  stack: { alignItems: "center", justifyContent: "center" },
+  pulseLayer: { position: "absolute" },
   label: { ...typography.subtitle, color: colors.textPrimary },
+  sublabel: { ...typography.caption, color: colors.textSecondary },
 });

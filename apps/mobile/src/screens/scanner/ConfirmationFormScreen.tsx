@@ -38,7 +38,7 @@ export function ConfirmationFormScreen({ isManualEntry, fields, onFieldChange, o
           />
         </View>
       ))}
-      <AppButton title="Rechercher avec ces informations" onPress={onSubmit} disabled={!fields.cardName} style={styles.submit} />
+      <AppButton title="Rechercher avec ces informations" onPress={onSubmit} disabled={!fields.cardName} icon="checkmark-circle" style={styles.submit} />
     </ScrollView>
   );
 }
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
   fieldLabel: { ...typography.caption, color: colors.textSecondary },
   input: {
     borderWidth: borderWidth.thin,
-    borderColor: colors.border,
+    borderColor: colors.borderStrong,
     borderRadius: radius.md,
     padding: spacing.md,
     color: colors.textPrimary,

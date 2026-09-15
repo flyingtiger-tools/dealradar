@@ -12,14 +12,18 @@ export interface PreviewScreenProps {
 }
 
 /**
- * Aperçu photo (Phase 6) — photo, avertissements réels s'il y en a,
- * "Reprendre" / "Analyser". Le message Raf ne s'affiche QUE quand un
- * avertissement réel existe (Phase 6 : "pas de fake insight").
+ * Aperçu photo (Phase 8, LOT "visual product pass" : "checkpoint avant
+ * analyse") — la photo reste l'élément dominant de l'écran, pas de
+ * card-in-card. Hiérarchie très claire : "Analyser" est l'action
+ * principale (bouton primaire pleine largeur), "Reprendre" une action
+ * secondaire discrète juste au-dessus, jamais deux boutons de même poids
+ * visuel. Le message Raf ne s'affiche QUE quand un avertissement réel
+ * existe (Phase 6 précédent : "pas de fake insight").
  */
 export function PreviewScreen({ imageUri, warnings = [], onRetake, onAnalyze }: PreviewScreenProps) {
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Aperçu</Text>
+      <Text style={styles.eyebrow}>Aperçu</Text>
       <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
 
       {warnings.length > 0 && (
@@ -35,18 +39,21 @@ export function PreviewScreen({ imageUri, warnings = [], onRetake, onAnalyze }: 
       )}
 
       <View style={styles.actions}>
-        <AppButton title="Reprendre la photo" onPress={onRetake} variant="secondary" />
-        <AppButton title="Analyser" onPress={onAnalyze} />
+        <AppButton title="Analyser" onPress={onAnalyze} icon="checkmark-circle" />
+        <Text style={styles.retakeLink} onPress={onRetake}>
+          Reprendre la photo
+        </Text>
       </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: spacing.lg, gap: spacing.md },
-  title: { ...typography.title, color: colors.textPrimary },
-  preview: { width: "100%", height: 320, backgroundColor: colors.surface, borderRadius: radius.lg },
+  container: { flexGrow: 1, padding: spacing.lg, gap: spacing.md, justifyContent: "center" },
+  eyebrow: { ...typography.eyebrow, color: colors.textSecondary, textAlign: "center" },
+  preview: { width: "100%", height: 380, backgroundColor: colors.surface, borderRadius: radius.lg },
   warningBlock: { gap: spacing.xs },
   extraWarning: { ...typography.caption, color: colors.warning, marginLeft: spacing.xxl },
-  actions: { gap: spacing.sm, marginTop: spacing.sm },
+  actions: { gap: spacing.md, marginTop: spacing.sm },
+  retakeLink: { ...typography.body, color: colors.textSecondary, textAlign: "center" },
 });
