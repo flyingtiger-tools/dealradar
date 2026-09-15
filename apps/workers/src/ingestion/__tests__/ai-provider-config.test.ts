@@ -90,7 +90,10 @@ describe("buildAiExtractionConfigFromEnv", () => {
 
     expect(config).toBeDefined();
     expect(config!.provider.name).toBe("groq");
-    expect(config!.provider.model).toBe("llama-3.3-70b-versatile");
+    // "qwen/qwen3.6-27b" (vision gratuite, cf. capabilities.ts) — pas l'ancien
+    // "llama-3.3-70b-versatile" (texte seul), qui aurait silencieusement
+    // désactivé la vision sur ce chemin sans AI_MODEL explicite.
+    expect(config!.provider.model).toBe("qwen/qwen3.6-27b");
   });
 
   it("AI_MODEL surcharge le modèle Groq par défaut", () => {

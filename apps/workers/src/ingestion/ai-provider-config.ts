@@ -8,11 +8,23 @@ export interface AiExtractionConfig {
   dailyBudgetUsd?: number;
 }
 
-/** Modèle par défaut si `AI_MODEL` n'est pas surchargé — jamais utilisé pour un provider autre que celui dont il porte le nom. */
+/**
+ * Modèle par défaut si `AI_MODEL` n'est pas surchargé — jamais utilisé pour
+ * un provider autre que celui dont il porte le nom.
+ *
+ * groq: "llama-3.3-70b-versatile" (texte seul, `vision: false` — voir
+ * `capabilities.ts`) remplacé par "qwen/qwen3.6-27b" (vision GRATUIT,
+ * relevé le 2026-09-15 via la documentation officielle Groq, voir
+ * `docs/mobile/vision-provider-evaluation.md`) : l'ancien défaut aurait
+ * silencieusement désactivé la vision sur ce chemin (queue/worker) si
+ * jamais réactivé avec AI_PROVIDER=groq sans AI_MODEL explicite — même
+ * choix que `apps/web/src/lib/tcg-ai-provider-config.ts` (chemin
+ * serverless direct), un seul modèle Groq par défaut dans tout le repo.
+ */
 const DEFAULT_MODEL_BY_PROVIDER: Record<"openai" | "anthropic" | "groq" | "openrouter", string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-haiku-4-5-20251001",
-  groq: "llama-3.3-70b-versatile",
+  groq: "qwen/qwen3.6-27b",
   openrouter: "openai/gpt-4o-mini",
 };
 
