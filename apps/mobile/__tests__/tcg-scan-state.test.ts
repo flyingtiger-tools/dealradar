@@ -61,7 +61,7 @@ describe("tcgScanReducer", () => {
     state = tcgScanReducer(state, { type: "SUBMIT_STARTED", requestId: "req-1" });
     expect(state).toEqual({ phase: "polling", requestId: "req-1" });
 
-    state = tcgScanReducer(state, { type: "RESULT_RECEIVED", result: completedResult, status: "completed" });
+    state = tcgScanReducer(state, { type: "RESULT_RECEIVED", requestId: "req-1", result: completedResult, status: "completed" });
     expect(state).toEqual({ phase: "result", requestId: "req-1", result: completedResult, status: "completed" });
   });
 
@@ -70,7 +70,7 @@ describe("tcgScanReducer", () => {
     state = tcgScanReducer(state, { type: "IMAGE_SELECTED", imageUri: "file://photo.jpg" });
     state = tcgScanReducer(state, { type: "UPLOAD_STARTED" });
     state = tcgScanReducer(state, { type: "SUBMIT_STARTED", requestId: "req-2" });
-    state = tcgScanReducer(state, { type: "RESULT_RECEIVED", result: needsConfirmationResult, status: "insufficient_data" });
+    state = tcgScanReducer(state, { type: "RESULT_RECEIVED", requestId: "req-2", result: needsConfirmationResult, status: "insufficient_data" });
 
     expect(state.phase).toBe("needsConfirmation");
     if (state.phase === "needsConfirmation") {
@@ -173,5 +173,41 @@ describe("tcgScanReducer", () => {
     });
     state = tcgScanReducer(state, { type: "CONFIRMATION_SUBMITTED" });
     expect(state).toEqual({ phase: "resubmitting", requestId: "" });
+  });
+
+  it("régression : un résultat reçu depuis 'resubmitting' bascule bien vers 'result' (avant correctif, il restait bloqué sur le chargement)", () => {
+    let state: TcgScanState = {
+      phase: "needsConfirmation",
+      requestId: "req-8",
+      fields: { cardName: "Pikachu", setName: "Base Set", cardNumber: "58", variant: null, language: null, productKind: null, gradingCompany: null, grade: null },
+    };
+    state = tcgScanReducer(state, { type: "CONFIRMATION_SUBMITTED" });
+    expect(state).toEqual({ phase: "resubmitting", requestId: "req-8" });
+
+    state = tcgScanReducer(state, { type: "RESULT_RECEIVED", requestId: "req-8", result: completedResult, status: "completed" });
+    expect(state).toEqual({ phase: "result", requestId: "req-8", result: completedResult, status: "completed" });
+  });
+
+  it("résultat périmé (requestId ne correspond plus à la requête en vol) : ignoré, jamais accepté comme résultat courant", () => {
+    let state: TcgScanState = initialTcgScanState;
+    state = tcgScanReducer(state, { type: "IMAGE_SELECTED", imageUri: "file://photo.jpg" });
+    state = tcgScanReducer(state, { type: "UPLOAD_STARTED" });
+    state = tcgScanReducer(state, { type: "SUBMIT_STARTED", requestId: "req-current" });
+    expect(state).toEqual({ phase: "polling", requestId: "req-current" });
+
+    // Une réponse tardive d'une requête ANTÉRIEURE (déjà abandonnée) arrive après coup.
+    const next = tcgScanReducer(state, { type: "RESULT_RECEIVED", requestId: "req-stale", result: completedResult, status: "completed" });
+    expect(next).toBe(state);
+    expect(next.phase).toBe("polling");
+  });
+
+  it("saisie manuelle (requestId vide) : un résultat avec un requestId non vide est rejeté, jamais mélangé avec une autre session", () => {
+    let state: TcgScanState = tcgScanReducer(initialTcgScanState, { type: "MANUAL_ENTRY_STARTED" });
+    state = tcgScanReducer(state, { type: "CONFIRMATION_FIELD_CHANGED", field: "cardName", value: "Pikachu" });
+    state = tcgScanReducer(state, { type: "CONFIRMATION_SUBMITTED" });
+    expect(state).toEqual({ phase: "resubmitting", requestId: "" });
+
+    const next = tcgScanReducer(state, { type: "RESULT_RECEIVED", requestId: "req-other-session", result: completedResult, status: "completed" });
+    expect(next).toBe(state);
   });
 });

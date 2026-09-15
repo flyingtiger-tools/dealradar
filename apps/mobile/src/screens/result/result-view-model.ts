@@ -1,6 +1,7 @@
 import type { TcgCardAnalysisResult } from "@dealradar/contracts";
 import type { BusinessDecision } from "../../theme/raf-mapping";
 import { cleanUserMessage } from "../../identification/user-messages";
+import { toConfidencePercent } from "../../format/confidence";
 
 /**
  * Modèle d'affichage de l'écran de résultat (Phase 8) — découplé du
@@ -95,7 +96,7 @@ export function mapTcgResultToViewModel(result: TcgCardAnalysisResult | null, st
       gradingCompany: identity.gradingCompany,
       grade: identity.grade,
     },
-    confidencePercent: Math.round(identity.confidence * 100),
+    confidencePercent: toConfidencePercent(identity.confidence),
     prices: priceObservations.map((obs) => ({
       source: obs.source,
       amountCents: obs.amountCents,

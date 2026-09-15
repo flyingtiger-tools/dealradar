@@ -26,7 +26,15 @@ export type TcgScanAction =
   | { type: "SUBMIT_STARTED"; requestId: string }
   /** Couvre tout échec réseau entre le début de l'envoi et la réception du résultat — un seul état d'erreur terminal, quelle que soit l'étape en cours. */
   | { type: "FAILED"; message: string }
-  | { type: "RESULT_RECEIVED"; result: TcgCardAnalysisResult | null; status: "completed" | "insufficient_data" | "failed" }
+  /**
+   * `requestId` : identifiant de la requête qui a produit CE résultat —
+   * comparé à `state.requestId` avant d'être accepté (LOT "beta product
+   * readiness", Phase 5 : une résolution périmée — réponse d'une requête
+   * dont l'utilisateur est déjà reparti — ne doit jamais écraser l'état
+   * d'une requête plus récente). `polling` et `resubmitting` sont les deux
+   * seules phases où une réponse réseau peut légitimement arriver.
+   */
+  | { type: "RESULT_RECEIVED"; requestId: string; result: TcgCardAnalysisResult | null; status: "completed" | "insufficient_data" | "failed" }
   | { type: "CONFIRMATION_FIELD_CHANGED"; field: keyof TcgCardProvidedHints; value: string | null }
   | { type: "CONFIRMATION_SUBMITTED" }
   | { type: "RESET" };
@@ -112,7 +120,17 @@ export function tcgScanReducer(state: TcgScanState, action: TcgScanAction): TcgS
       return { phase: "error", message: action.message };
 
     case "RESULT_RECEIVED": {
-      if (state.phase !== "polling") return state;
+      // Corrige un bug réel (LOT "beta product readiness") : la confirmation
+      // manuelle/post-extraction transite par "resubmitting", jamais
+      // "polling" — avant ce correctif, un résultat reçu depuis
+      // "resubmitting" était silencieusement ignoré et l'écran restait
+      // bloqué sur le chargement indéfiniment (aucun test ne couvrait ce
+      // chemin, voir __tests__/tcg-scan-state.test.ts).
+      if (state.phase !== "polling" && state.phase !== "resubmitting") return state;
+      // Garde anti-résultat périmé (Phase 5) : une réponse dont l'id ne
+      // correspond plus à la requête en vol pour CET état est ignorée —
+      // jamais utilisée pour écraser un état déjà avancé ailleurs.
+      if (action.requestId !== state.requestId) return state;
       if (action.status === "insufficient_data" && action.result?.kind === "pokemon_tcg_card" && action.result.needsConfirmation) {
         return { phase: "needsConfirmation", requestId: state.requestId, fields: extractedFieldsToProvidedHints(action.result.extractedFields) };
       }
