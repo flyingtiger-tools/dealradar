@@ -195,4 +195,20 @@ describe("POST /api/internal/tcg/analyze", () => {
     expect(json.status).toBe("failed");
     expect(processTcgCardAnalysis).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ extractionOptions: undefined }));
   });
+
+  it("exception inattendue du pipeline (LOT beta product readiness, Phase 37/41) : 500 générique, jamais la pile/le message brut exposé au client", async () => {
+    vi.mocked(authenticateBearerRequest).mockResolvedValue({ userId: USER_ID });
+    vi.mocked(processTcgCardAnalysis).mockRejectedValue(new Error("ECONNREFUSED 10.0.0.5:5432 — détail interne jamais destiné au client"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(postRequest({ imageUrl: `https://x.supabase.co/storage/v1/object/analysis-uploads/${USER_ID}/photo.jpg` }));
+
+    expect(response.status).toBe(500);
+    const json = await response.json();
+    expect(json.error.code).toBe("INTERNAL");
+    expect(json.error.message).not.toMatch(/ECONNREFUSED|10\.0\.0\.5/);
+    // L'exception réelle est bien journalisée côté serveur (pas silencieusement avalée), jamais renvoyée au client.
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
 });

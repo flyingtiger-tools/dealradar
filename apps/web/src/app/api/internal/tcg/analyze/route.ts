@@ -74,19 +74,30 @@ export async function POST(request: Request) {
     }
   }
 
-  const db = createServiceRoleClient();
-  const aiConfig = buildTcgAiExtractionConfig(db);
-  const connectors = buildTcgPipelineConnectorsFromEnv();
+  // Garde-fou ajouté (LOT "beta product readiness", Phase 37/41) — aucune
+  // pile ni détail interne ne doit jamais atteindre le client (une
+  // exception non attrapée dans un handler Next.js peut, selon
+  // l'environnement, renvoyer des détails). Le pipeline lui-même
+  // (`processTcgCardAnalysis`, connecteurs, config IA) n'est pas modifié —
+  // seule cette frontière est durcie.
+  try {
+    const db = createServiceRoleClient();
+    const aiConfig = buildTcgAiExtractionConfig(db);
+    const connectors = buildTcgPipelineConnectorsFromEnv();
 
-  const { status, result } = await processTcgCardAnalysis(
-    db,
-    {
-      id: crypto.randomUUID(),
-      imageReferences: body.imageUrl ? [{ url: body.imageUrl }] : [],
-      providedTcgHints: body.providedTcgHints ?? null,
-    },
-    { extractionOptions: aiConfig?.extractionOptions, connectors },
-  );
+    const { status, result } = await processTcgCardAnalysis(
+      db,
+      {
+        id: crypto.randomUUID(),
+        imageReferences: body.imageUrl ? [{ url: body.imageUrl }] : [],
+        providedTcgHints: body.providedTcgHints ?? null,
+      },
+      { extractionOptions: aiConfig?.extractionOptions, connectors },
+    );
 
-  return NextResponse.json({ status, result });
+    return NextResponse.json({ status, result });
+  } catch (error) {
+    console.error("[api/internal/tcg/analyze] échec inattendu du pipeline", error);
+    return errorResponse(500, "INTERNAL", "Une erreur inattendue est survenue lors de l'analyse.");
+  }
 }
