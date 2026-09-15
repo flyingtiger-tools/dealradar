@@ -1,5 +1,6 @@
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { Card } from "./Card";
+import { Icon } from "./Icon";
 import { colors, spacing, typography } from "../../theme/tokens";
 
 export interface WhyPanelProps {
@@ -10,9 +11,12 @@ export interface WhyPanelProps {
 }
 
 /**
- * Panneau "Pourquoi ?" (Phase 11). N'affiche que des éléments réellement
- * fournis par le résultat — si `positives` et `warnings` sont vides, ne se
- * rend pas du tout (jamais un panneau vide ou un texte de remplissage).
+ * Panneau "Pourquoi ?" (Phase 14, LOT "visual product pass" : "très
+ * lisible, pas de JSON, pas de jargon"). Icônes réelles (`Icon.tsx`)
+ * plutôt que les glyphes ✓/⚠ bruts — même famille que le reste de l'app.
+ * N'affiche que des éléments réellement fournis par le résultat — si
+ * `positives` et `warnings` sont vides, ne se rend pas du tout (jamais un
+ * panneau vide ou un texte de remplissage).
  */
 export function WhyPanel({ positives, warnings }: WhyPanelProps) {
   if (positives.length === 0 && warnings.length === 0) return null;
@@ -20,14 +24,16 @@ export function WhyPanel({ positives, warnings }: WhyPanelProps) {
     <Card>
       <Text style={styles.title}>Pourquoi ?</Text>
       {positives.map((item, i) => (
-        <Text key={`p-${i}`} style={styles.positive}>
-          ✓ {item}
-        </Text>
+        <View key={`p-${i}`} style={styles.row}>
+          <Icon name="checkmark-circle" size={16} color={colors.success} />
+          <Text style={styles.positive}>{item}</Text>
+        </View>
       ))}
       {warnings.map((item, i) => (
-        <Text key={`w-${i}`} style={styles.warning}>
-          ⚠ {item}
-        </Text>
+        <View key={`w-${i}`} style={styles.row}>
+          <Icon name="alert-circle" size={16} color={colors.warning} />
+          <Text style={styles.warning}>{item}</Text>
+        </View>
       ))}
     </Card>
   );
@@ -35,6 +41,7 @@ export function WhyPanel({ positives, warnings }: WhyPanelProps) {
 
 const styles = StyleSheet.create({
   title: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.sm },
-  positive: { ...typography.body, color: colors.success, marginBottom: spacing.xs },
-  warning: { ...typography.body, color: colors.warning, marginBottom: spacing.xs },
+  row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginBottom: spacing.xs },
+  positive: { ...typography.body, color: colors.success, flex: 1 },
+  warning: { ...typography.body, color: colors.warning, flex: 1 },
 });

@@ -10,6 +10,7 @@
     "android",
     "ios",
     "src/dataset-capture/__tests__/no-network-invariant.test.ts",
-    "src/navigation/__tests__/structure-isolation.test.ts"
+    "src/navigation/__tests__/structure-isolation.test.ts",
+    "src/screens/result/__tests__/result-screen-structure.test.ts"
   ]
 }

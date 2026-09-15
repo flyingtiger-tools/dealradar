@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
-import { ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import type { ResultViewModel } from "./result-view-model";
+import { deriveHeroPriceRange } from "./price-hero";
 import { RafResultHero } from "../../components/raf/RafResultHero";
 import { ErrorState } from "../../components/errors/ErrorState";
+import { PriceHero } from "../../components/result/PriceHero";
 import { Card } from "../../components/ui/Card";
 import { AppButton } from "../../components/ui/AppButton";
 import { Badge } from "../../components/ui/Badge";
+import { Icon } from "../../components/ui/Icon";
 import { VerdictBanner } from "../../components/ui/VerdictBanner";
 import { ScoreConfidenceRow } from "../../components/ui/ScoreConfidenceRow";
 import { WhyPanel } from "../../components/ui/WhyPanel";
@@ -33,10 +36,12 @@ export interface ResultScreenProps {
 }
 
 /**
- * Écran central DealRadar (Phase 8) — identité, prix par source, score/
- * confiance (Phase 9), verdict (Phase 8/10), panneau "Pourquoi ?"
- * (Phase 11), favori + partage (Phase 20/24, LOT "beta product
- * readiness"). Reçoit un `ResultViewModel` déjà normalisé — jamais un
+ * Écran central DealRadar (Phase 10, LOT "visual product pass" : "l'écran
+ * qui reçoit le plus de travail"). Hiérarchie de lecture en < 2 secondes :
+ * verdict (quand il existe réellement) -> identité -> PRIX (élément le
+ * plus visible, `PriceHero`, Phase 11) -> score/confiance -> pourquoi ->
+ * sources discrètes -> actions (favori/partager secondaires, "Nouveau
+ * scan" dominant). Reçoit un `ResultViewModel` déjà normalisé — jamais un
  * contrat réseau brut (voir `result-view-model.ts`) — donc utilisable tel
  * quel par un vrai scan, par le détail d'historique
  * (`history/to-result-view-model.ts`) ET par les fixtures DEMO.
@@ -48,6 +53,17 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
   // terminée) — jamais un état local qui divergerait silencieusement de
   // la source de vérité (`history/storage.ts`).
   useEffect(() => setFavorite(initialFavorite), [historyEntryId, initialFavorite]);
+
+  // Entrée douce (Phase 28/29 : "prévenir un changement brusque" — cet
+  // écran remplace toujours un écran de chargement, jamais une
+  // décoration gratuite sur un contenu déjà affiché). Occasionnel (un
+  // résultat par scan), largement sous les 300ms recommandés pour une UI.
+  const entrance = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    entrance.setValue(0);
+    Animated.timing(entrance, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+  }, [view, entrance]);
+  const entranceStyle = { opacity: entrance, transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] };
 
   const toggleFavorite = async () => {
     if (!historyEntryId) return;
@@ -64,7 +80,7 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
       productName: view.product.name,
       setName: view.product.setName,
       collectorNumber: view.product.collectorNumber,
-      marketValue: chfRange(view),
+      marketValue: deriveHeroPriceRange(view),
     });
     try {
       await Share.share({ message: text });
@@ -75,25 +91,23 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
 
   if (view.identityStatus !== "identified") {
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <Animated.ScrollView contentContainerStyle={styles.container} style={entranceStyle}>
         {view.isDemo && <Badge label="DEMO" tone="warning" />}
         <ErrorState
           source={{ kind: "message", raw: view.reasonMessage ?? "Identification impossible avec les informations disponibles." }}
           onRetry={onScanAnother}
           retryLabel="Nouveau scan"
         />
-      </ScrollView>
+      </Animated.ScrollView>
     );
   }
 
   const rafState = view.decision ? getRafStateForDealTier(getDealTierFromDecision(view.decision, view.dealScore)) : getRafStateForIdentificationStatus("identified");
+  const heroRange = deriveHeroPriceRange(view);
+  const distinctSources = Array.from(new Set(view.prices.map((p) => formatSourceLabel(p.source) ?? p.source)));
 
-  // Hiérarchie de lecture (Phase 13) : verdict d'abord (quand il existe
-  // réellement), puis l'état Raf/identité, puis prix, puis confiance,
-  // informations détaillées, "pourquoi", actions — jamais 18 blocs
-  // d'égale importance en même temps.
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <Animated.ScrollView contentContainerStyle={styles.container} style={entranceStyle}>
       {view.isDemo && <Badge label="DEMO — donnée fictive" tone="warning" />}
 
       {view.decision && <VerdictBanner decision={view.decision} />}
@@ -103,6 +117,15 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
         headline={view.product.name ?? "Produit identifié"}
         subheadline={[view.product.setName, view.product.collectorNumber ? `#${view.product.collectorNumber}` : null].filter(Boolean).join(" · ") || undefined}
       />
+
+      <Card variant="raised" style={styles.priceCard}>
+        <PriceHero range={heroRange} />
+        {distinctSources.length > 0 && <Text style={styles.sources}>Sources : {distinctSources.join(" · ")}</Text>}
+      </Card>
+
+      <Card style={styles.section}>
+        <ScoreConfidenceRow score={view.dealScore} confidencePercent={view.confidencePercent} />
+      </Card>
 
       <Card style={styles.section}>
         <Text style={styles.sectionTitle}>Identité</Text>
@@ -116,10 +139,10 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
         )}
       </Card>
 
-      <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Prix par source</Text>
-        {view.hasPricing ? (
-          view.prices.map((row, i) => (
+      {view.hasPricing && (
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Prix par source</Text>
+          {view.prices.map((row, i) => (
             <View key={i} style={styles.priceRow}>
               <Text style={styles.priceSource}>
                 {formatSourceLabel(row.source) ?? row.source}
@@ -131,33 +154,32 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
               )}
               {row.updatedAt && <Text style={styles.priceTimestamp}>Mis à jour : {formatAnalysisDate(row.updatedAt)}</Text>}
             </View>
-          ))
-        ) : (
-          <ErrorState source={{ kind: "code", code: "NO_PRICE" }} />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <ScoreConfidenceRow score={view.dealScore} confidencePercent={view.confidencePercent} />
-      </Card>
+          ))}
+        </Card>
+      )}
+      {!view.hasPricing && <ErrorState source={{ kind: "code", code: "NO_PRICE" }} />}
 
       <WhyPanel positives={view.reasons} warnings={view.warnings} />
 
-      <View style={styles.actions}>
-        {historyEntryId && <AppButton title={favorite ? "♥ Retirer des favoris" : "♡ Ajouter aux favoris"} onPress={() => void toggleFavorite()} variant="secondary" />}
-        <AppButton title="Partager" onPress={() => void shareResult()} variant="secondary" />
-        <AppButton title="Nouveau scan" onPress={onScanAnother} />
-        {onExit && <AppButton title="Fermer" onPress={onExit} variant="ghost" />}
+      <View style={styles.secondaryActions}>
+        {historyEntryId && (
+          <IconTextButton icon={favorite ? "heart" : "heart-outline"} label={favorite ? "Favori" : "Ajouter"} tone={favorite ? colors.danger : colors.textSecondary} onPress={() => void toggleFavorite()} />
+        )}
+        <IconTextButton icon="share-outline" label="Partager" tone={colors.textSecondary} onPress={() => void shareResult()} />
       </View>
-    </ScrollView>
+      <AppButton title="Nouveau scan" onPress={onScanAnother} icon="camera" />
+      {onExit && <AppButton title="Fermer" onPress={onExit} variant="ghost" />}
+    </Animated.ScrollView>
   );
 }
 
-/** Même règle de dérivation que `history/from-result-view-model.ts` — jamais une seconde formule qui pourrait diverger (montant natif CHF ou converti uniquement, jamais une moyenne). */
-function chfRange(view: ResultViewModel): { low: number; high: number; currency: string } | null {
-  const amounts = view.prices.map((p) => p.convertedAmountCents ?? (p.currency === "CHF" ? p.amountCents : null)).filter((v): v is number => v !== null);
-  if (amounts.length === 0) return null;
-  return { low: Math.min(...amounts) / 100, high: Math.max(...amounts) / 100, currency: "CHF" };
+function IconTextButton({ icon, label, tone, onPress }: { icon: "heart" | "heart-outline" | "share-outline"; label: string; tone: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.iconTextButton, pressed && styles.iconTextButtonPressed]}>
+      <Icon name={icon} size={18} color={tone} />
+      <Text style={[styles.iconTextButtonLabel, { color: tone }]}>{label}</Text>
+    </Pressable>
+  );
 }
 
 function InfoRow({ label, value }: { label: string; value: string | null }) {
@@ -172,15 +194,19 @@ function InfoRow({ label, value }: { label: string; value: string | null }) {
 const styles = StyleSheet.create({
   container: { padding: spacing.lg, gap: spacing.md, backgroundColor: colors.background },
   section: { gap: spacing.xs },
+  priceCard: { alignItems: "center", gap: spacing.sm },
+  sources: { ...typography.caption, color: colors.textMuted, textAlign: "center" },
   sectionTitle: { ...typography.sectionTitle, color: colors.textPrimary, marginBottom: spacing.xs },
   infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
   infoLabel: { ...typography.body, color: colors.textSecondary },
   infoValue: { ...typography.bodyStrong, color: colors.textPrimary },
-  priceRow: { paddingVertical: spacing.sm, borderBottomWidth: borderWidth.hairline, borderBottomColor: colors.border, gap: 2 },
+  priceRow: { paddingVertical: spacing.sm, borderBottomWidth: borderWidth.hairline, borderBottomColor: colors.borderSubtle, gap: 2 },
   priceSource: { ...typography.captionStrong, color: colors.textSecondary },
   priceAmount: { ...typography.subtitle, color: colors.textPrimary },
   priceConverted: { ...typography.caption, color: colors.textMuted },
   priceTimestamp: { ...typography.caption, color: colors.textMuted },
-  actions: { gap: spacing.sm, marginTop: spacing.md },
+  secondaryActions: { flexDirection: "row", gap: spacing.lg, justifyContent: "center", marginTop: spacing.sm },
+  iconTextButton: { flexDirection: "row", alignItems: "center", gap: spacing.xs, padding: spacing.sm },
+  iconTextButtonPressed: { opacity: 0.6 },
+  iconTextButtonLabel: { ...typography.bodyStrong },
 });
-
