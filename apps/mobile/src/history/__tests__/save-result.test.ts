@@ -8,6 +8,7 @@ import type { ResultViewModel } from "../../screens/result/result-view-model";
 function view(overrides: Partial<ResultViewModel> = {}): ResultViewModel {
   return {
     identityStatus: "identified",
+    category: "pokemon_tcg",
     product: { name: "Pikachu", setName: "Base Set", collectorNumber: "58", language: "en", variant: null, productKind: "raw_card", gradingCompany: null, grade: null },
     confidencePercent: 97,
     prices: [{ source: "tcgdex", amountCents: 963, currency: "CHF", condition: null, updatedAt: null, convertedAmountCents: null, convertedCurrency: null }],

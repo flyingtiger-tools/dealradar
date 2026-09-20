@@ -6,6 +6,7 @@ import type { ResultViewModel } from "../../screens/result/result-view-model";
 function view(overrides: Partial<ResultViewModel> = {}): ResultViewModel {
   return {
     identityStatus: "identified",
+    category: "pokemon_tcg",
     product: { name: "Pikachu", setName: "Base Set", collectorNumber: "58", language: "en", variant: null, productKind: "raw_card", gradingCompany: null, grade: null },
     confidencePercent: 97,
     prices: [{ source: "tcgdex", amountCents: 963, currency: "CHF", condition: null, updatedAt: null, convertedAmountCents: null, convertedCurrency: null }],
@@ -42,5 +43,18 @@ describe("buildHistoryCandidateFromResultViewModel", () => {
 
   it("fixture DEMO (Phase 49) : jamais historisée, même si identifiée", () => {
     expect(buildHistoryCandidateFromResultViewModel(view({ isDemo: true }))).toBeNull();
+  });
+
+  it("catégorie non-TCG (LOT 'Universal Object Valuation Foundation') : historisée sous sa vraie catégorie, jamais 'pokemon_tcg' par défaut", () => {
+    const candidate = buildHistoryCandidateFromResultViewModel(
+      view({
+        category: "watches",
+        product: { name: "Rolex Submariner", setName: "Montres", collectorNumber: "116610LN", language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
+      }),
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(candidate).not.toBeNull();
+    expect(candidate!.category).toBe("watches");
+    expect(candidate!.productKey.startsWith("watches|")).toBe(true);
   });
 });

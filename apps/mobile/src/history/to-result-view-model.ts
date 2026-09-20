@@ -14,6 +14,7 @@ import type { HistoryEntry } from "./types";
 export function mapHistoryEntryToResultViewModel(entry: HistoryEntry): ResultViewModel {
   return {
     identityStatus: "identified",
+    category: entry.category,
     product: {
       name: entry.identity.name,
       setName: entry.identity.setName,

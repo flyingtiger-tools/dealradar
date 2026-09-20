@@ -74,10 +74,20 @@ function buildPriceRows(result: AnalysisResult): ResultPriceRow[] {
  * identifié sans assez de preuve de marché reste `identityStatus:
  * "identified"` avec `decision: "INSUFFICIENT_DATA"`, jamais un échec total.
  */
-export function mapAnalysisResultToViewModel(result: AnalysisResult | null, status: AnalysisStatus): ResultViewModel {
+/**
+ * `category` est fourni par l'appelant (jamais dérivé de
+ * `result.product.category`, un champ `string | null` non garanti aligné
+ * sur `categorySlugSchema`) — l'appelant connaît toujours la catégorie
+ * réelle puisqu'elle a piloté `canHandle`/`createAnalysis` en amont (voir
+ * `identification/generic-object-adapter.ts`). Reportée telle quelle sur
+ * `ResultViewModel.category` pour que `history/from-result-view-model.ts`
+ * historise sous la bonne catégorie, jamais `pokemon_tcg` par défaut.
+ */
+export function mapAnalysisResultToViewModel(result: AnalysisResult | null, status: AnalysisStatus, category: CategorySlug): ResultViewModel {
   if (!result || !result.product.name) {
     return {
       identityStatus: status === "failed" ? "failed" : "insufficient_data",
+      category,
       product: { name: null, setName: null, collectorNumber: null, language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
       confidencePercent: null,
       prices: [],
@@ -93,6 +103,7 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
 
   return {
     identityStatus: "identified",
+    category,
     product: {
       name: result.product.name,
       setName: categoryLabel(result.product.category),

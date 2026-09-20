@@ -1,4 +1,4 @@
-import type { TcgCardAnalysisResult } from "@dealradar/contracts";
+import type { CategorySlug, TcgCardAnalysisResult } from "@dealradar/contracts";
 import type { BusinessDecision } from "../../theme/raf-mapping";
 import { cleanUserMessage } from "../../identification/user-messages";
 import { toConfidencePercent } from "../../format/confidence";
@@ -26,6 +26,8 @@ export type ResultIdentityStatus = "identified" | "insufficient_data" | "failed"
 
 export interface ResultViewModel {
   identityStatus: ResultIdentityStatus;
+  /** Catégorie réelle du résultat (LOT "Universal Object Valuation Foundation") — toujours `"pokemon_tcg"` pour `mapTcgResultToViewModel`, jamais devinée ailleurs (voir `history/from-result-view-model.ts`, qui en dépend pour ne plus historiser tout sous `pokemon_tcg`). */
+  category: CategorySlug;
   product: {
     name: string | null;
     setName: string | null;
@@ -70,6 +72,7 @@ export function mapTcgResultToViewModel(result: TcgCardAnalysisResult | null, st
   if (!result || !result.identity) {
     return {
       identityStatus: status === "failed" ? "failed" : "insufficient_data",
+      category: "pokemon_tcg",
       product: { name: null, setName: null, collectorNumber: null, language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
       confidencePercent: null,
       prices: [],
@@ -86,6 +89,7 @@ export function mapTcgResultToViewModel(result: TcgCardAnalysisResult | null, st
   const { identity, priceObservations } = result;
   return {
     identityStatus: "identified",
+    category: "pokemon_tcg",
     product: {
       name: identity.name,
       setName: identity.setName,

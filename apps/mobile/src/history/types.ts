@@ -7,7 +7,16 @@
  * 12 : "ne sauvegarde pas secrets/tokens/énorme base64 d'image").
  */
 
-export type HistoryCategory = "pokemon_tcg";
+import type { CategorySlug } from "@dealradar/contracts";
+
+/**
+ * Élargi de `"pokemon_tcg"` seul à `CategorySlug` (LOT "Universal Object
+ * Valuation Foundation") — les entrées déjà persistées restent valides
+ * (`"pokemon_tcg"` est toujours une valeur légale), aucune migration de
+ * schéma requise : c'est un élargissement pur, jamais un renommage/retrait
+ * de champ (voir `HISTORY_SCHEMA_VERSION` ci-dessous, inchangé).
+ */
+export type HistoryCategory = CategorySlug;
 
 export interface HistoryIdentity {
   name: string | null;

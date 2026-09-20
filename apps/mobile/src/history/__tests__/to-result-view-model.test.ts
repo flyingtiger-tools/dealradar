@@ -21,6 +21,7 @@ describe("mapHistoryEntryToResultViewModel", () => {
   it("reconstruit un ResultViewModel réutilisable par ResultScreen, toujours 'identified'", () => {
     const view = mapHistoryEntryToResultViewModel(entry());
     expect(view.identityStatus).toBe("identified");
+    expect(view.category).toBe("pokemon_tcg");
     expect(view.product.name).toBe("Pikachu");
     expect(view.hasPricing).toBe(true);
     expect(view.prices[0]!.source).toBe("tcgdex");

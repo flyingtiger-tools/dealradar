@@ -35,12 +35,12 @@ export function buildHistoryCandidateFromResultViewModel(view: ResultViewModel, 
   return {
     id: Crypto.randomUUID(),
     createdAt,
-    category: "pokemon_tcg",
+    category: view.category,
     identity,
     verdict: view.decision,
     marketValue,
     confidence: view.confidencePercent,
     source: view.prices[0]?.source ?? null,
-    productKey: buildProductKey("pokemon_tcg", identity),
+    productKey: buildProductKey(view.category, identity),
   };
 }

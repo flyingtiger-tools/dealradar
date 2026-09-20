@@ -32,13 +32,14 @@ function baseResult(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
 
 describe("mapAnalysisResultToViewModel", () => {
   it("aucun résultat : insufficient_data, jamais un crash", () => {
-    const view = mapAnalysisResultToViewModel(null, "insufficient_data");
+    const view = mapAnalysisResultToViewModel(null, "insufficient_data", "watches");
     expect(view.identityStatus).toBe("insufficient_data");
+    expect(view.category).toBe("watches");
     expect(view.product.name).toBeNull();
   });
 
   it("status failed sans produit identifié : identityStatus 'failed'", () => {
-    const view = mapAnalysisResultToViewModel(baseResult({ warnings: ["CATEGORY_REQUIRED"] }), "failed");
+    const view = mapAnalysisResultToViewModel(baseResult({ warnings: ["CATEGORY_REQUIRED"] }), "failed", "watches");
     expect(view.identityStatus).toBe("failed");
     expect(view.warnings).toEqual(["CATEGORY_REQUIRED"]);
   });
@@ -54,9 +55,10 @@ describe("mapAnalysisResultToViewModel", () => {
       decision: "REVIEW",
       reasons: ["Marge nette prometteuse (score 55/100)."],
     });
-    const view = mapAnalysisResultToViewModel(result, "completed");
+    const view = mapAnalysisResultToViewModel(result, "completed", "watches");
 
     expect(view.identityStatus).toBe("identified");
+    expect(view.category).toBe("watches");
     expect(view.product.name).toBe("Rolex Submariner");
     expect(view.product.setName).toBe("Montres"); // libellé humain de la catégorie
     expect(view.product.collectorNumber).toBe("116610LN");
@@ -78,7 +80,7 @@ describe("mapAnalysisResultToViewModel", () => {
       decision: "INSUFFICIENT_DATA",
       confidenceScore: 30,
     });
-    const view = mapAnalysisResultToViewModel(result, "insufficient_data");
+    const view = mapAnalysisResultToViewModel(result, "insufficient_data", "general");
     expect(view.identityStatus).toBe("identified");
     expect(view.decision).toBe("INSUFFICIENT_DATA");
     expect(view.hasPricing).toBe(false);
@@ -91,25 +93,25 @@ describe("mapAnalysisResultToViewModel", () => {
       marketValueEstimate: { amount: 300, currency: "CHF", provenance: "active_listing" },
       resaleRangeConservative: { low: 300, high: 300, currency: "CHF" },
     });
-    const view = mapAnalysisResultToViewModel(result, "completed");
+    const view = mapAnalysisResultToViewModel(result, "completed", "gaming");
     expect(view.prices).toHaveLength(1);
     expect(view.prices[0]!.source).toBe("active_listing");
   });
 
   it("confidenceScore est repris tel quel (déjà 0-100), jamais reconverti", () => {
     const result = baseResult({ product: { name: "x", category: null, modelOrReference: null }, confidenceScore: 83.6 });
-    const view = mapAnalysisResultToViewModel(result, "completed");
+    const view = mapAnalysisResultToViewModel(result, "completed", "general");
     expect(view.confidencePercent).toBe(84); // arrondi, pas de double conversion
   });
 
   it("une catégorie sans libellé connu retombe honnêtement sur le slug brut, jamais masquée", () => {
     const result = baseResult({ product: { name: "x", category: "unknown_future_category", modelOrReference: null } });
-    const view = mapAnalysisResultToViewModel(result, "completed");
+    const view = mapAnalysisResultToViewModel(result, "completed", "general");
     expect(view.product.setName).toBe("unknown_future_category");
   });
 
   it("isDemo est toujours false — jamais un résultat réel confondu avec une fixture", () => {
-    const view = mapAnalysisResultToViewModel(baseResult({ product: { name: "x", category: null, modelOrReference: null } }), "completed");
+    const view = mapAnalysisResultToViewModel(baseResult({ product: { name: "x", category: null, modelOrReference: null } }), "completed", "general");
     expect(view.isDemo).toBe(false);
   });
 });

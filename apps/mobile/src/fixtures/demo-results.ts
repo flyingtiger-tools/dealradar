@@ -30,6 +30,7 @@ const BASE_PRICE_ROW = {
 
 export const DEMO_BAD_DEAL: ResultViewModel = {
   identityStatus: "identified",
+  category: "pokemon_tcg",
   product: {
     name: "Dracaufeu (DEMO)",
     setName: "Base Set",
@@ -53,6 +54,7 @@ export const DEMO_BAD_DEAL: ResultViewModel = {
 
 export const DEMO_GOOD_DEAL: ResultViewModel = {
   identityStatus: "identified",
+  category: "pokemon_tcg",
   product: {
     name: "Pikachu (DEMO)",
     setName: "Base Set",
@@ -76,6 +78,7 @@ export const DEMO_GOOD_DEAL: ResultViewModel = {
 
 export const DEMO_MEGA_DEAL: ResultViewModel = {
   identityStatus: "identified",
+  category: "pokemon_tcg",
   product: {
     name: "Salamèche Illustrator (DEMO)",
     setName: "Promo",
