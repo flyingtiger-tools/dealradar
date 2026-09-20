@@ -29,6 +29,7 @@ function fakeAnalysis(): RafAnalysis {
     product: { name: "Nymble", setName: "Phantasmal Flames", collectorNumber: "096", language: "en" },
     confidence: 0.9,
     decision: null,
+    dealScore: null,
     valuation: { low: 1, high: 2, currency: "CHF" },
     evidence: [],
     missingInformation: [],

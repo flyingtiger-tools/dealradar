@@ -36,6 +36,7 @@ function fromTcgCardResult(result: TcgCardAnalysisResult, analysisId: string): R
       },
       confidence: result.extractedFields.confidence,
       decision: null,
+      dealScore: null,
       valuation: { low: null, high: null, currency: null },
       evidence: [],
       missingInformation,
@@ -56,6 +57,7 @@ function fromTcgCardResult(result: TcgCardAnalysisResult, analysisId: string): R
       },
       confidence: result.extractedFields.confidence,
       decision: null,
+      dealScore: null,
       valuation: { low: null, high: null, currency: null },
       evidence: [],
       missingInformation,
@@ -82,6 +84,7 @@ function fromTcgCardResult(result: TcgCardAnalysisResult, analysisId: string): R
     },
     confidence: result.identity.confidence,
     decision: null,
+    dealScore: null,
     valuation:
       convertedAmountsCents.length > 0
         ? { low: Math.min(...convertedAmountsCents) / 100, high: Math.max(...convertedAmountsCents) / 100, currency: "CHF" }

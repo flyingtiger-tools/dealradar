@@ -7,7 +7,7 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { HistoryScreen } from "../screens/HistoryScreen";
 import { FavoritesScreen } from "../screens/FavoritesScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
-import { TcgScanScreen } from "../screens/TcgScanScreen";
+import { ScannerEntryScreen } from "../screens/ScannerEntryScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
 import { TcgDatasetCaptureTool } from "../screens/TcgDatasetCaptureTool";
 import { UniversalCaptureBetaScreen } from "../screens/UniversalCaptureBetaScreen";
@@ -66,7 +66,7 @@ function renderTab(
     case "home":
       return <HomeScreen onOpenScanner={() => setActiveTab("scanner")} onOpenHistory={() => setActiveTab("history")} />;
     case "scanner":
-      return <TcgScanScreen />;
+      return <ScannerEntryScreen />;
     case "history":
       return <HistoryScreen onOpenScanner={() => setActiveTab("scanner")} />;
     case "favorites":

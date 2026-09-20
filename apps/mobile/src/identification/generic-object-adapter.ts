@@ -33,6 +33,7 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
       product: { name: null, setName: result.product.category, collectorNumber: null, language: null },
       confidence: null,
       decision: null,
+      dealScore: result.dealScore,
       valuation: { low: null, high: null, currency: null },
       evidence: [],
       missingInformation: [],
@@ -52,6 +53,7 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
     },
     confidence: result.confidenceScore / 100,
     decision: result.decision,
+    dealScore: result.dealScore,
     valuation: result.resaleRangeConservative
       ? { low: result.resaleRangeConservative.low, high: result.resaleRangeConservative.high, currency: result.resaleRangeConservative.currency }
       : { low: null, high: null, currency: null },

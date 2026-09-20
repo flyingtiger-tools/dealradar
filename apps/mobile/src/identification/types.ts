@@ -47,6 +47,8 @@ export interface RafAnalysis {
   confidence: number | null;
   /** `null` pour la verticale TCG (LOT 8) — ce flux n'exprime aucune décision BUY/REVIEW/PASS, seulement une identité + des observations de prix. */
   decision: string | null;
+  /** `null` pour la verticale TCG (aucun `dealScore` produit par ce flux) — présent pour les catégories génériques (LOT "rendre le scan universel accessible", `generic-object-adapter.ts`), jamais recalculé ici : reporte tel quel `AnalysisResult.dealScore` déjà produit par `runIntelligencePipeline()` côté serveur. */
+  dealScore: number | null;
   valuation: {
     low: number | null;
     high: number | null;

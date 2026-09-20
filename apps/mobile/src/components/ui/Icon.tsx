@@ -63,7 +63,14 @@ export type IconName =
   | "color-palette-outline"
   | "pulse-outline"
   | "chatbubble-outline"
-  | "school-outline";
+  | "school-outline"
+  | "albums-outline"
+  | "phone-portrait-outline"
+  | "game-controller-outline"
+  | "footsteps-outline"
+  | "watch-outline"
+  | "hardware-chip-outline"
+  | "apps-outline";
 
 export interface IconProps {
   name: IconName;
