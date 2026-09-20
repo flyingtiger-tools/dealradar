@@ -90,7 +90,7 @@ aucune IA) identifie et chiffre "Pikachu / Base Set / 58" avec un prix
 Cardmarket réel (9.63 EUR, mise à jour du jour) — voir Priorité 10
 ("identified_no_price ne doit jamais être un échec total").
 
-## Statut au moment de la rédaction
+## Statut au moment de la rédaction (2026-09-15)
 
 - Code : complet, testé (`pnpm lint && pnpm typecheck && pnpm test && pnpm build` verts).
 - **Appel live réel non encore effectué** : nécessite `GROQ_API_KEY` posée
@@ -103,3 +103,75 @@ Cardmarket réel (9.63 EUR, mise à jour du jour) — voir Priorité 10
   `AI_PROVIDER=groq`, `AI_MODEL=qwen/qwen3.6-27b` — ce dernier déjà la
   valeur par défaut si omis), le test live (3 appels max, Priorité 4) peut
   être effectué dans une session future.
+
+## Mise à jour 2026-09-20 — OpenAI comme alternative déblocante
+
+**Changement de contrainte, explicite, venant de Romain** : "ne bloque
+plus le projet sur Groq... provider de vision alternatif déjà accessible
+ou plus simple à configurer" — ceci assouplit, pour ce déblocage précis,
+la contrainte "Budget 0 CHF non négociable" qui avait fait choisir Groq
+ci-dessus. Ce n'est pas une annulation de cette contrainte pour le
+produit en général, seulement pour sortir du blocage Groq actuel
+(`GROQ_API_KEY` : aucune clé disponible localement, création de compte
+hors périmètre agent — voir l'issue GitHub `AI-COORDINATION`).
+
+### Audit : OpenAI est déjà entièrement câblé, zéro diff de code requis
+
+- [`packages/ai/src/provider/openai.ts`](../../packages/ai/src/provider/openai.ts)
+  implémente `AIProvider` à l'identique de `groq.ts` (même infra
+  `fetchWithRetry`/`ProviderError`, mêmes champs `messages`/
+  `image_url`/`response_format: json_object`) — déjà présent, déjà testé
+  (4 tests dans
+  [`__tests__/openai.test.ts`](../../packages/ai/src/provider/__tests__/openai.test.ts),
+  dont un qui vérifie explicitement que les images sont bien envoyées en
+  `image_url` et un qui vérifie que la clé API n'est jamais journalisée).
+- [`apps/web/src/lib/tcg-ai-provider-config.ts`](../../apps/web/src/lib/tcg-ai-provider-config.ts)
+  sait déjà construire un provider `openai` via `AI_PROVIDER=openai` +
+  `OPENAI_API_KEY` (branche déjà présente, jamais touchée ici) — le choix
+  du provider est une pure question de configuration par environnement,
+  jamais de code.
+- Le contrat de sortie (`AIProvider.extract()` -> `{ raw, usage }`,
+  ensuite parsé par le même schéma Zod `rawTcgCardProviderResponseSchema`
+  quel que soit le provider) est strictement inchangé — TCGdex, le
+  pricing et l'historique ne savent même pas quel provider a produit le
+  JSON brut. Aucune régression possible par construction.
+- Seul écart réel trouvé : **`buildTcgAiExtractionConfig`/`buildProvider`
+  n'avaient aucun test dédié** (déjà vrai pour Groq avant ce lot,
+  indépendant du choix de provider) — comblé par
+  [`apps/web/src/lib/__tests__/tcg-ai-provider-config.test.ts`](../../apps/web/src/lib/__tests__/tcg-ai-provider-config.test.ts)
+  (7 tests : sélection par `AI_PROVIDER`, dégradation gracieuse clé
+  absente, modèle par défaut vs `AI_MODEL` fourni, non-régression Groq,
+  provider inconnu -> `undefined`, `dailyBudgetUsd` jamais `undefined`/`NaN`).
+
+### Trouvaille : une clé OpenAI réelle existe déjà en local (non vérifiée en vie)
+
+`.env.local` (racine du repo, gitignoré, jamais commité) contient déjà,
+sous un commentaire "Clé réelle fournie le 2026-07-26" (Lot 5) :
+`AI_PROVIDER=openai`, `OPENAI_API_KEY=<réelle>`, `AI_MODEL=gpt-4o-mini`,
+`AI_DAILY_BUDGET_USD=2.00` — valeurs confirmées présentes par longueur/
+égalité programmatique uniquement, **jamais lues ni affichées** dans
+aucune session agent. Cette clé n'est PAS scopée à Vercel Preview
+aujourd'hui (seule `apps/web/.env.local`, chargée par `next dev` en
+local, la voit).
+
+**Réserve honnête** : peu après cette date (voir le commit historique
+"feat(ai): add Anthropic provider", ~1er août 2026 : *"Motivation: OpenAI
+billing currently blocked"*), le pipeline était passé sur Anthropic à
+cause d'un souci de facturation OpenAI. Cette clé du 26 juillet est donc
+**potentiellement obsolète/bloquée** — sa validité actuelle n'est pas
+vérifiée ici (aucun appel réseau réel effectué, conformément à la règle
+"jamais d'appel IA payant sans validation explicite"). À confirmer par
+Romain avant de s'appuyer dessus, ou à remplacer par une clé fraîche si
+elle s'avère bloquée.
+
+### Chemin le plus court restant
+
+Aucun code à écrire. La seule action humaine : reporter ces 3 valeurs
+(déjà connues, déjà dans `.env.local` local) dans Vercel → `dealradar-web`
+→ Environment Variables → scope Preview : `AI_PROVIDER`, `OPENAI_API_KEY`,
+`AI_MODEL` (`AI_DAILY_BUDGET_USD` optionnel, déjà à 2.00 en local) — plus
+`SUPABASE_SERVICE_ROLE_KEY` scopée à Preview (requis par
+`createServiceRoleClient()`, indépendant du choix de provider — voir
+l'issue GitHub `AI-COORDINATION` pour le détail). Voir ce même doc, section
+Groq ci-dessus, si cette clé OpenAI s'avère effectivement bloquée et que
+Groq reste finalement la voie retenue une fois une clé Groq disponible.
