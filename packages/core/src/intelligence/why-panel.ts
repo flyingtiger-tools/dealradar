@@ -7,6 +7,7 @@ import type {
   Decision,
   WhyPanel,
   WhyFactor,
+  EvidenceTier,
 } from "./types";
 
 export interface WhyPanelInput {
@@ -18,19 +19,24 @@ export interface WhyPanelInput {
   scores: IntelligenceScores;
   decision: Decision;
   reason: string;
+  /** Optionnel pour ne pas casser un appelant existant — `"sold"` si omis (comportement historique). LOT "Universal Object Valuation Foundation". */
+  evidenceTier?: EvidenceTier;
 }
 
 /** Traduit chaque étape du pipeline en facteurs positifs/négatifs lisibles. */
 export function buildWhyPanel(input: WhyPanelInput): WhyPanel {
   const { identity, usedComparables, excludedOutliers, estimate, netProfit, scores, decision, reason } = input;
+  const evidenceTier = input.evidenceTier ?? "sold";
+  const isActiveTier = evidenceTier === "active_listing";
   const factors: WhyFactor[] = [];
 
   factors.push({
-    id: "sold_comparables",
-    label: "Comparables vendus",
+    id: isActiveTier ? "active_listing_comparables" : "sold_comparables",
+    label: isActiveTier ? "Annonces actives (prix demandés, non confirmés)" : "Comparables vendus",
     direction: usedComparables.length >= 5 ? "positive" : usedComparables.length >= 3 ? "neutral" : "negative",
-    detail:
-      excludedOutliers.length > 0
+    detail: isActiveTier
+      ? `${usedComparables.length} annonce(s) active(s) retenue(s) en l'absence de vente confirmée — preuve plus faible, confiance réduite en conséquence.${excludedOutliers.length > 0 ? ` ${excludedOutliers.length} écartée(s) comme valeur(s) aberrante(s).` : ""}`
+      : excludedOutliers.length > 0
         ? `${usedComparables.length} vente(s) confirmée(s) retenue(s), ${excludedOutliers.length} écartée(s) comme valeur(s) aberrante(s).`
         : `${usedComparables.length} vente(s) confirmée(s) retenue(s).`,
   });
@@ -84,7 +90,7 @@ export function buildWhyPanel(input: WhyPanelInput): WhyPanel {
     id: "liquidity",
     label: "Liquidité",
     direction: scores.liquidity >= 60 ? "positive" : scores.liquidity <= 30 ? "negative" : "neutral",
-    detail: `Score de liquidité ${scores.liquidity}/100, basé sur ${usedComparables.length} vente(s) confirmée(s).`,
+    detail: `Score de liquidité ${scores.liquidity}/100, basé sur ${usedComparables.length} ${isActiveTier ? "annonce(s) active(s)" : "vente(s) confirmée(s)"}.`,
   });
 
   return { decision, summary: reason, factors };

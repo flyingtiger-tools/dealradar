@@ -3,7 +3,18 @@ import { categorySlugSchema } from "../category-slug";
 
 describe("categorySlugSchema", () => {
   it("accepts every supported category", () => {
-    for (const value of ["lego", "pokemon_tcg", "apple", "gaming", "photo"]) {
+    for (const value of [
+      "lego",
+      "pokemon_tcg",
+      "apple",
+      "gaming",
+      "photo",
+      "sneakers",
+      "watches",
+      "pc_components",
+      "collectibles",
+      "general",
+    ]) {
       expect(categorySlugSchema.parse(value)).toBe(value);
     }
   });

@@ -112,6 +112,18 @@ export interface StructuredIdentity {
   matchedRiskSignals: RiskSignal[];
 }
 
+/**
+ * Nature de l'évidence de marché réellement utilisée pour l'estimation
+ * (LOT "Universal Object Valuation Foundation") — `"sold"` : ventes
+ * confirmées (comportement historique, inchangé). `"active_listing"` :
+ * aucune vente confirmée disponible, repli sur des annonces actives
+ * (prix demandé, jamais confirmé) comme preuve plus faible — jamais
+ * présentée comme "dernières ventes" (voir `marketDataProvenanceSchema`,
+ * `@dealradar/contracts`, qui distingue déjà `sold_transaction` de
+ * `active_listing`).
+ */
+export type EvidenceTier = "sold" | "active_listing";
+
 export interface PriceEstimate {
   sampleSize: number;
   medianCents: number;
@@ -119,6 +131,14 @@ export interface PriceEstimate {
   p75Cents: number;
   /** Figure prudente utilisée pour le calcul de profit — voir ADR 0007. */
   conservativeCents: number;
+  /**
+   * Optionnel : `estimatePrice()` (`estimate.ts`) ne le renseigne jamais —
+   * c'est `runIntelligencePipeline()` qui l'attache après coup selon le
+   * pool de comparables réellement utilisé, pour ne jamais toucher
+   * `estimate.ts`/ses tests (fonction statistique pure, agnostique de la
+   * provenance de ses entrées).
+   */
+  evidenceTier?: EvidenceTier;
 }
 
 export interface CostInputs {
@@ -172,7 +192,21 @@ export interface IntelligencePipelineInput {
 
 export interface IntelligencePipelineResult {
   identity: StructuredIdentity;
+  /** Toujours la vente confirmée (`soldAt !== null`) — sémantique inchangée depuis Lot 3, jamais réinterprétée. */
   comparables: {
+    matched: NormalizedComparable[];
+    used: NormalizedComparable[];
+    excludedOutliers: NormalizedComparable[];
+  };
+  /**
+   * Annonces actives (`soldAt === null`) parmi le même pool `candidates` —
+   * calculées systématiquement (coût négligeable, pur), qu'elles servent ou
+   * non à l'estimation finale (`estimate.evidenceTier`). N'alimente
+   * `estimate`/`netProfit`/`scores` QUE quand `comparables.used` est vide —
+   * voir `pipeline.ts`. Jamais un remplacement des ventes confirmées quand
+   * elles existent.
+   */
+  activeComparables: {
     matched: NormalizedComparable[];
     used: NormalizedComparable[];
     excludedOutliers: NormalizedComparable[];

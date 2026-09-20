@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runIntelligencePipeline } from "../pipeline";
+import { runIntelligencePipeline, ACTIVE_LISTING_CONFIDENCE_CAP } from "../pipeline";
+import { STRONG_CONFIDENCE_THRESHOLD } from "../decision";
 import type { NormalizedListing, NormalizedComparable, CostInputs, IntelligencePipelineInput } from "../types";
 
 const ASOF = "2026-07-01T00:00:00.000Z";
@@ -31,6 +32,10 @@ function soldComparable(id: string, priceCents: number, overrides: Partial<Norma
     soldAt: "2026-06-01T00:00:00.000Z",
     ...overrides,
   };
+}
+
+function activeComparable(id: string, priceCents: number, overrides: Partial<NormalizedComparable> = {}): NormalizedComparable {
+  return soldComparable(id, priceCents, { soldAt: null, ...overrides });
 }
 
 function costs(overrides: Partial<CostInputs> = {}): CostInputs {
@@ -188,5 +193,63 @@ describe("runIntelligencePipeline — scénarios", () => {
     const candidates = Array.from({ length: 6 }, (_, i) => soldComparable(`c${i}`, 90000 + i * 500));
     const input: IntelligencePipelineInput = { listing: listing(), candidates, costs: costs(), asOf: ASOF };
     expect(runIntelligencePipeline(input)).toEqual(runIntelligencePipeline({ ...input, candidates: [...candidates] }));
+  });
+});
+
+describe("runIntelligencePipeline — repli sur annonces actives (LOT Universal Object Valuation Foundation)", () => {
+  it("sans aucune vente confirmée, utilise les annonces actives comme preuve de repli plutôt que INSUFFICIENT_DATA d'office", () => {
+    const candidates = Array.from({ length: 6 }, (_, i) => activeComparable(`a${i}`, 90000 + i * 500));
+    const result = run({
+      candidates,
+      costs: costs({ purchasePriceCents: 40000 }),
+    });
+    expect(result.comparables.used).toEqual([]); // aucune vente confirmée
+    expect(result.activeComparables.used.length).toBe(6);
+    expect(result.estimate?.evidenceTier).toBe("active_listing");
+    expect(result.decision).not.toBe("INSUFFICIENT_DATA");
+  });
+
+  it("une seule vente confirmée présente désactive le repli, même avec beaucoup d'annonces actives", () => {
+    const candidates = [
+      soldComparable("s1", 90000),
+      ...Array.from({ length: 6 }, (_, i) => activeComparable(`a${i}`, 200000 + i * 500)),
+    ];
+    const result = run({ candidates, costs: costs({ purchasePriceCents: 40000 }) });
+    // Un seul comparable vendu reste sous le plancher de décision (INSUFFICIENT_DATA),
+    // mais c'est bien la vente qui est retenue comme preuve — jamais un mélange avec les annonces actives.
+    expect(result.decision).toBe("INSUFFICIENT_DATA");
+    expect(result.estimate?.evidenceTier).toBe("sold");
+    expect(result.estimate?.sampleSize).toBe(1);
+  });
+
+  it("le plancher de volume s'applique aussi aux annonces actives : moins de 3 → INSUFFICIENT_DATA", () => {
+    const candidates = [activeComparable("a1", 90000), activeComparable("a2", 91000)];
+    const result = run({ candidates, costs: costs({ purchasePriceCents: 40000 }) });
+    expect(result.decision).toBe("INSUFFICIENT_DATA");
+  });
+
+  it("la confiance issue d'annonces actives est plafonnée sous le seuil BUY fort, même dans le meilleur des cas", () => {
+    // Meilleur cas possible : beaucoup de comparables, aucun champ manquant, aucun signal de risque.
+    const candidates = Array.from({ length: 10 }, (_, i) => activeComparable(`a${i}`, 90000 + i * 10));
+    const result = run({ candidates, costs: costs({ purchasePriceCents: 40000 }) });
+    expect(result.scores.confidence).toBeLessThanOrEqual(ACTIVE_LISTING_CONFIDENCE_CAP);
+    expect(result.scores.confidence).toBeLessThan(STRONG_CONFIDENCE_THRESHOLD);
+    expect(result.decision).not.toBe("BUY");
+  });
+
+  it("annonces actives : le panneau Pourquoi qualifie explicitement la preuve comme non confirmée", () => {
+    const candidates = Array.from({ length: 6 }, (_, i) => activeComparable(`a${i}`, 90000 + i * 500));
+    const result = run({ candidates, costs: costs({ purchasePriceCents: 40000 }) });
+    const factor = result.whyPanel.factors.find((f) => f.id === "active_listing_comparables");
+    expect(factor).toBeDefined();
+    expect(factor!.detail).toMatch(/non confirmée|preuve plus faible/);
+  });
+
+  it("ventes confirmées : le comportement et le libellé du panneau Pourquoi restent inchangés (non-régression)", () => {
+    const candidates = Array.from({ length: 6 }, (_, i) => soldComparable(`c${i}`, 90000 + i * 500));
+    const result = run({ candidates, costs: costs({ purchasePriceCents: 40000 }) });
+    expect(result.estimate?.evidenceTier).toBe("sold");
+    expect(result.whyPanel.factors.find((f) => f.id === "sold_comparables")).toBeDefined();
+    expect(result.whyPanel.factors.find((f) => f.id === "active_listing_comparables")).toBeUndefined();
   });
 });

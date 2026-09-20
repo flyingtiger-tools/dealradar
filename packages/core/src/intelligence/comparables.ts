@@ -35,6 +35,16 @@ export function selectSoldComparables(matched: NormalizedComparable[]): Normaliz
   return matched.filter((c) => c.soldAt !== null);
 }
 
+/**
+ * Annonces actives (prix demandé, jamais confirmé) — repli utilisé
+ * uniquement quand aucune vente confirmée n'est disponible (LOT "Universal
+ * Object Valuation Foundation", voir `pipeline.ts`). Jamais mélangées aux
+ * ventes confirmées dans la même estimation.
+ */
+export function selectActiveComparables(matched: NormalizedComparable[]): NormalizedComparable[] {
+  return matched.filter((c) => c.soldAt === null);
+}
+
 export function removeOutliers(
   soldComparables: NormalizedComparable[],
 ): { used: NormalizedComparable[]; excluded: NormalizedComparable[] } {

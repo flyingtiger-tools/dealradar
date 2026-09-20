@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchComparables, selectSoldComparables, removeOutliers } from "../comparables";
+import { matchComparables, selectSoldComparables, selectActiveComparables, removeOutliers } from "../comparables";
 import { identifyListing } from "../identify";
 import type { NormalizedListing, NormalizedComparable } from "../types";
 
@@ -75,6 +75,22 @@ describe("selectSoldComparables", () => {
     const result = selectSoldComparables([comparable(), comparable({ id: "c2", soldAt: null })]);
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("c1");
+  });
+});
+
+describe("selectActiveComparables", () => {
+  it("ne garde que les annonces actives (aucune vente confirmée)", () => {
+    const result = selectActiveComparables([comparable(), comparable({ id: "c2", soldAt: null })]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("c2");
+  });
+
+  it("est le complément exact de selectSoldComparables sur le même pool", () => {
+    const pool = [comparable({ id: "a" }), comparable({ id: "b", soldAt: null }), comparable({ id: "c", soldAt: null }), comparable({ id: "d" })];
+    const sold = selectSoldComparables(pool);
+    const active = selectActiveComparables(pool);
+    expect(sold.length + active.length).toBe(pool.length);
+    expect(new Set([...sold, ...active])).toEqual(new Set(pool));
   });
 });
 
