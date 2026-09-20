@@ -16,7 +16,7 @@ import { getDealTierFromDecision, getRafStateForDealTier, getRafStateForIdentifi
 import { borderWidth, colors, spacing, typography } from "../../theme/tokens";
 import { formatMoney } from "../../format/money";
 import { formatAnalysisDate } from "../../format/date";
-import { formatSourceLabel } from "../../format/source-display";
+import { formatSourceLabel, formatProvenanceLabel } from "../../format/source-display";
 import { buildResultShareText } from "../../format/share";
 import { toggleHistoryFavorite } from "../../history/storage";
 
@@ -104,7 +104,7 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
 
   const rafState = view.decision ? getRafStateForDealTier(getDealTierFromDecision(view.decision, view.dealScore)) : getRafStateForIdentificationStatus("identified");
   const heroRange = deriveHeroPriceRange(view);
-  const distinctSources = Array.from(new Set(view.prices.map((p) => formatSourceLabel(p.source) ?? p.source)));
+  const distinctSources = Array.from(new Set(view.prices.map((p) => formatProvenanceLabel(p.source) ?? formatSourceLabel(p.source) ?? p.source)));
 
   return (
     <Animated.ScrollView contentContainerStyle={styles.container} style={entranceStyle}>
@@ -145,7 +145,7 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
           {view.prices.map((row, i) => (
             <View key={i} style={styles.priceRow}>
               <Text style={styles.priceSource}>
-                {formatSourceLabel(row.source) ?? row.source}
+                {formatProvenanceLabel(row.source) ?? formatSourceLabel(row.source) ?? row.source}
                 {row.condition ? ` · ${row.condition}` : ""}
               </Text>
               <Text style={styles.priceAmount}>{formatMoney(row.amountCents / 100, row.currency)}</Text>

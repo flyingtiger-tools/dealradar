@@ -1,6 +1,7 @@
 import type { NormalizedListing, NormalizedImage, ItemConditionRaw } from "../types";
 import type { EbayRawItemSummary, EbayRawItem } from "./raw-types";
 import { minimizeRawPayload } from "./redact";
+import { normalizeEbayAspects } from "./attribute-mapping";
 
 /**
  * Mapping condition eBay → condition DealRadar. Volontairement incomplet :
@@ -42,11 +43,13 @@ function toCents(value: string | undefined): number | null {
  * fabriquer des valeurs. Tout le reste manquant devient `null`/`undefined`,
  * jamais une valeur inventée — cette fonction ne lève jamais.
  *
- * `attributes` reprend telles quelles les paires nom/valeur d'`localizedAspects`
- * (item specifics eBay) sans tenter de les faire correspondre aux clés des
- * profils de catégorie (ex. "Set Number" eBay vs `setNumber` DealRadar) —
- * cette correspondance nécessiterait une vérification avec des identifiants
- * réels et n'est pas construite dans ce lot (limite documentée, ADR 0008).
+ * `attributes` fait maintenant correspondre les noms d'aspect eBay connus
+ * (`localizedAspects`) aux clés de profil DealRadar (ex. "Set Number" eBay
+ * -> `setNumber`) via `normalizeEbayAspects()` (LOT "Données marché réelles
+ * + préparation E2E", résout la limite documentée depuis le LOT "Universal
+ * Object Valuation Foundation", ADR 0008) — un aspect non reconnu reste
+ * disponible sous son propre nom normalisé, jamais perdu ni forcé sur une
+ * mauvaise clé.
  */
 export function normalizeEbayItem(
   raw: EbayRawItemSummary | EbayRawItem,
@@ -65,10 +68,7 @@ export function normalizeEbayItem(
     if (img.imageUrl) images.push({ url: img.imageUrl, position: i + 1 });
   });
 
-  const attributes: Record<string, string | number | boolean> = {};
-  for (const aspect of (raw as EbayRawItem).localizedAspects ?? []) {
-    if (aspect.name && aspect.value !== undefined) attributes[aspect.name] = aspect.value;
-  }
+  const attributes = normalizeEbayAspects((raw as EbayRawItem).localizedAspects);
 
   return {
     meta: {

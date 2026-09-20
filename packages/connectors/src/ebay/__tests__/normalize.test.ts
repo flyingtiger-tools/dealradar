@@ -64,13 +64,22 @@ describe("normalizeEbayItem", () => {
     expect(listing?.images).toEqual([]);
   });
 
-  it("reprend les aspects localisés tels quels dans attributes, sans les faire correspondre aux clés internes", () => {
+  it("fait correspondre les aspects localisés connus aux clés internes DealRadar (LOT 'données marché réelles')", () => {
     const raw: EbayRawItem = {
       ...rawItem(),
       localizedAspects: [{ name: "Set Number", value: "75192" }],
     };
     const listing = normalizeEbayItem(raw, CONTEXT);
-    expect(listing?.attributes).toEqual({ "Set Number": "75192" });
+    expect(listing?.attributes).toEqual({ setNumber: "75192" });
+  });
+
+  it("conserve un aspect non reconnu sous son propre nom normalisé, jamais perdu", () => {
+    const raw: EbayRawItem = {
+      ...rawItem(),
+      localizedAspects: [{ name: "Some Future Aspect", value: "Value" }],
+    };
+    const listing = normalizeEbayItem(raw, CONTEXT);
+    expect(listing?.attributes).toEqual({ "some future aspect": "value" });
   });
 
   it("minimise le raw_payload conservé (pas le JSON brut complet)", () => {

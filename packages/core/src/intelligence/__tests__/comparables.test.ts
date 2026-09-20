@@ -68,6 +68,30 @@ describe("matchComparables", () => {
     ]);
     expect(result).toHaveLength(1);
   });
+
+  it("une valeur de similarité ABSENTE d'un côté n'exclut plus (LOT 'Données marché réelles') — une annonce eBay sans item specifics détaillés reste un candidat structurel valide", () => {
+    const result = matchComparables(l, identity, [comparable({ attributes: {} })]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("une VRAIE incompatibilité (les deux côtés renseignés, valeurs différentes) exclut toujours strictement", () => {
+    const result = matchComparables(l, identity, [comparable({ attributes: { setNumber: "10221" } })]);
+    expect(result).toEqual([]);
+  });
+
+  it("la comparaison de similarité est insensible à la casse/aux espaces pour le texte", () => {
+    const appleListing = listing({ categorySlug: "apple", attributes: { model: "iPhone 14 Pro", storageGb: 256 } });
+    const appleIdentity = identifyListing(appleListing);
+    const result = matchComparables(appleListing, appleIdentity, [
+      comparable({ categorySlug: "apple", attributes: { model: "  iphone 14 pro  ", storageGb: 256 } }),
+    ]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("exclut un candidat dont le titre suggère un lot/bundle/pièces détachées, même s'il correspond structurellement", () => {
+    const result = matchComparables(l, identity, [comparable({ title: "LEGO Star Wars 75192 - FOR PARTS not working" })]);
+    expect(result).toEqual([]);
+  });
 });
 
 describe("selectSoldComparables", () => {
