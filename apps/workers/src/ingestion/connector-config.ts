@@ -29,3 +29,21 @@ export function buildEbayConnectorFromEnv(): MarketplaceConnector {
     onRateLimitInfo: (headers) => logger.warn({ headers }, "eBay : en-têtes de rate-limit reçus"),
   });
 }
+
+/**
+ * Variante dégradée de `buildEbayConnectorFromEnv()` (LOT "Universal Object
+ * Valuation Foundation") — `null` plutôt qu'une exception quand la
+ * configuration eBay est incomplète (aucune clé posée aujourd'hui, voir
+ * `docs/mobile/vision-provider-evaluation.md`). Réservée aux chemins où
+ * eBay n'est qu'un ENRICHISSEMENT optionnel (preuve d'annonces actives en
+ * repli, `process-analysis.ts`) — jamais utilisée pour l'ingestion planifiée
+ * (`run-ingestion.ts` via l'admin), qui doit continuer à échouer bruyamment
+ * si mal configurée.
+ */
+export function tryBuildEbayConnectorFromEnv(): MarketplaceConnector | null {
+  try {
+    return buildEbayConnectorFromEnv();
+  } catch {
+    return null;
+  }
+}

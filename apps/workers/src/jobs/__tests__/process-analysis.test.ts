@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
-import { processAnalysis } from "../process-analysis";
+
+vi.mock("@dealradar/ingestion", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dealradar/ingestion")>()),
+  gatherActiveListingEvidence: vi.fn(),
+}));
+
+const { gatherActiveListingEvidence } = await import("@dealradar/ingestion");
+const { processAnalysis } = await import("../process-analysis");
 
 const ANALYSIS_ID = "analysis-1";
 
@@ -18,8 +25,16 @@ function baseRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const EBAY_ENV_KEYS = ["EBAY_CLIENT_ID", "EBAY_CLIENT_SECRET", "EBAY_MARKETPLACE_ID", "EBAY_ENVIRONMENT"] as const;
+
 beforeEach(() => {
   delete process.env.AI_PROVIDER;
+  for (const key of EBAY_ENV_KEYS) delete process.env[key];
+  vi.mocked(gatherActiveListingEvidence).mockReset();
+});
+
+afterEach(() => {
+  for (const key of EBAY_ENV_KEYS) delete process.env[key];
 });
 
 describe("processAnalysis", () => {
@@ -137,5 +152,72 @@ describe("processAnalysis", () => {
     };
     expect(row.result.dataAvailability.soldTransactions).toBe(true);
     expect(row.result.marketValueEstimate?.provenance).toBe("sold_transaction");
+  });
+
+  it("sans eBay configuré, ne tente jamais l'appel de repli — jamais un blocage sur une intégration optionnelle absente", async () => {
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+    // EBAY_CLIENT_ID/SECRET/etc. volontairement absents (beforeEach).
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(gatherActiveListingEvidence).not.toHaveBeenCalled();
+    const row = db.table("analysis_requests")[0] as { status: string };
+    expect(row.status).toBe("insufficient_data"); // toujours pas de preuve, comportement inchangé
+  });
+
+  it("eBay configuré + aucune vente confirmée : utilise les annonces actives rassemblées comme repli, provenance honnête", async () => {
+    process.env.EBAY_CLIENT_ID = "id";
+    process.env.EBAY_CLIENT_SECRET = "secret";
+    process.env.EBAY_MARKETPLACE_ID = "EBAY_CH";
+    process.env.EBAY_ENVIRONMENT = "sandbox";
+
+    vi.mocked(gatherActiveListingEvidence).mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) => ({
+        id: `active-${i}`,
+        sourceSlug: "ebay",
+        title: "LEGO 75313 en vente",
+        priceCents: 3600 + i * 10,
+        currency: "CHF",
+        condition: "very_good" as const,
+        categorySlug: "lego",
+        attributes: { setNumber: "75313" },
+        soldAt: null,
+      })),
+    );
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(gatherActiveListingEvidence).toHaveBeenCalledTimes(1);
+    const row = db.table("analysis_requests")[0] as {
+      status: string;
+      result: { decision: string; marketValueEstimate: { provenance: string } | null; dataAvailability: { soldTransactions: boolean } };
+    };
+    expect(row.status).not.toBe("insufficient_data");
+    expect(row.result.marketValueEstimate?.provenance).toBe("active_listing");
+    // La disponibilité de ventes confirmées reste honnêtement false — seules des annonces actives ont été utilisées.
+    expect(row.result.dataAvailability.soldTransactions).toBe(false);
+  });
+
+  it("eBay configuré mais des ventes confirmées existent déjà en base : ne tente jamais l'appel de repli (jamais un mélange de preuves)", async () => {
+    process.env.EBAY_CLIENT_ID = "id";
+    process.env.EBAY_CLIENT_SECRET = "secret";
+    process.env.EBAY_MARKETPLACE_ID = "EBAY_CH";
+    process.env.EBAY_ENVIRONMENT = "sandbox";
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+    db.seed("listings", [
+      { id: "sold-1", title: "LEGO 75313 vendu", price_cents: 3500, currency: "CHF", condition: "very_good", status: "sold", sold_at: new Date().toISOString(), attributes: { categorySlug: "lego", setNumber: "75313" }, sources: { slug: "ebay" } },
+      { id: "sold-2", title: "LEGO 75313 vendu 2", price_cents: 4000, currency: "CHF", condition: "very_good", status: "sold", sold_at: new Date().toISOString(), attributes: { categorySlug: "lego", setNumber: "75313" }, sources: { slug: "ebay" } },
+      { id: "sold-3", title: "LEGO 75313 vendu 3", price_cents: 3800, currency: "CHF", condition: "very_good", status: "sold", sold_at: new Date().toISOString(), attributes: { categorySlug: "lego", setNumber: "75313" }, sources: { slug: "ebay" } },
+    ]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(gatherActiveListingEvidence).not.toHaveBeenCalled();
   });
 });

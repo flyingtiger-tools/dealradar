@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   runIntelligencePipeline,
   resolveCategoryProfile,
+  buildSearchQueries,
   type AnalysisProcessPayload,
   type AnalysisResult,
   type CostInputs,
@@ -22,11 +23,13 @@ import {
   createSupabaseExtractionCache,
   createSupabaseBudgetGuard,
   mapSoldRowToComparable,
+  gatherActiveListingEvidence,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
+import { tryBuildEbayConnectorFromEnv } from "../ingestion/connector-config";
 import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
 
@@ -312,18 +315,54 @@ export async function processAnalysis(
     .contains("attributes", identityFilter)
     .limit(DEFAULT_CANDIDATE_POOL_LIMIT);
 
-  const candidates = ((candidateRows ?? []) as RawSoldListingWithSource[])
+  const soldCandidates = ((candidateRows ?? []) as RawSoldListingWithSource[])
     .map((r) => mapSoldRowToComparable(r, extractSourceSlug(r.sources), listing.categorySlug))
     .filter((c): c is NormalizedComparable => c !== null);
 
+  // Repli annonces actives (LOT "Universal Object Valuation Foundation") —
+  // uniquement quand la base ne fournit aucune vente confirmée pour cette
+  // catégorie : jamais un mélange avec des ventes déjà trouvées, jamais un
+  // second appel si la base a déjà de quoi statuer. `tryBuildEbayConnectorFromEnv()`
+  // rend cet enrichissement strictement optionnel — aucune clé eBay posée
+  // aujourd'hui (voir docs/mobile/vision-provider-evaluation.md) donc ce
+  // bloc est actuellement toujours un no-op silencieux en pratique, jamais
+  // un blocage. Portée volontairement limitée : ne retente pas si la base
+  // avait des lignes qui ont simplement échoué le filtrage de similarité
+  // (cas plus rare, laissé pour un lot futur — voir BUILDER HANDOFF).
+  let activeCandidates: NormalizedComparable[] = [];
+  if (soldCandidates.length === 0) {
+    const ebayConnector = tryBuildEbayConnectorFromEnv();
+    if (ebayConnector) {
+      const queries = buildSearchQueries({
+        brand: extraction.product.brand?.value ?? null,
+        model: extraction.product.model?.value ?? null,
+        identifiers: [extraction.product.reference?.value ?? null],
+        titleFallback: productName,
+      });
+      try {
+        activeCandidates = await gatherActiveListingEvidence({
+          connector: ebayConnector,
+          categorySlug: listing.categorySlug,
+          queries,
+        });
+      } catch (error) {
+        logger.warn(
+          { error: error instanceof Error ? error.message : "erreur inconnue" },
+          "eBay : recherche d'annonces actives en repli a échoué, poursuite sans cette preuve",
+        );
+      }
+    }
+  }
+
   const pipelineResult = runIntelligencePipeline({
     listing,
-    candidates,
+    candidates: [...soldCandidates, ...activeCandidates],
     costs: { purchasePriceCents: listing.priceCents, ...DEFAULT_COST_ASSUMPTIONS },
     asOf: new Date().toISOString(),
   });
 
   const usedSold = pipelineResult.comparables.used.length > 0;
+  const usedActiveListings = pipelineResult.estimate?.evidenceTier === "active_listing";
 
   const analysisResult: AnalysisResult = {
     product: {
@@ -337,7 +376,10 @@ export async function processAnalysis(
       ? {
           amount: pipelineResult.estimate.conservativeCents / 100,
           currency: listing.currency,
-          provenance: usedSold ? "sold_transaction" : "unknown",
+          // Reflète honnêtement `evidenceTier` (LOT "Universal Object
+          // Valuation Foundation") — jamais "sold_transaction" pour une
+          // estimation qui repose en réalité sur des annonces actives.
+          provenance: usedSold ? "sold_transaction" : usedActiveListings ? "active_listing" : "unknown",
         }
       : null,
     resaleRangeConservative: pipelineResult.estimate
