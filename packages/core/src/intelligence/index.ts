@@ -11,3 +11,4 @@ export * from "./decision";
 export * from "./why-panel";
 export * from "./pipeline";
 export * from "./search-query";
+export * from "./history-signals";
