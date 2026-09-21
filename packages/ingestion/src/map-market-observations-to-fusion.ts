@@ -1,6 +1,7 @@
 import type { MarketObservation } from "@dealradar/connectors";
 import type { FxRate } from "@dealradar/connectors";
 import type { FusionObservation } from "@dealradar/core";
+import { normalizeCondition } from "@dealradar/core";
 
 /**
  * `MarketObservation[]` (`@dealradar/connectors`) -> `FusionObservation[]`
@@ -17,12 +18,22 @@ import type { FusionObservation } from "@dealradar/core";
  * sinon elle est écartée (jamais silencieusement, voir `MapToFusionResult.
  * skipped`), jamais une conversion approximative.
  *
- * Prix utilisé pour la fusion : TOUJOURS `priceAmountCents` (prix article
- * seul), JAMAIS `totalPriceCents` — mélanger des observations où le port
- * est connu (donc inclus dans un total) avec d'autres où il ne l'est pas
- * biaiserait silencieusement la comparaison entre sources. Le port reste
- * visible sur `MarketObservation.shippingCostCents` pour un usage
- * d'affichage/diagnostic séparé, jamais fondu dans le prix comparé ici.
+ * Prix utilisé pour la fusion (LOT "Data Quality Calibration...", section
+ * 6 — changement délibéré par rapport au comportement précédent) :
+ * `totalPriceCents` (prix ATTERRI, article + port) QUAND il est connu,
+ * repli sur `priceAmountCents` (article seul) SINON — jamais l'inverse,
+ * jamais un mélange dans l'autre sens. Comparer des articles sans port à
+ * des articles port compris biaiserait la fusion (une annonce à 90 CHF +
+ * 10 CHF de port et une annonce à 95 CHF port compris ne sont PAS
+ * comparables sur le seul prix article). `totalPriceCents` n'est JAMAIS
+ * calculé ici — chaque connecteur le pose lui-même UNIQUEMENT quand le
+ * port est explicitement connu (voir `MarketObservation.totalPriceCents`),
+ * jamais deviné ni additionné deux fois : à ce jour, seul eBay le
+ * renseigne (`article + port` quand le port est disclosé séparément) ;
+ * les autres connecteurs le laissent `null` — aucun risque de double
+ * comptage tant qu'aucun connecteur ne pose `totalPriceCents` à partir
+ * d'un total DÉJÀ inclusif côté source (voir le test de non-régression
+ * dans `packages/connectors`).
  */
 
 export interface CurrencyConversionOptions {
@@ -56,8 +67,14 @@ export interface MapToFusionResult {
   skipped: SkippedObservation[];
 }
 
+/** Prix ATTERRI (article + port) quand connu, repli sur le prix article seul sinon — voir l'en-tête du fichier. */
+function landedPriceCents(observation: MarketObservation): number {
+  return observation.totalPriceCents ?? observation.priceAmountCents;
+}
+
 function convertedPriceCents(observation: MarketObservation, options: CurrencyConversionOptions, now: Date): { cents: number } | { reason: string; reasonClass: FxSkipReasonClass } {
-  if (observation.currency === options.targetCurrency) return { cents: observation.priceAmountCents };
+  const rawCents = landedPriceCents(observation);
+  if (observation.currency === options.targetCurrency) return { cents: rawCents };
 
   const rate = options.rates[observation.currency];
   if (!rate) return { reason: `Aucun taux de change disponible pour ${observation.currency}->${options.targetCurrency}.`, reasonClass: "missing_rate" };
@@ -72,7 +89,7 @@ function convertedPriceCents(observation: MarketObservation, options: CurrencyCo
     return { reason: `Taux du ${rate.rateDate} trop ancien (${rateAgeHours.toFixed(1)}h > ${options.maxRateAgeHours}h autorisées) — refusé plutôt qu'utilisé silencieusement.`, reasonClass: "stale_rate" };
   }
 
-  return { cents: Math.round(observation.priceAmountCents * rate.rate) };
+  return { cents: Math.round(rawCents * rate.rate) };
 }
 
 export function mapMarketObservationsToFusionObservations(
@@ -106,7 +123,11 @@ export function mapMarketObservationsToFusionObservations(
       evidenceTier: observation.evidenceTier,
       observedAt: observation.observedAt,
       matchScore: observation.matchScore,
-      condition: observation.condition,
+      // Bucket canonique (LOT "Data Quality Calibration...", section 5) — jamais le texte brut de la source directement : "new" (eBay) et "brand new" (Google Shopping) doivent produire la MÊME valeur avant comparaison de compatibilité (voir `isCompatibleWithTarget`, `fuse-market-observations.ts`), sinon une exclusion à tort. `"unknown"` reste distinct de `null` en interne, mais est réémis `null` ici pour préserver le contrat existant de `FusionObservation.condition` ("absent d'un côté ne bloque jamais").
+      condition: (() => {
+        const bucket = normalizeCondition({ rawCondition: observation.condition, completeness: observation.completeness });
+        return bucket === "unknown" ? null : bucket;
+      })(),
       completeness: observation.completeness,
       attributes,
     });

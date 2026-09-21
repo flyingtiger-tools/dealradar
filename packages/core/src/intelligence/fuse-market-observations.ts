@@ -1,5 +1,6 @@
-import { partitionOutliers } from "./stats";
+import { partitionOutliers, clamp } from "./stats";
 import { isLikelyBundleOrPartsListing } from "./listing-quality";
+import type { TrendDirection } from "./history-signals";
 
 /**
  * Moteur de fusion multi-source V1 (LOT "Multi-Source Fusion + Source Wave
@@ -57,11 +58,76 @@ export interface FusionTarget {
   attributes?: Record<string, string | number>;
 }
 
+/**
+ * Contexte d'historique OPTIONNEL (LOT "Data Quality Calibration...",
+ * section 4) — déjà calculé par l'appelant via `computeHistoryIntelligenceV2`
+ * (`history-signals-v2.ts`), jamais recalculé ici : la fusion reste pure et
+ * ne lit aucun point brut d'historique, uniquement un résumé déjà réduit.
+ * Sert à STABILISER un instantané live faible, jamais à prédire une
+ * tendance future ni à remplacer la preuve live disponible.
+ */
+export interface FusionHistoryContext {
+  /** `null` si aucun point d'historique n'existe encore pour ce produit. */
+  historicalMedianCents: number | null;
+  /** Âge en heures du point d'historique le plus récent — un historique périmé n'ancre jamais rien (voir `applyHistoryStabilization`). */
+  freshnessHours: number | null;
+  trendDirection: TrendDirection;
+  /** 0–100, réutilisé tel quel depuis `HistoryIntelligenceV2.confidence` — jamais recalculé. */
+  confidence: number;
+  sampleSize: number;
+}
+
 export interface FusionOptions {
   asOf: string;
   target: FusionTarget;
   /** Demi-vie de décroissance de fraîcheur, en jours — 30 par défaut (prix de collection/électronique, pas un marché financier à haute fréquence). */
   recencyHalfLifeDays?: number;
+  /** Certitude d'identité 0–1 (ex. dérivée de `IdentityHealthSummary`, `packages/core/src/identity`) — `1` = neutre/non fournie, ne peut JAMAIS augmenter la confiance au-delà de son plafond de palier, uniquement la pénaliser. */
+  identityCertainty?: number;
+  /** Fiabilité FX 0–1 (ex. devise déjà native, ou taux récent/fiable) — même discipline que `identityCertainty`. */
+  fxReliability?: number;
+  history?: FusionHistoryContext;
+}
+
+/**
+ * Drapeaux de qualité DÉTERMINISTES (LOT "Data Quality Calibration...",
+ * section 3) — jamais du texte libre seul : chaque drapeau a une condition
+ * de déclenchement fixe et testable, exposés PAR-DESSUS `reasons` (qui
+ * reste un résumé lisible, pas machine-actionnable).
+ */
+export type QualityFlag =
+  | "variant_conflict_filtered"
+  | "stale_evidence"
+  | "retail_only"
+  | "active_only"
+  | "low_source_diversity"
+  | "high_dispersion"
+  | "missing_condition"
+  | "fx_partial"
+  | "weak_identity"
+  | "duplicated_origin_merged"
+  | "specialist_only"
+  | "sparse_history";
+
+/**
+ * Décomposition de la confiance (LOT "Data Quality Calibration...",
+ * section 2) — chaque composante est 0–1 (facteur multiplicatif ou base
+ * additive selon le rôle, voir `computeConfidence`), `final` reste 0–100 et
+ * IDENTIQUE à `FusedValuation.confidence`. `identity`/`fx` valent `1`
+ * (neutre) quand non fournis par l'appelant — ils ne peuvent jamais faire
+ * dépasser le plafond de palier (`TIER_CONFIDENCE_CAP`), uniquement le
+ * pénaliser en dessous.
+ */
+export interface ConfidenceComponents {
+  evidenceQuality: number;
+  identity: number;
+  diversity: number;
+  freshness: number;
+  depth: number;
+  agreement: number;
+  fx: number;
+  condition: number;
+  final: number;
 }
 
 export type InsufficiencyReason =
@@ -87,6 +153,8 @@ export interface FusedValuation {
   currency: string;
   /** 0–100. */
   confidence: number;
+  /** `null` uniquement sur `status === "insufficient"` (aucune composante n'a de sens sans preuve retenue). */
+  confidenceComponents: ConfidenceComponents | null;
   evidenceCount: number;
   sourceCount: number;
   strongestTier: EvidenceQualityTier | null;
@@ -95,6 +163,14 @@ export interface FusedValuation {
   freshnessHours: number | null;
   reasons: string[];
   insufficiencyReason: InsufficiencyReason | null;
+  qualityFlags: QualityFlag[];
+  /** Médiane historique fournie via `FusionOptions.history` — `null` si aucun historique fourni/disponible, jamais recalculée ici (voir `FusionHistoryContext`). */
+  historicalReferenceMedianCents: number | null;
+  trendDescriptor: TrendDirection | null;
+  /** 0–100, réutilisé tel quel depuis `FusionOptions.history.confidence` — `null` si aucun historique fourni. */
+  trendConfidence: number | null;
+  /** `true` uniquement si l'historique a effectivement ancré `fairCents` (voir `applyHistoryStabilization`) — jamais un remplacement complet de la preuve live, toujours un ajustement borné. */
+  historyStabilizationApplied: boolean;
 }
 
 /**
@@ -223,6 +299,7 @@ function insufficientResult(currency: string, reason: InsufficiencyReason, extra
     highCents: null,
     currency,
     confidence: 0,
+    confidenceComponents: null,
     evidenceCount: 0,
     sourceCount: 0,
     strongestTier: null,
@@ -230,6 +307,11 @@ function insufficientResult(currency: string, reason: InsufficiencyReason, extra
     freshnessHours: null,
     reasons: extraReasons,
     insufficiencyReason: reason,
+    qualityFlags: [],
+    historicalReferenceMedianCents: null,
+    trendDescriptor: null,
+    trendConfidence: null,
+    historyStabilizationApplied: false,
   };
 }
 
@@ -325,7 +407,47 @@ export function fuseMarketObservations(observations: readonly FusionObservation[
   }
   evidenceMix.push(...mixCounts.values());
 
-  const confidence = computeConfidence({ usable, strongestTier, sourceCount, freshnessHours, halfLifeDays });
+  const strongestTierPricesForCv = usable.filter((o) => o.evidenceTier === strongestTier).map((o) => o.priceCents);
+  const cv = coefficientOfVariation(strongestTierPricesForCv);
+
+  // Stabilisation par historique (section 4) — BORNÉE, jamais un remplacement de la preuve live. Voir `applyHistoryStabilization`.
+  const stabilization = applyHistoryStabilization({
+    fairCents,
+    lowCents,
+    highCents,
+    strongestTier,
+    evidenceCount: usable.length,
+    cv,
+    history: options.history,
+    halfLifeDays,
+  });
+
+  const { confidence, components } = computeConfidence({
+    usable,
+    strongestTier,
+    sourceCount,
+    freshnessHours,
+    halfLifeDays,
+    cv,
+    identityCertainty: options.identityCertainty,
+    fxReliability: options.fxReliability,
+    historyStabilizationApplied: stabilization.applied,
+    historyConfidence: options.history?.confidence ?? null,
+  });
+
+  const qualityFlags = computeQualityFlags({
+    usable,
+    strongestTier,
+    sourceCount,
+    freshnessHours,
+    halfLifeDays,
+    cv,
+    excludedVariantCount,
+    damped,
+    identityCertainty: options.identityCertainty,
+    fxReliability: options.fxReliability,
+    history: options.history,
+  });
 
   const reasons: string[] = [
     `${usable.length} observation(s) retenue(s) sur ${observations.length} reçue(s), palier le plus fort : ${strongestTier}.`,
@@ -334,14 +456,16 @@ export function fuseMarketObservations(observations: readonly FusionObservation[
   if (outliers.length > 0) reasons.push(`${outliers.length} valeur(s) aberrante(s) écartée(s).`);
   if (excludedVariantCount > 0) reasons.push(`${excludedVariantCount} observation(s) exclue(s) pour incompatibilité de variante.`);
   if (excludedBundleCount > 0) reasons.push(`${excludedBundleCount} observation(s) exclue(s) comme lot/bundle/pièces détachées.`);
+  if (stabilization.applied) reasons.push("Historique récent utilisé pour stabiliser un instantané live faible/bruité — ajustement borné, jamais un remplacement de la preuve live.");
 
   return {
     status: "estimated",
-    lowCents: Math.min(lowCents, fairCents),
-    fairCents,
-    highCents: Math.max(highCents, fairCents),
+    lowCents: Math.min(stabilization.lowCents, stabilization.fairCents),
+    fairCents: stabilization.fairCents,
+    highCents: Math.max(stabilization.highCents, stabilization.fairCents),
     currency: target.currency,
     confidence,
+    confidenceComponents: components,
     evidenceCount: usable.length,
     sourceCount,
     strongestTier,
@@ -349,7 +473,90 @@ export function fuseMarketObservations(observations: readonly FusionObservation[
     freshnessHours,
     reasons,
     insufficiencyReason: null,
+    qualityFlags,
+    historicalReferenceMedianCents: options.history?.historicalMedianCents ?? null,
+    trendDescriptor: options.history?.trendDirection ?? null,
+    trendConfidence: options.history?.confidence ?? null,
+    historyStabilizationApplied: stabilization.applied,
   };
+}
+
+/**
+ * Ancrage BORNÉ vers la médiane historique (section 4) — appliqué
+ * UNIQUEMENT quand : l'historique fourni est encore frais (jamais un
+ * historique périmé qui dominerait une preuve fraîche), suffisamment
+ * fiable (`confidence >= 40`, même seuil que `computeHistoryConfidence`,
+ * `history-signals-v2.ts`), ET la preuve live est faible (peu
+ * d'observations, palier D/E, ou fortement contradictoire). Le décalage
+ * est plafonné à 15 % de la valeur live — jamais un remplacement complet,
+ * jamais une prédiction de tendance future.
+ */
+const MAX_HISTORY_SHIFT_FRACTION = 0.15;
+const HISTORY_MIN_CONFIDENCE_TO_ANCHOR = 40;
+const HISTORY_STALE_HALF_LIFE_MULTIPLIER = 3;
+
+function applyHistoryStabilization(args: {
+  fairCents: number;
+  lowCents: number;
+  highCents: number;
+  strongestTier: EvidenceQualityTier | null;
+  evidenceCount: number;
+  cv: number | null;
+  history: FusionHistoryContext | undefined;
+  halfLifeDays: number;
+}): { fairCents: number; lowCents: number; highCents: number; applied: boolean } {
+  const { fairCents, lowCents, highCents, strongestTier, evidenceCount, cv, history, halfLifeDays } = args;
+  const noChange = { fairCents, lowCents, highCents, applied: false };
+  if (!history || history.historicalMedianCents === null) return noChange;
+  if (history.confidence < HISTORY_MIN_CONFIDENCE_TO_ANCHOR) return noChange;
+
+  const staleThresholdHours = halfLifeDays * 24 * HISTORY_STALE_HALF_LIFE_MULTIPLIER;
+  if (history.freshnessHours === null || history.freshnessHours > staleThresholdHours) return noChange;
+
+  const liveIsThin = evidenceCount < 3 || strongestTier === "D" || strongestTier === "E";
+  const liveIsNoisy = cv !== null && cv > CONTRADICTORY_EVIDENCE_CV_THRESHOLD;
+  if (!liveIsThin && !liveIsNoisy) return noChange;
+
+  const maxShift = Math.abs(fairCents) * MAX_HISTORY_SHIFT_FRACTION;
+  const delta = clamp(history.historicalMedianCents - fairCents, -maxShift, maxShift);
+  const newFair = Math.round(fairCents + delta);
+  return { fairCents: newFair, lowCents: Math.min(lowCents, newFair), highCents: Math.max(highCents, newFair), applied: true };
+}
+
+function computeQualityFlags(args: {
+  usable: readonly FusionObservation[];
+  strongestTier: EvidenceQualityTier | null;
+  sourceCount: number;
+  freshnessHours: number | null;
+  halfLifeDays: number;
+  cv: number | null;
+  excludedVariantCount: number;
+  damped: readonly WeightedObservation[];
+  identityCertainty: number | undefined;
+  fxReliability: number | undefined;
+  history: FusionHistoryContext | undefined;
+}): QualityFlag[] {
+  const { usable, strongestTier, sourceCount, freshnessHours, halfLifeDays, cv, excludedVariantCount, damped, identityCertainty, fxReliability, history } = args;
+  const flags: QualityFlag[] = [];
+  const tiersPresent = new Set(usable.map((o) => o.evidenceTier));
+
+  if (excludedVariantCount > 0) flags.push("variant_conflict_filtered");
+  if (freshnessHours !== null && freshnessHours > halfLifeDays * 24 * 2) flags.push("stale_evidence");
+  if (strongestTier === "E" && tiersPresent.size === 1) flags.push("retail_only");
+  if (strongestTier === "D" && tiersPresent.size === 1) flags.push("active_only");
+  if (sourceCount <= 1) flags.push("low_source_diversity");
+  if (cv !== null && cv > CONTRADICTORY_EVIDENCE_CV_THRESHOLD) flags.push("high_dispersion");
+  const knownConditionCount = usable.filter((o) => o.condition !== null).length;
+  if (knownConditionCount < usable.length / 2) flags.push("missing_condition");
+  if (fxReliability !== undefined && fxReliability < 1) flags.push("fx_partial");
+  if (identityCertainty !== undefined && identityCertainty < 0.7) flags.push("weak_identity");
+  const merchantCounts = new Map<string, number>();
+  for (const { observation } of damped) merchantCounts.set(merchantOf(observation), (merchantCounts.get(merchantOf(observation)) ?? 0) + 1);
+  if ([...merchantCounts.values()].some((count) => count > 1)) flags.push("duplicated_origin_merged");
+  if ((strongestTier === "A" || strongestTier === "B") && !tiersPresent.has("D") && !tiersPresent.has("E")) flags.push("specialist_only");
+  if (history && history.historicalMedianCents !== null && history.sampleSize < 5) flags.push("sparse_history");
+
+  return flags;
 }
 
 function computeConfidence(args: {
@@ -358,9 +565,17 @@ function computeConfidence(args: {
   sourceCount: number;
   freshnessHours: number | null;
   halfLifeDays: number;
-}): number {
-  const { usable, strongestTier, sourceCount, freshnessHours, halfLifeDays } = args;
-  if (!strongestTier) return 0;
+  cv: number | null;
+  identityCertainty: number | undefined;
+  fxReliability: number | undefined;
+  historyStabilizationApplied: boolean;
+  historyConfidence: number | null;
+}): { confidence: number; components: ConfidenceComponents } {
+  const { usable, strongestTier, sourceCount, freshnessHours, halfLifeDays, cv, identityCertainty, fxReliability, historyStabilizationApplied, historyConfidence } = args;
+  if (!strongestTier) {
+    const empty: ConfidenceComponents = { evidenceQuality: 0, identity: 1, diversity: 0, freshness: 0, depth: 0, agreement: 1, fx: 1, condition: 1, final: 0 };
+    return { confidence: 0, components: empty };
+  }
 
   const cap = TIER_CONFIDENCE_CAP[strongestTier];
 
@@ -379,10 +594,34 @@ function computeConfidence(args: {
   // Accord entre preuves du palier le PLUS FORT uniquement — une preuve A/B
   // qui se contredit fortement ne doit jamais être moyennée silencieusement
   // (règle explicite du lot), elle pénalise la confiance.
-  const strongestTierPrices = usable.filter((o) => o.evidenceTier === strongestTier).map((o) => o.priceCents);
-  const cv = coefficientOfVariation(strongestTierPrices);
   const agreementScore = cv === null ? 1 : cv > CONTRADICTORY_EVIDENCE_CV_THRESHOLD ? Math.max(0, 1 - (cv - CONTRADICTORY_EVIDENCE_CV_THRESHOLD)) : 1;
 
-  const combined = base * freshnessScore * agreementScore;
-  return Math.round(Math.min(cap, Math.max(0, combined)));
+  // Certitude d'identité / fiabilité FX (section 2) — `1` = neutre quand non fournies par l'appelant, ne peuvent JAMAIS dépasser le plafond de palier, uniquement le pénaliser en dessous (clampées 0–1 par sécurité contre une entrée hors bornes).
+  const identityScore = identityCertainty === undefined ? 1 : clamp(identityCertainty, 0, 1);
+  const fxScore = fxReliability === undefined ? 1 : clamp(fxReliability, 0, 1);
+
+  // Certitude de condition — pénalité LÉGÈRE (jamais punitive) quand moins de la moitié des observations retenues renseignent une condition connue : un signal utile, jamais déterminant à lui seul.
+  const knownConditionFraction = usable.filter((o) => o.condition !== null).length / usable.length;
+  const conditionScore = knownConditionFraction >= 0.5 ? 1 : 0.9;
+
+  // Bonus d'historique (section 4) — UNIQUEMENT quand la stabilisation a réellement ancré `fairCents` (voir `applyHistoryStabilization`), jamais un bonus pour un historique simplement présent/non appliqué. Borné à +15%, jamais assez pour dépasser le plafond de palier.
+  const historyScore = historyStabilizationApplied && historyConfidence !== null ? 1 + Math.min(0.15, (historyConfidence / 100) * 0.15) : 1;
+
+  const evidenceQuality = cap / 100;
+  const combined = base * freshnessScore * agreementScore * identityScore * fxScore * conditionScore * historyScore;
+  const final = Math.round(Math.min(cap, Math.max(0, combined)));
+
+  const components: ConfidenceComponents = {
+    evidenceQuality,
+    identity: identityScore,
+    diversity: diversityScore,
+    freshness: freshnessScore,
+    depth: volumeScore,
+    agreement: agreementScore,
+    fx: fxScore,
+    condition: conditionScore,
+    final,
+  };
+
+  return { confidence: final, components };
 }

@@ -46,5 +46,6 @@ export function mapHistoryEntryToResultViewModel(entry: HistoryEntry): ResultVie
     dealScore: null,
     reasons: [],
     isDemo: false,
+    marketInsight: null,
   };
 }

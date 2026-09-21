@@ -114,4 +114,109 @@ describe("mapAnalysisResultToViewModel", () => {
     const view = mapAnalysisResultToViewModel(baseResult({ product: { name: "x", category: null, modelOrReference: null } }), "completed", "general");
     expect(view.isDemo).toBe(false);
   });
+
+  describe("marketInsight (LOT Data Quality Calibration, section 10)", () => {
+    it("aucun marketEvidence : marketInsight null, jamais un résumé inventé", () => {
+      const result = baseResult({ product: { name: "x", category: null, modelOrReference: null } });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight).toBeNull();
+    });
+
+    it("marketEvidence présent : source count / palier / avertissements repris tels quels", () => {
+      const result = baseResult({
+        product: { name: "Console rétro", category: "gaming", modelOrReference: null },
+        resaleRangeConservative: { low: 100, high: 150, currency: "CHF" },
+        confidenceScore: 63.4,
+        marketEvidence: {
+          strongestTier: "D",
+          sourceCount: 3,
+          observationCount: 8,
+          liveObservationCount: 8,
+          historicalObservationCount: 0,
+          sourceNames: ["ebay", "google_shopping"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: true,
+          usedSpecialistHistory: false,
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "gaming");
+      expect(view.marketInsight).toEqual({
+        fairValueLowCents: 10000,
+        fairValueHighCents: 15000,
+        currency: "CHF",
+        confidencePercent: 63,
+        sourceCount: 3,
+        strongestEvidenceTier: "D",
+        trendDescriptor: null,
+        trendConfidence: null,
+        retailOnlyWarning: false,
+        activeListingOnlyWarning: true,
+        qualityReasons: [],
+      });
+    });
+
+    it("qualityFlags connus : traduits en libellés courts français, jamais les codes bruts", () => {
+      const result = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: "E",
+          sourceCount: 1,
+          observationCount: 2,
+          liveObservationCount: 2,
+          historicalObservationCount: 0,
+          sourceNames: ["google_shopping"],
+          retailOnlyWarning: true,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: false,
+          qualityFlags: ["retail_only", "low_source_diversity"],
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight?.qualityReasons).toEqual(["Uniquement des prix neufs / retail", "Peu de sources différentes"]);
+      expect(view.marketInsight?.qualityReasons.join(" ")).not.toMatch(/retail_only|low_source_diversity/);
+    });
+
+    it("flag inconnu (futur) : retombe honnêtement sur son code brut, jamais masqué", () => {
+      const result = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: "A",
+          sourceCount: 2,
+          observationCount: 5,
+          liveObservationCount: 5,
+          historicalObservationCount: 0,
+          sourceNames: ["ebay"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: false,
+          qualityFlags: ["some_future_flag"],
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight?.qualityReasons).toEqual(["some_future_flag"]);
+    });
+
+    it("trend/historique transmis quand fournis par le contrat, jamais reconstruits ici", () => {
+      const result = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: "B",
+          sourceCount: 2,
+          observationCount: 4,
+          liveObservationCount: 4,
+          historicalObservationCount: 0,
+          sourceNames: ["bricklink"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: true,
+          trendDescriptor: "up",
+          trendConfidence: 72,
+          historicalReferenceMedianCents: 18000,
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight?.trendDescriptor).toBe("up");
+      expect(view.marketInsight?.trendConfidence).toBe(72);
+    });
+  });
 });

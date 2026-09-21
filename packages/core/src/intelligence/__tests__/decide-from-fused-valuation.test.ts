@@ -10,6 +10,7 @@ function fused(overrides: Partial<FusedValuation> = {}): FusedValuation {
     highCents: 11000,
     currency: "CHF",
     confidence: 70,
+    confidenceComponents: null,
     evidenceCount: 5,
     sourceCount: 3,
     strongestTier: "A",
@@ -17,6 +18,11 @@ function fused(overrides: Partial<FusedValuation> = {}): FusedValuation {
     freshnessHours: 1,
     reasons: ["5 observation(s) retenue(s)."],
     insufficiencyReason: null,
+    qualityFlags: [],
+    historicalReferenceMedianCents: null,
+    trendDescriptor: null,
+    trendConfidence: null,
+    historyStabilizationApplied: false,
     ...overrides,
   };
 }

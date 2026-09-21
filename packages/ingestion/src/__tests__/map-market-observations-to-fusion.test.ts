@@ -19,8 +19,8 @@ function fakeObservation(overrides: Partial<MarketObservation> = {}): MarketObse
     completeness: null,
     priceAmountCents: 18000,
     currency: "CHF",
-    shippingCostCents: 500,
-    totalPriceCents: 18500,
+    shippingCostCents: null,
+    totalPriceCents: null,
     country: "CH",
     marketplace: "ebay",
     evidenceType: "activeListings",
@@ -43,14 +43,35 @@ describe("mapMarketObservationsToFusionObservations", () => {
     expect(result.fusionObservations[0]!.currency).toBe("CHF");
   });
 
-  it("utilise TOUJOURS priceAmountCents (prix article), jamais totalPriceCents (port non fondu dans le prix comparé)", () => {
-    const result = mapMarketObservationsToFusionObservations([fakeObservation({ priceAmountCents: 18000, totalPriceCents: 18500 })], {
+  it("port CONNU (totalPriceCents renseigné) : utilise le prix ATTERRI (article + port), jamais le prix article seul (LOT 'Data Quality Calibration', section 6)", () => {
+    const result = mapMarketObservationsToFusionObservations([fakeObservation({ priceAmountCents: 18000, shippingCostCents: 500, totalPriceCents: 18500 })], {
+      targetCurrency: "CHF",
+      rates: {},
+      maxRateAgeHours: 48,
+      now: NOW,
+    });
+    expect(result.fusionObservations[0]!.priceCents).toBe(18500);
+  });
+
+  it("port INCONNU (totalPriceCents null) : repli sur le prix article seul, jamais un port deviné/additionné", () => {
+    const result = mapMarketObservationsToFusionObservations([fakeObservation({ priceAmountCents: 18000, shippingCostCents: null, totalPriceCents: null })], {
       targetCurrency: "CHF",
       rates: {},
       maxRateAgeHours: 48,
       now: NOW,
     });
     expect(result.fusionObservations[0]!.priceCents).toBe(18000);
+  });
+
+  it("port connu ET devise étrangère : convertit le prix ATTERRI, jamais le prix article seul avant conversion", () => {
+    const observation = fakeObservation({ currency: "USD", priceAmountCents: 10000, shippingCostCents: 1000, totalPriceCents: 11000 });
+    const result = mapMarketObservationsToFusionObservations([observation], {
+      targetCurrency: "CHF",
+      rates: { USD: { baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9, rateDate: "2026-09-21", source: "test", fetchedAt: "2026-09-21T00:00:00.000Z" } },
+      maxRateAgeHours: 48,
+      now: NOW,
+    });
+    expect(result.fusionObservations[0]!.priceCents).toBe(9900); // 11000 * 0.9, jamais 10000 * 0.9 = 9000.
   });
 
   it("devise étrangère avec un taux valide et frais : convertit correctement", () => {

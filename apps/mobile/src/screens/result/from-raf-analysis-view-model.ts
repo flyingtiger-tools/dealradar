@@ -67,6 +67,7 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
       dealScore: null,
       reasons: [],
       isDemo: false,
+      marketInsight: null,
     };
   }
 
@@ -92,5 +93,6 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
     dealScore: analysis.dealScore,
     reasons: [],
     isDemo: false,
+    marketInsight: null,
   };
 }

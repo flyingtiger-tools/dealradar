@@ -362,6 +362,12 @@ describe("processAnalysis", () => {
         freshnessHours: 2,
         reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
         insufficiencyReason: null,
+        confidenceComponents: null,
+        qualityFlags: ["specialist_only"],
+        historicalReferenceMedianCents: null,
+        trendDescriptor: null,
+        trendConfidence: null,
+        historyStabilizationApplied: false,
       },
     });
 
@@ -376,7 +382,15 @@ describe("processAnalysis", () => {
       result: {
         decision: string;
         marketValueEstimate: { amount: number; currency: string; provenance: string } | null;
-        marketEvidence?: { strongestTier: string | null; sourceCount: number; usedSpecialistHistory: boolean; retailOnlyWarning: boolean };
+        marketEvidence?: {
+          strongestTier: string | null;
+          sourceCount: number;
+          usedSpecialistHistory: boolean;
+          retailOnlyWarning: boolean;
+          qualityFlags?: string[];
+          trendDescriptor?: string | null;
+          historicalReferenceMedianCents?: number | null;
+        };
         dataAvailability: { soldTransactions: boolean; marketGuide: boolean };
       };
     };
@@ -385,6 +399,12 @@ describe("processAnalysis", () => {
     expect(row.result.marketEvidence?.strongestTier).toBe("B");
     expect(row.result.marketEvidence?.usedSpecialistHistory).toBe(true);
     expect(row.result.marketEvidence?.retailOnlyWarning).toBe(false);
+    // LOT "Data Quality Calibration...", section 10 — la fusion transmet ses
+    // signaux de qualité/historique tels quels dans `marketEvidence`, jamais
+    // recalculés côté worker.
+    expect(row.result.marketEvidence?.qualityFlags).toEqual(["specialist_only"]);
+    expect(row.result.marketEvidence?.trendDescriptor).toBeNull();
+    expect(row.result.marketEvidence?.historicalReferenceMedianCents).toBeNull();
     expect(row.result.dataAvailability.soldTransactions).toBe(false); // palier B, jamais présenté comme une vente confirmée
     expect(row.result.dataAvailability.marketGuide).toBe(true);
   });
@@ -435,6 +455,12 @@ describe("processAnalysis", () => {
         freshnessHours: null,
         reasons: [],
         insufficiencyReason: "NO_OBSERVATIONS",
+        confidenceComponents: null,
+        qualityFlags: [],
+        historicalReferenceMedianCents: null,
+        trendDescriptor: null,
+        trendConfidence: null,
+        historyStabilizationApplied: false,
       },
     });
 

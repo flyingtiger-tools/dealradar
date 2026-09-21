@@ -1,5 +1,5 @@
 import type { AnalysisResult, AnalysisStatus, CategorySlug } from "@dealradar/contracts";
-import type { ResultViewModel, ResultPriceRow } from "./result-view-model";
+import type { ResultViewModel, ResultPriceRow, ResultMarketInsight } from "./result-view-model";
 
 /**
  * Mapper `AnalysisResult` (contrat universel, `@dealradar/contracts`,
@@ -68,6 +68,62 @@ function buildPriceRows(result: AnalysisResult): ResultPriceRow[] {
 }
 
 /**
+ * Traduction des `QualityFlag` (`@dealradar/core/intelligence/fuse-market-
+ * observations.ts`) en libellés courts français — LOT "Data Quality
+ * Calibration + Operator Observability + Mobile Market Insight Contract",
+ * section 10 : "traduits en raisons courtes et lisibles humainement, jamais
+ * un diagnostic technique brut". `Record<string, string>` (pas
+ * `Record<QualityFlag, string>`) car `AnalysisResult.marketEvidence.
+ * qualityFlags` reste un `string[]` côté contrat (`@dealradar/contracts` ne
+ * dépend jamais de `@dealradar/core`, voir `analysis-result.ts`) — un flag
+ * futur non encore traduit retombe sur son code brut plutôt que de
+ * disparaître silencieusement.
+ */
+const QUALITY_FLAG_LABELS: Record<string, string> = {
+  variant_conflict_filtered: "Variantes incompatibles écartées",
+  stale_evidence: "Preuve de marché datée",
+  retail_only: "Uniquement des prix neufs / retail",
+  active_only: "Uniquement des annonces actives, aucune vente confirmée",
+  low_source_diversity: "Peu de sources différentes",
+  high_dispersion: "Prix très dispersés entre les sources",
+  missing_condition: "État non précisé pour certaines sources",
+  fx_partial: "Taux de change partiellement indisponible",
+  weak_identity: "Identification du produit incertaine",
+  duplicated_origin_merged: "Doublons fusionnés entre agrégateurs",
+  specialist_only: "Uniquement une source spécialisée",
+  sparse_history: "Historique de prix limité",
+};
+
+/**
+ * Construit le résumé de preuve de marché affiché — `null` si
+ * `marketEvidence` est absent (résultat produit avant ce lot, ou chemin qui
+ * n'a jamais eu besoin d'enrichissement multi-source) : jamais un résumé
+ * inventé à partir de champs partiels. `fairValueLow/HighCents` proviennent
+ * de `resaleRangeConservative` (déjà la même fourchette que `buildPriceRows`
+ * ci-dessus) — jamais une seconde fourchette recalculée ici.
+ */
+function buildMarketInsight(result: AnalysisResult): ResultMarketInsight | null {
+  const evidence = result.marketEvidence;
+  if (!evidence) return null;
+  const qualityReasons = (evidence.qualityFlags ?? [])
+    .map((flag) => QUALITY_FLAG_LABELS[flag] ?? flag)
+    .filter((label, index, all) => all.indexOf(label) === index);
+  return {
+    fairValueLowCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.low * 100) : null,
+    fairValueHighCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.high * 100) : null,
+    currency: result.resaleRangeConservative?.currency ?? null,
+    confidencePercent: clampPercent(result.confidenceScore),
+    sourceCount: evidence.sourceCount,
+    strongestEvidenceTier: evidence.strongestTier,
+    trendDescriptor: evidence.trendDescriptor ?? null,
+    trendConfidence: evidence.trendConfidence ?? null,
+    retailOnlyWarning: evidence.retailOnlyWarning,
+    activeListingOnlyWarning: evidence.activeListingsOnlyWarning,
+    qualityReasons,
+  };
+}
+
+/**
  * Un résultat n'est "identifié" que si le moteur d'extraction a produit un
  * nom de produit — même règle que `mapTcgResultToViewModel` (le signal de
  * vérité est l'identité elle-même, jamais `status` seul) : un objet
@@ -98,6 +154,7 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
       dealScore: null,
       reasons: [],
       isDemo: false,
+      marketInsight: null,
     };
   }
 
@@ -123,5 +180,6 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
     dealScore: result.dealScore,
     reasons: result.reasons,
     isDemo: false,
+    marketInsight: buildMarketInsight(result),
   };
 }

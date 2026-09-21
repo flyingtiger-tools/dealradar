@@ -71,6 +71,8 @@ export interface SearchQuery {
   categorySlug: string;
   limit?: number;
   offset?: number;
+  /** Signal d'annulation COOPÉRATIVE optionnel (LOT "Data Quality Calibration...", section 7) — rétrocompatible : un appelant qui ne le fournit pas obtient exactement le comportement précédent (timeout borné interne seul). Voir `packages/connectors/src/http-abort.ts`. */
+  signal?: AbortSignal;
 }
 
 export interface SearchResult {
@@ -93,12 +95,21 @@ export interface HealthCheckResult {
 export class ConnectorError extends Error {
   readonly httpStatus: number | null;
   readonly retryable: boolean;
+  /**
+   * `true` UNIQUEMENT quand l'appel a été interrompu par le `AbortSignal`
+   * EXTERNE fourni par l'appelant (LOT "Data Quality Calibration...",
+   * section 7) — jamais confondu avec un dépassement du timeout BORNÉ
+   * interne du connecteur (`timeoutMs`), qui reste une panne fournisseur
+   * ordinaire (`retryable: true`), pas un abandon délibéré de l'appelant.
+   */
+  readonly aborted: boolean;
 
-  constructor(message: string, options: { httpStatus?: number | null; retryable?: boolean } = {}) {
+  constructor(message: string, options: { httpStatus?: number | null; retryable?: boolean; aborted?: boolean } = {}) {
     super(message);
     this.name = "ConnectorError";
     this.httpStatus = options.httpStatus ?? null;
     this.retryable = options.retryable ?? false;
+    this.aborted = options.aborted ?? false;
   }
 }
 

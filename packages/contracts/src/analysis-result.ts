@@ -102,6 +102,25 @@ export const marketEvidenceSchema = z.object({
       skippedForMissingRateCount: z.number(),
     })
     .optional(),
+  /**
+   * Calibration qualité/historique (LOT "Data Quality Calibration +
+   * Operator Observability + Mobile Market Insight Contract") — reflète
+   * `QualityFlag[]`/`FusedValuation.trendDescriptor`/`trendConfidence`/
+   * `historicalReferenceMedianCents` (`@dealradar/core/intelligence/
+   * fuse-market-observations.ts`) SANS jamais importer ce type ici (même
+   * discipline que le reste du fichier : `@dealradar/contracts` ne dépend
+   * jamais de `@dealradar/core`) — `qualityFlags` reste donc un tableau de
+   * chaînes non contraint côté schéma. `trendDescriptor`/`trendConfidence`/
+   * `historicalReferenceMedianCents` restent `null` tant qu'aucun contexte
+   * d'historique n'est fourni à la fusion — le chemin d'analyse interactif
+   * (`process-analysis.ts`) ne le fait pas encore aujourd'hui (la lecture
+   * d'historique existe séparément, voir `queryProductHistory`,
+   * `@dealradar/ingestion`) — jamais une valeur devinée ici.
+   */
+  qualityFlags: z.array(z.string()).optional(),
+  historicalReferenceMedianCents: z.number().nullable().optional(),
+  trendDescriptor: z.string().nullable().optional(),
+  trendConfidence: z.number().nullable().optional(),
 });
 export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
 

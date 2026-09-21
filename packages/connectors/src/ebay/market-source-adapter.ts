@@ -78,7 +78,7 @@ export function createEbayMarketSourceAdapter(connector: MarketplaceConnector): 
 
     async search(query: MarketSourceQuery): Promise<MarketSourceResult> {
       const collectedAt = new Date().toISOString();
-      const result = await connector.search({ q: query.q, categorySlug: query.categorySlug, limit: query.limit });
+      const result = await connector.search({ q: query.q, categorySlug: query.categorySlug, limit: query.limit, signal: query.signal });
       const observations = result.listings
         .map((listing) => toMarketObservation(listing, query, collectedAt))
         .filter((obs): obs is MarketObservation => obs !== null);

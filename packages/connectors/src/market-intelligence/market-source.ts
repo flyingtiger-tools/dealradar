@@ -16,6 +16,8 @@ export interface MarketSourceQuery {
   limit?: number;
   /** Pays/marché ciblé si la source le supporte — `undefined` = défaut de la source, jamais une valeur inventée par l'appelant. */
   country?: string;
+  /** Signal d'annulation COOPÉRATIVE optionnel (LOT "Data Quality Calibration...", section 7) — rétrocompatible, voir `packages/connectors/src/http-abort.ts`. Une source qui ne le respecte pas encore continue de fonctionner exactement comme avant (timeout borné interne toujours présent), voir la documentation de chaque connecteur. */
+  signal?: AbortSignal;
 }
 
 export interface MarketSourceResult {

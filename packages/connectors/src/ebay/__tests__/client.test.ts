@@ -48,6 +48,37 @@ describe("createEbayHttpClient", () => {
     });
   });
 
+  it("signal externe abandonné (LOT 'Data Quality Calibration...', section 7) : ConnectorError.aborted=true, jamais retenté, jamais confondu avec une panne fournisseur", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      // Même sémantique que `fetch()` réel : un signal DÉJÀ abandonné rejette immédiatement, jamais seulement un futur événement 'abort' à venir.
+      if (init?.signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    }) as unknown as typeof fetch;
+
+    const externalController = new AbortController();
+    const client = createEbayHttpClient({
+      ...BASE_OPTIONS,
+      tokenProvider: tokenProvider("tok"),
+      fetchImpl,
+      timeoutMs: 5000, // largement plus long que l'abandon externe, pour isoler l'effet du signal externe.
+      maxRetries: 3,
+    });
+
+    const pending = client.get("/x", undefined, externalController.signal);
+    await new Promise((resolve) => setTimeout(resolve, 10)); // laisse la requête réellement démarrer (résolution du token provider incluse) avant d'abandonner — exerce le chemin "abandon EN COURS de vol", pas seulement "déjà abandonné avant l'appel".
+    externalController.abort();
+
+    await expect(pending).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ConnectorError);
+      expect((error as ConnectorError).aborted).toBe(true);
+      expect((error as ConnectorError).retryable).toBe(false);
+      return true;
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // jamais retenté malgré maxRetries=3.
+  });
+
   it("rafraîchit le token une fois sur 401 puis réussit", async () => {
     const fetchImpl = vi
       .fn()

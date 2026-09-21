@@ -50,6 +50,7 @@ export const DEMO_BAD_DEAL: ResultViewModel = {
   dealScore: 22,
   reasons: [],
   isDemo: true,
+  marketInsight: null,
 };
 
 export const DEMO_GOOD_DEAL: ResultViewModel = {
@@ -74,6 +75,7 @@ export const DEMO_GOOD_DEAL: ResultViewModel = {
   dealScore: 78,
   reasons: ["Prix sous le marché", "Comparables cohérents"],
   isDemo: true,
+  marketInsight: null,
 };
 
 export const DEMO_MEGA_DEAL: ResultViewModel = {
@@ -98,6 +100,7 @@ export const DEMO_MEGA_DEAL: ResultViewModel = {
   dealScore: 99,
   reasons: ["Prix très en dessous du marché", "Demande solide", "Comparables cohérents"],
   isDemo: true,
+  marketInsight: null,
 };
 
 export const DEMO_RESULT_FIXTURES = [

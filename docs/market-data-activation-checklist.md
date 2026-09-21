@@ -297,3 +297,16 @@ Aucune activation Production dans cette séquence.
 - Ce n'est qu'à ce stade qu'un déploiement de cron Production (section 9)
   devient une décision humaine raisonnable — jamais avant, jamais par ce
   lot lui-même.
+
+## Observabilité opérateur (LOT "Data Quality Calibration + Operator
+Observability + Mobile Market Insight Contract")
+
+Avant/pendant les Stages A→E ci-dessus, `getOperatorObservabilitySummary`
+(`packages/ingestion/src/operator-observability.ts`) et
+`checkHistoricalEngineAvailability` (`check-historical-engine-availability.ts`)
+donnent une vue en LECTURE SEULE, sans SQL brut : derniers runs et taux de
+réussite, cibles en échec par raison, erreurs/timeouts par source, cibles
+dues/en retard, runs à budget épuisé, runs expirés, volume d'observations
+persistées dans le temps, produits avec conflit d'identité non résolu. Voir
+`docs/market-valuation-quality.md` (section 8) pour le détail complet des
+champs retournés et la garantie "aucun secret, aucune URL brute".

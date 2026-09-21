@@ -36,12 +36,15 @@ export function createGoogleShoppingConnector(options: GoogleShoppingConnectorOp
       const country = query.country ?? defaultCountry;
       const collectedAt = new Date().toISOString();
 
-      const raw = (await client.get({
-        engine: "google_shopping",
-        q: query.q,
-        gl: country,
-        num: query.limit,
-      })) as SerpApiGoogleShoppingResponse;
+      const raw = (await client.get(
+        {
+          engine: "google_shopping",
+          q: query.q,
+          gl: country,
+          num: query.limit,
+        },
+        query.signal,
+      )) as SerpApiGoogleShoppingResponse;
 
       if (raw.error) {
         throw new ConnectorError(`SerpApi a signalé une erreur : ${raw.error}`, { retryable: false });

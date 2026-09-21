@@ -50,11 +50,15 @@ export function createEbayConnector(config: EbayConnectorConfig): MarketplaceCon
       const offset = query.offset ?? 0;
       const collectedAt = new Date().toISOString();
 
-      const raw = (await client.get("/buy/browse/v1/item_summary/search", {
-        q: query.q,
-        limit,
-        offset,
-      })) as EbayRawSearchResponse;
+      const raw = (await client.get(
+        "/buy/browse/v1/item_summary/search",
+        {
+          q: query.q,
+          limit,
+          offset,
+        },
+        query.signal,
+      )) as EbayRawSearchResponse;
 
       const listings = (raw.itemSummaries ?? [])
         .map((item) => normalizeEbayItem(item, { categorySlug: query.categorySlug, collectedAt }))

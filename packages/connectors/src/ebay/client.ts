@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 import { ebayApiHost, type OAuthTokenProvider, type EbayOAuthConfig } from "./oauth";
 
 export interface EbayClientOptions {
@@ -18,7 +19,7 @@ interface RequestSpec {
 }
 
 export interface EbayHttpClient {
-  get(path: string, query?: Record<string, string | number | undefined>): Promise<unknown>;
+  get(path: string, query?: Record<string, string | number | undefined>, signal?: AbortSignal): Promise<unknown>;
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -34,14 +35,13 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
 
-  async function requestOnce(path: string, spec: RequestSpec, token: string): Promise<Response> {
+  async function requestOnce(path: string, spec: RequestSpec, token: string, externalSignal?: AbortSignal): Promise<Response> {
     const url = new URL(`${ebayApiHost(options.environment)}${path}`);
     for (const [key, value] of Object.entries(spec.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
 
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
       return await fetchImpl(url.toString(), {
         method: spec.method ?? "GET",
@@ -50,10 +50,15 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
           "X-EBAY-C-MARKETPLACE-ID": options.marketplaceId,
           "Content-Type": "application/json",
         },
-        signal: controller.signal,
+        signal: bounded.controller.signal,
       });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError(`Appel eBay abandonné (${path}) — délai global du run dépassé, jamais une panne fournisseur.`, { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -76,7 +81,7 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
     return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
   }
 
-  async function get(path: string, query?: Record<string, string | number | undefined>): Promise<unknown> {
+  async function get(path: string, query?: Record<string, string | number | undefined>, signal?: AbortSignal): Promise<unknown> {
     let attempt = 0;
     let triedTokenRefresh = false;
     let token = await options.tokenProvider.getAccessToken();
@@ -84,8 +89,10 @@ export function createEbayHttpClient(options: EbayClientOptions): EbayHttpClient
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(path, { query }, token);
-      } catch {
+        response = await requestOnce(path, { query }, token, signal);
+      } catch (error) {
+        // Un abandon par le signal EXTERNE est terminal — jamais retenté (le run entier s'arrête, retenter n'aurait aucun sens).
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(
             `Délai dépassé ou erreur réseau lors de l'appel eBay (${path}) après ${attempt + 1} tentative(s).`,

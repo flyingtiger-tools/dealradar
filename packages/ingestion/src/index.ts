@@ -34,3 +34,6 @@ export * from "./persist-market-snapshot-summary";
 export * from "./query-historical-price-points";
 export * from "./source-selection-plan";
 export * from "./persist-refresh-run-audit";
+export * from "./operator-observability";
+export * from "./query-product-history";
+export * from "./check-historical-engine-availability";

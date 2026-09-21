@@ -12,6 +12,7 @@ import {
   decideNextSnapshotRefresh,
   DEFAULT_REFRESH_BUDGET_LIMITS,
   initialRefreshBudgetState,
+  normalizeCondition,
   type AnalysisProcessPayload,
   type AnalysisResult,
   type CostInputs,
@@ -519,11 +520,13 @@ export async function processAnalysis(
         if (typeof value === "string" || typeof value === "number") targetAttributes[key] = value;
       }
       try {
+        // Bucket canonique (LOT "Data Quality Calibration...", section 5) — même normalisation que côté observations (`map-market-observations-to-fusion.ts`), sinon `isCompatibleWithTarget` comparerait un vocabulaire cible (`ItemConditionRaw`) à un vocabulaire source distinct par égalité de chaîne stricte, produisant de fausses exclusions.
+        const normalizedTargetCondition = listing.condition ? normalizeCondition({ rawCondition: listing.condition }) : null;
         marketIntelligence = await orchestrateMarketIntelligence({
           categorySlug: listing.categorySlug,
           q: queries.exact || productName || listing.title,
           sources: resolvedSources,
-          target: { currency: listing.currency, condition: listing.condition, attributes: targetAttributes },
+          target: { currency: listing.currency, condition: normalizedTargetCondition === "unknown" ? null : normalizedTargetCondition, attributes: targetAttributes },
           // Résout automatiquement un taux pour chaque devise étrangère
           // réellement observée (LOT "Source Wave 3", section 1) — Frankfurter,
           // gratuit, mis en cache au niveau module (voir plus haut). Une
@@ -569,6 +572,17 @@ export async function processAnalysis(
         evidenceTypeMix: marketIntelligence.evidenceTypeMix,
         costClassesUsed: marketIntelligence.costClassesUsed,
         fx: marketIntelligence.fx,
+        // LOT "Data Quality Calibration...", section 10 — porté tel quel
+        // depuis `FusedValuation` (déjà calculé par `fuseMarketObservations`,
+        // jamais recalculé ici). `trendDescriptor`/`trendConfidence`/
+        // `historicalReferenceMedianCents` restent `null` aujourd'hui : ce
+        // chemin interactif n'appelle pas encore `queryProductHistory` pour
+        // construire un `FusionHistoryContext` (voir BUILDER HANDOFF) — donc
+        // honnêtement absents plutôt que devinés.
+        qualityFlags: fused!.qualityFlags,
+        historicalReferenceMedianCents: fused!.historicalReferenceMedianCents,
+        trendDescriptor: fused!.trendDescriptor,
+        trendConfidence: fused!.trendConfidence,
       }
     : undefined;
 
