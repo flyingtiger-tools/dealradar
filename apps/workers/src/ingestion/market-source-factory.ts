@@ -48,6 +48,23 @@ export interface BuildMarketSourcesResult {
   diagnostics: MarketSourceDiagnosticEntry[];
 }
 
+/**
+ * Présence des variables d'environnement requises, PAR SOURCE, pour TOUTE
+ * la matrice de préparation — le SEUL endroit de `apps/workers` qui lit
+ * `process.env` pour cet usage (LOT "Real DB Integration...", section 4) :
+ * `buildSourceSelectionPlan` (`packages/ingestion`) reste pur et reçoit ce
+ * résultat déjà calculé, jamais `process.env` lui-même.
+ */
+export function computeEnvPresenceBySource(): Record<string, Record<string, boolean>> {
+  const result: Record<string, Record<string, boolean>> = {};
+  for (const descriptor of SOURCE_READINESS_MATRIX) {
+    const presence: Record<string, boolean> = {};
+    for (const envVar of descriptor.requiredEnvVars) presence[envVar] = Boolean(process.env[envVar]);
+    result[descriptor.source] = presence;
+  }
+  return result;
+}
+
 /** Résout le statut de préparation pour une source nommée — jamais lu depuis process.env directement dans la matrice elle-même (voir source-readiness-matrix.ts). */
 function readinessFor(name: string): ActivationStatus | undefined {
   const descriptor = SOURCE_READINESS_MATRIX.find((d) => d.source === name);

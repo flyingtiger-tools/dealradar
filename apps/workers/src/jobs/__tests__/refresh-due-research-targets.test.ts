@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { MarketObservation } from "@dealradar/connectors";
-import type { MarketSnapshotResult } from "@dealradar/ingestion";
+import type { MarketSnapshotResult, SourceSelectionPlan } from "@dealradar/ingestion";
+import { initialRefreshBudgetState, DEFAULT_REFRESH_BUDGET_LIMITS as DEFAULT_LIMITS, type RefreshBudgetState } from "@dealradar/core";
 
 vi.mock("../take-product-snapshot", () => ({ takeProductSnapshot: vi.fn() }));
 
@@ -72,7 +73,7 @@ function successResult(overrides: Partial<MarketSnapshotResult> = {}): MarketSna
       observationCount: observations.length,
       sourceDiversity: 1,
       currenciesObserved: ["CHF"],
-      skippedForMissingRateCount: 0,
+      skippedForMissingRateCount: 0, staleRateCount: 0,
       normalizedCurrency: "CHF",
       normalizedRange: observations.length > 0 ? { medianCents: 18000, p25Cents: 17500, p75Cents: 18500, sampleSize: observations.length } : null,
     },
@@ -97,8 +98,37 @@ function emptyResult(): MarketSnapshotResult {
       medianLatencyMs: 10,
     },
     observationsPersisted: 0,
-    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
   });
+}
+
+/**
+ * `budgetStateAfter` DOIT échoir l'état RÉELLEMENT reçu en entrée (jamais
+ * un état frais fabriqué) — dans le vrai `buildSourceSelectionPlan`,
+ * `budgetStateAfter` dérive TOUJOURS de l'état d'entrée via
+ * `recordSourceQueried` (jamais réinitialisé), donc un double qui
+ * l'ignorerait romprait silencieusement `targetsProcessed`/les compteurs
+ * run-wide entre deux cibles simulées.
+ */
+function fakeSelectionPlan(inputBudgetState: RefreshBudgetState, overrides: Partial<SourceSelectionPlan> = {}): SourceSelectionPlan {
+  return {
+    categorySlug: "lego",
+    eligibleSources: ["bricklink"],
+    excludedByPolicy: [],
+    excludedByMissingCredentials: [],
+    excludedByIdentityWeakness: [],
+    excludedByCostBudget: [],
+    selectedSources: ["bricklink"],
+    selectionOrder: ["bricklink"],
+    entries: [],
+    projectedCostClasses: { bricklink: "free" },
+    budgetStateAfter: { ...inputBudgetState, sourcesQueriedForCurrentTarget: inputBudgetState.sourcesQueriedForCurrentTarget + 1 },
+    ...overrides,
+  };
+}
+
+function fakeOutput(snapshot: MarketSnapshotResult, inputBudgetState = initialRefreshBudgetState(NOW.getTime()), selectionPlan: Partial<SourceSelectionPlan> = {}) {
+  return { snapshot, selectionPlan: fakeSelectionPlan(inputBudgetState, selectionPlan) };
 }
 
 function researchTargetRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -142,7 +172,7 @@ beforeEach(() => {
 
 describe("runDueMarketRefreshBatch", () => {
   it("traite une cible due avec succès : rescheduled dans le futur, consecutive_failures remis à 0", async () => {
-    vi.mocked(takeProductSnapshot).mockResolvedValue(successResult());
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
     const db = new FakeSupabase();
     installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
     seedIdentity(db, "lego:10300", "lego");
@@ -177,8 +207,90 @@ describe("runDueMarketRefreshBatch", () => {
     expect(takeProductSnapshot).not.toHaveBeenCalled();
   });
 
+  it("toutes les sources candidates verrouillées PAR POLITIQUE (aucune autre cause) -> échec 'policy_disabled_source_set', jamais confondu avec 'identity_too_weak'", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) =>
+      fakeOutput(emptyResult(), input.budgetState, {
+        eligibleSources: ["ricardo"],
+        excludedByPolicy: ["ricardo"],
+        excludedByMissingCredentials: [],
+        excludedByCostBudget: [],
+        excludedByIdentityWeakness: [],
+        selectedSources: [],
+        selectionOrder: [],
+      }),
+    );
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    expect(summary.failed).toBe(1);
+    expect(summary.perTarget[0]?.failureReason).toBe("policy_disabled_source_set");
+  });
+
+  it("blocage TOTAL par FX (toutes les observations écartées faute de taux) -> échec 'fx_unavailable', jamais confondu avec une panne de persistance", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) =>
+      fakeOutput(
+        successResult({
+          summary: {
+            observationCount: 2,
+            sourceDiversity: 1,
+            currenciesObserved: ["USD"],
+            skippedForMissingRateCount: 2,
+            staleRateCount: 0,
+            normalizedCurrency: "CHF",
+            normalizedRange: null,
+          },
+        }),
+        input.budgetState,
+      ),
+    );
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    expect(summary.failed).toBe(1);
+    expect(summary.succeeded).toBe(0);
+    expect(summary.perTarget[0]?.failureReason).toBe("fx_unavailable");
+  });
+
+  it("succès PARTIEL (au moins une observation exploitable malgré des observations écartées pour taux périmé) -> succès avec fxWarning, jamais reclassé en échec", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) =>
+      fakeOutput(
+        successResult({
+          summary: {
+            observationCount: 3,
+            sourceDiversity: 1,
+            currenciesObserved: ["CHF", "USD"],
+            skippedForMissingRateCount: 0,
+            staleRateCount: 1,
+            normalizedCurrency: "CHF",
+            normalizedRange: { medianCents: 18000, p25Cents: 17500, p75Cents: 18500, sampleSize: 2 },
+          },
+        }),
+        input.budgetState,
+      ),
+    );
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    expect(summary.succeeded).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(summary.perTarget[0]?.fxWarning).toBe(true);
+    expect(summary.perTarget[0]?.failureReason).toBeUndefined();
+  });
+
   it("aucune observation obtenue -> échec, consecutive_failures incrémenté, jamais compté comme un succès", async () => {
-    vi.mocked(takeProductSnapshot).mockResolvedValue(emptyResult());
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(emptyResult(), input.budgetState));
     const db = new FakeSupabase();
     installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
     seedIdentity(db, "lego:10300", "lego");
@@ -192,7 +304,7 @@ describe("runDueMarketRefreshBatch", () => {
   });
 
   it("plafond de cibles par run (maxTargetsPerRun=1) arrête le lot même si une deuxième cible est due", async () => {
-    vi.mocked(takeProductSnapshot).mockResolvedValue(successResult());
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
     const db = new FakeSupabase();
     installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
     seedIdentity(db, "lego:10300", "lego");
@@ -206,16 +318,79 @@ describe("runDueMarketRefreshBatch", () => {
       db: db as never,
       leaseOwner: "worker-a",
       now: () => NOW,
-      limits: { maxTargetsPerRun: 1, maxSourcesPerTarget: 6, maxPaidSourcesPerTarget: 3, maxHighCostSourcesPerRun: 2, totalRunTimeoutMs: 300000 },
+      limits: { maxTargetsPerRun: 1, maxSourcesPerTarget: 6, maxPaidSourcesPerTarget: 3, maxHighCostSourcesPerTarget: 1, maxHighCostSourcesPerRun: 2, totalRunTimeoutMs: 300000 },
     });
 
     expect(summary.claimed).toBe(1);
     expect(summary.considered).toBe(2);
     expect(summary.skippedLocked).toBe(1);
+    expect(summary.budgetExhausted).toBe(true);
+    expect(summary.timedOut).toBe(false);
+  });
+
+  it("délai total du run dépassé (totalRunTimeoutMs) -> timedOut, jamais confondu avec budgetExhausted", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    const summary = await runDueMarketRefreshBatch({
+      db: db as never,
+      leaseOwner: "worker-a",
+      now: () => NOW,
+      limits: { ...DEFAULT_LIMITS, totalRunTimeoutMs: 0 },
+    });
+
+    expect(summary.claimed).toBe(0); // le délai est déjà dépassé AVANT la première réclamation.
+    expect(summary.timedOut).toBe(true);
+    expect(summary.budgetExhausted).toBe(false);
+  });
+
+  it("persiste un audit de run + un audit par cible (market_refresh_runs/market_refresh_run_targets), identifiable par runKey", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    const runRow = db.table("market_refresh_runs").find((r) => r.run_key === summary.runKey) as Record<string, unknown> | undefined;
+    expect(runRow).toBeDefined();
+    expect(runRow?.succeeded).toBe(1);
+    const targetRows = db.table("market_refresh_run_targets") as Record<string, unknown>[];
+    expect(targetRows).toHaveLength(1);
+    expect(targetRows[0]?.product_key).toBe("lego:10300");
+    expect(targetRows[0]?.outcome).toBe("succeeded");
+  });
+
+  it("une panne de persistance d'audit n'interrompt JAMAIS le lot — le résumé reste complet et correct", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+    const originalFrom = db.from.bind(db);
+    vi.spyOn(db, "from").mockImplementation((table: string) => {
+      if (table === "market_refresh_runs") throw new Error("panne d'écriture d'audit simulée");
+      return originalFrom(table);
+    });
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    expect(summary.succeeded).toBe(1);
+    expect(summary.claimed).toBe(1);
+    expect(db.table("research_targets")[0]?.claimed_by).toBeNull(); // le bail a bien été libéré malgré l'échec d'audit.
   });
 
   it("une défaillance INATTENDUE sur une cible n'interrompt jamais le lot — la cible suivante est quand même traitée", async () => {
-    vi.mocked(takeProductSnapshot).mockRejectedValueOnce(new Error("panne réseau simulée")).mockResolvedValueOnce(successResult({ productKey: "lego:10301", observations: [fakeObservation({ productKey: "lego:10301" })] }));
+    vi.mocked(takeProductSnapshot).mockImplementationOnce(async () => {
+      throw new Error("panne réseau simulée");
+    });
+    vi.mocked(takeProductSnapshot).mockImplementationOnce(async (input) =>
+      fakeOutput(successResult({ productKey: "lego:10301", observations: [fakeObservation({ productKey: "lego:10301" })] }), input.budgetState),
+    );
     const db = new FakeSupabase();
     installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
     seedIdentity(db, "lego:10300", "lego");

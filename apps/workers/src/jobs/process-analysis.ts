@@ -10,6 +10,8 @@ import {
   deriveProductKey,
   mergeIdentityEvidence,
   decideNextSnapshotRefresh,
+  DEFAULT_REFRESH_BUDGET_LIMITS,
+  initialRefreshBudgetState,
   type AnalysisProcessPayload,
   type AnalysisResult,
   type CostInputs,
@@ -18,7 +20,6 @@ import {
   type FusedValuation,
   type EvidenceQualityTier,
 } from "@dealradar/core";
-import { resolveSourcesForCategory } from "@dealradar/connectors";
 import {
   extractProduct,
   PROMPT_VERSION,
@@ -38,13 +39,14 @@ import {
   orchestrateMarketIntelligence,
   persistCanonicalProductIdentity,
   persistResearchTarget,
+  buildSourceSelectionPlan,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
 import { tryBuildEbayConnectorFromEnv } from "../ingestion/connector-config";
-import { buildMarketSourcesFromEnv } from "../ingestion/market-source-factory";
+import { buildMarketSourcesFromEnv, computeEnvPresenceBySource } from "../ingestion/market-source-factory";
 import { sharedFxRateProvider } from "../ingestion/fx-provider";
 import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
@@ -498,7 +500,19 @@ export async function processAnalysis(
   let marketIntelligence: Awaited<ReturnType<typeof orchestrateMarketIntelligence>> | null = null;
   if (pipelineResult.decision === "INSUFFICIENT_DATA") {
     const { sources } = buildMarketSourcesFromEnv();
-    const resolvedSources = resolveSourcesForCategory(listing.categorySlug, sources);
+    // `SourceSelectionPlan` EXACT (LOT "Real DB Integration + Exact Budget Enforcement...", section 4) — MÊME algorithme de sélection que le rafraîchissement en arrière-plan (`take-product-snapshot.ts`), jamais une logique divergente. Aucune identité canonique résolue à ce point du chemin interactif -> `identityHealth: null` (aucune exclusion pour faiblesse d'identité), budget à cible unique par défaut (un seul appel ponctuel, pas un run multi-cibles).
+    const selectionPlan = buildSourceSelectionPlan({
+      categorySlug: listing.categorySlug,
+      envPresenceBySource: computeEnvPresenceBySource(),
+      identityHealth: null,
+      budgetState: initialRefreshBudgetState(Date.now()),
+      budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+    });
+    const bySourceName = new Map(sources.map((s) => [s.source, s] as const));
+    const resolvedSources = selectionPlan.selectedSources.flatMap((name) => {
+      const source = bySourceName.get(name);
+      return source ? [source] : [];
+    });
     if (resolvedSources.length > 0) {
       const targetAttributes: Record<string, string | number> = {};
       for (const [key, value] of Object.entries(listing.attributes)) {

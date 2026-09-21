@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { MarketObservation } from "@dealradar/connectors";
-import type { MarketSnapshotResult } from "@dealradar/ingestion";
+import type { MarketSnapshotResult, SourceSelectionPlan } from "@dealradar/ingestion";
+import { initialRefreshBudgetState } from "@dealradar/core";
 
 /**
  * Simulation E2E déterministe locale (LOT "Close the Refresh Loop",
@@ -84,7 +85,7 @@ function fullSuccessResult(productKey: string, source: string): MarketSnapshotRe
     identityPersistenceError: null,
     fxRatesPersistedCount: null,
     fxPersistenceError: null,
-    summary: { observationCount: 1, sourceDiversity: 1, currenciesObserved: ["CHF"], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: { medianCents: 18000, p25Cents: 17800, p75Cents: 18200, sampleSize: 1 } },
+    summary: { observationCount: 1, sourceDiversity: 1, currenciesObserved: ["CHF"], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: { medianCents: 18000, p25Cents: 17800, p75Cents: 18200, sampleSize: 1 } },
   };
 }
 
@@ -109,7 +110,7 @@ function totalOutageResult(productKey: string): MarketSnapshotResult {
     identityPersistenceError: null,
     fxRatesPersistedCount: null,
     fxPersistenceError: null,
-    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
   };
 }
 
@@ -127,7 +128,26 @@ function noSafeQueryResult(productKey: string): MarketSnapshotResult {
     identityPersistenceError: null,
     fxRatesPersistedCount: null,
     fxPersistenceError: null,
-    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+  };
+}
+
+function fakeOutput(snapshot: MarketSnapshotResult): { snapshot: MarketSnapshotResult; selectionPlan: SourceSelectionPlan } {
+  return {
+    snapshot,
+    selectionPlan: {
+      categorySlug: snapshot.coverageReport.categorySlug,
+      eligibleSources: snapshot.coverageReport.perSource.map((s) => s.source),
+      excludedByPolicy: [],
+      excludedByMissingCredentials: [],
+      excludedByIdentityWeakness: [],
+      excludedByCostBudget: [],
+      selectedSources: snapshot.coverageReport.perSource.map((s) => s.source),
+      selectionOrder: snapshot.coverageReport.perSource.map((s) => s.source),
+      entries: [],
+      projectedCostClasses: {},
+      budgetStateAfter: initialRefreshBudgetState(NOW.getTime()),
+    },
   };
 }
 
@@ -198,9 +218,9 @@ describe("runDueMarketRefreshBatch — simulation E2E concurrente", () => {
     vi.mocked(takeProductSnapshot).mockImplementation(async (input) => {
       const productKey = input.identity.productKey;
       callsByProductKey[productKey] = (callsByProductKey[productKey] ?? 0) + 1;
-      if (productKey === "lego:10300") return fullSuccessResult(productKey, "bricklink");
-      if (productKey === "apple:iphone-13-outage") return totalOutageResult(productKey);
-      return noSafeQueryResult(productKey);
+      if (productKey === "lego:10300") return fakeOutput(fullSuccessResult(productKey, "bricklink"));
+      if (productKey === "apple:iphone-13-outage") return fakeOutput(totalOutageResult(productKey));
+      return fakeOutput(noSafeQueryResult(productKey));
     });
 
     const [summaryA, summaryB] = await Promise.all([

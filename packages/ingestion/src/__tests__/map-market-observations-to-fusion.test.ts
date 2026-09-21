@@ -72,6 +72,7 @@ describe("mapMarketObservationsToFusionObservations", () => {
     expect(result.fusionObservations).toEqual([]);
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0]!.reason).toContain("Aucun taux");
+    expect(result.skipped[0]!.reasonClass).toBe("missing_rate");
   });
 
   it("taux pour la mauvaise paire : refusé plutôt que mal appliqué", () => {
@@ -84,6 +85,7 @@ describe("mapMarketObservationsToFusionObservations", () => {
     });
     expect(result.fusionObservations).toEqual([]);
     expect(result.skipped[0]!.reason).toContain("paire incompatible");
+    expect(result.skipped[0]!.reasonClass).toBe("pair_mismatch");
   });
 
   it("taux trop ancien : refusé plutôt qu'utilisé silencieusement", () => {
@@ -96,6 +98,7 @@ describe("mapMarketObservationsToFusionObservations", () => {
     });
     expect(result.fusionObservations).toEqual([]);
     expect(result.skipped[0]!.reason).toContain("trop ancien");
+    expect(result.skipped[0]!.reasonClass).toBe("stale_rate");
   });
 
   it("taux non positif : refusé", () => {
@@ -108,6 +111,7 @@ describe("mapMarketObservationsToFusionObservations", () => {
     });
     expect(result.fusionObservations).toEqual([]);
     expect(result.skipped[0]!.reason).toContain("invalide");
+    expect(result.skipped[0]!.reasonClass).toBe("invalid_rate");
   });
 
   it("préserve merchant depuis MarketObservation.marketplace pour la diversité de fusion", () => {

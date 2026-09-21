@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { MarketSource } from "@dealradar/connectors";
-import { createCanonicalProductIdentity, mergeIdentityEvidence } from "@dealradar/core";
+import { createCanonicalProductIdentity, mergeIdentityEvidence, DEFAULT_REFRESH_BUDGET_LIMITS, initialRefreshBudgetState } from "@dealradar/core";
 
 vi.mock("@dealradar/ingestion", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dealradar/ingestion")>()),
@@ -9,10 +9,11 @@ vi.mock("@dealradar/ingestion", async (importOriginal) => ({
 
 vi.mock("../../ingestion/market-source-factory", () => ({
   buildMarketSourcesFromEnv: vi.fn(() => ({ sources: [], diagnostics: [] })),
+  computeEnvPresenceBySource: vi.fn(() => ({})),
 }));
 
 const { takeMarketSnapshot } = await import("@dealradar/ingestion");
-const { buildMarketSourcesFromEnv } = await import("../../ingestion/market-source-factory");
+const { buildMarketSourcesFromEnv, computeEnvPresenceBySource } = await import("../../ingestion/market-source-factory");
 const { takeProductSnapshot } = await import("../take-product-snapshot");
 const { FakeSupabase } = await import("./fake-supabase");
 
@@ -42,82 +43,87 @@ function legoIdentity() {
   }).identity;
 }
 
+function fakeSnapshotResult() {
+  return {
+    productKey: "lego:10300",
+    asOf: ASOF,
+    searchPlansUsed: [],
+    coverageReport: { categorySlug: "lego", asOf: ASOF, sourcesQueried: 0, sourcesSucceeded: 0, sourcesFailed: 0, perSource: [], observationsReturned: 0, observationsAfterCanonicalDedupe: 0, observationsUsableAfterFx: 0, observationsPersisted: null, medianLatencyMs: null },
+    observations: [],
+    observationsPersisted: null,
+    persistenceError: null,
+    identityPersisted: false,
+    identityPersistenceError: null,
+    fxRatesPersistedCount: null,
+    fxPersistenceError: null,
+    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+  };
+}
+
 beforeEach(() => {
   vi.mocked(takeMarketSnapshot).mockReset();
+  vi.mocked(takeMarketSnapshot).mockResolvedValue(fakeSnapshotResult());
   vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [], diagnostics: [] });
+  vi.mocked(computeEnvPresenceBySource).mockReturnValue({});
 });
 
 describe("takeProductSnapshot", () => {
-  it("résout les sources disponibles pour la catégorie et délègue à takeMarketSnapshot", async () => {
-    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
-    vi.mocked(takeMarketSnapshot).mockResolvedValue({
-      productKey: "lego:10300",
-      asOf: ASOF,
-      searchPlansUsed: [],
-      coverageReport: { categorySlug: "lego", asOf: ASOF, sourcesQueried: 1, sourcesSucceeded: 1, sourcesFailed: 0, perSource: [], observationsReturned: 0, observationsAfterCanonicalDedupe: 0, observationsUsableAfterFx: 0, observationsPersisted: 0, medianLatencyMs: null },
-      observations: [],
-      observationsPersisted: 0,
-      persistenceError: null,
-      identityPersisted: true,
-      identityPersistenceError: null,
-      fxRatesPersistedCount: null,
-      fxPersistenceError: null,
-      summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+  it("résout les sources SÉLECTIONNÉES par le SourceSelectionPlan (prêtes + budget) et délègue à takeMarketSnapshot", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({
+      bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true },
     });
 
     const db = new FakeSupabase();
-    const result = await takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never });
+    const { snapshot, selectionPlan } = await takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never });
 
     expect(takeMarketSnapshot).toHaveBeenCalledTimes(1);
     const call = vi.mocked(takeMarketSnapshot).mock.calls[0]![0];
     expect(call.sources.map((s) => s.source)).toEqual(["bricklink"]);
-    expect(result.productKey).toBe("lego:10300");
+    expect(snapshot.productKey).toBe("lego:10300");
+    expect(selectionPlan.selectedSources).toEqual(["bricklink"]);
   });
 
-  it("aucune source disponible (credentials absentes) : délègue quand même à takeMarketSnapshot avec une liste vide, jamais une exception", async () => {
-    vi.mocked(takeMarketSnapshot).mockResolvedValue({
-      productKey: "lego:10300",
-      asOf: ASOF,
-      searchPlansUsed: [],
-      coverageReport: { categorySlug: "lego", asOf: ASOF, sourcesQueried: 0, sourcesSucceeded: 0, sourcesFailed: 0, perSource: [], observationsReturned: 0, observationsAfterCanonicalDedupe: 0, observationsUsableAfterFx: 0, observationsPersisted: null, medianLatencyMs: null },
-      observations: [],
-      observationsPersisted: null,
-      persistenceError: null,
-      identityPersisted: false,
-      identityPersistenceError: null,
-      fxRatesPersistedCount: null,
-      fxPersistenceError: null,
-      summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+  it("aucune source prête (credentials absentes) : délègue quand même à takeMarketSnapshot avec une liste vide, jamais une exception", async () => {
+    const db = new FakeSupabase();
+    const { selectionPlan } = await takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never });
+
+    const call = vi.mocked(takeMarketSnapshot).mock.calls[0]![0];
+    expect(call.sources).toEqual([]);
+    expect(selectionPlan.selectedSources).toEqual([]);
+  });
+
+  it("un budget déjà épuisé (maxSourcesPerTarget: 0) exclut TOUTES les sources, même prêtes", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({
+      bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true },
     });
 
     const db = new FakeSupabase();
-    await expect(takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never })).resolves.toBeDefined();
+    const { selectionPlan } = await takeProductSnapshot({
+      identity: legoIdentity(),
+      categorySlug: "lego",
+      desiredCurrency: "CHF",
+      db: db as never,
+      budgetState: initialRefreshBudgetState(Date.now()),
+      budgetLimits: { ...DEFAULT_REFRESH_BUDGET_LIMITS, maxSourcesPerTarget: 0 },
+    });
 
+    expect(selectionPlan.selectedSources).toEqual([]);
+    expect(selectionPlan.excludedByCostBudget).toContain("bricklink");
     const call = vi.mocked(takeMarketSnapshot).mock.calls[0]![0];
     expect(call.sources).toEqual([]);
   });
 
-  it("transmet maxCostClass/maxSourceCount au routage par catégorie", async () => {
-    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("ricardo")], diagnostics: [{ name: "ricardo", enabled: true }] });
-    vi.mocked(takeMarketSnapshot).mockResolvedValue({
-      productKey: "lego:10300",
-      asOf: ASOF,
-      searchPlansUsed: [],
-      coverageReport: { categorySlug: "lego", asOf: ASOF, sourcesQueried: 0, sourcesSucceeded: 0, sourcesFailed: 0, perSource: [], observationsReturned: 0, observationsAfterCanonicalDedupe: 0, observationsUsableAfterFx: 0, observationsPersisted: null, medianLatencyMs: null },
-      observations: [],
-      observationsPersisted: null,
-      persistenceError: null,
-      identityPersisted: false,
-      identityPersistenceError: null,
-      fxRatesPersistedCount: null,
-      fxPersistenceError: null,
-      summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
-    });
+  it("ricardo (verrouillé par politique) n'est jamais sélectionné même avec ses credentials présentes", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("ricardo")], diagnostics: [] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ ricardo: {} });
 
     const db = new FakeSupabase();
-    await takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never, maxCostClass: "cheap" });
+    const { selectionPlan } = await takeProductSnapshot({ identity: legoIdentity(), categorySlug: "lego", desiredCurrency: "CHF", db: db as never });
 
-    // ricardo = high_cost -> exclu par le plafond "cheap", jamais transmis à takeMarketSnapshot.
+    expect(selectionPlan.selectedSources).not.toContain("ricardo");
+    expect(selectionPlan.excludedByPolicy).toContain("ricardo");
     const call = vi.mocked(takeMarketSnapshot).mock.calls[0]![0];
     expect(call.sources).toEqual([]);
   });

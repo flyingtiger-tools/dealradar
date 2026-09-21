@@ -25,6 +25,7 @@ interface QueryState {
   onConflict?: string[];
   orderBy?: { column: string; ascending: boolean; nullsFirst?: boolean }[];
   limitCount?: number;
+  single?: boolean;
   maybeSingle?: boolean;
 }
 
@@ -69,7 +70,7 @@ export class FakeSupabase {
       select() {
         return builder;
       },
-      insert(payload: Row) {
+      insert(payload: Row | Row[]) {
         state.operation = "insert";
         state.payload = payload;
         return builder;
@@ -121,6 +122,10 @@ export class FakeSupabase {
         state.limitCount = count;
         return builder;
       },
+      single() {
+        state.single = true;
+        return builder;
+      },
       maybeSingle() {
         state.maybeSingle = true;
         return builder;
@@ -160,16 +165,10 @@ export class FakeSupabase {
         }));
 
     if (state.operation === "insert") {
-      const payload = state.payload as Row;
-      const inserted = { id: payload.id ?? Math.random().toString(36).slice(2), ...payload };
-      rows.push(inserted);
-      return { data: inserted, error: null };
-    }
-
-    if (state.operation === "update") {
-      const targets = rows.filter(matches);
-      for (const row of targets) Object.assign(row, state.payload as Row);
-      return { data: targets, error: null };
+      const payloads = Array.isArray(state.payload) ? state.payload : [state.payload!];
+      const inserted = payloads.map((p) => ({ id: p.id ?? Math.random().toString(36).slice(2), ...p }));
+      rows.push(...inserted);
+      return { data: state.single ? inserted[0] : inserted, error: null };
     }
 
     if (state.operation === "upsert") {
@@ -187,7 +186,13 @@ export class FakeSupabase {
           upserted.push(inserted);
         }
       }
-      return { data: upserted, error: null };
+      return { data: state.single ? upserted[0] : upserted, error: null };
+    }
+
+    if (state.operation === "update") {
+      const targets = rows.filter(matches);
+      for (const row of targets) Object.assign(row, state.payload as Row);
+      return { data: targets, error: null };
     }
 
     let result = rows.filter(matches);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveSourcesForCategory, preferredSourceNamesForCategory, costClassForSource, CATEGORY_SOURCE_PREFERENCES } from "../source-routing";
-import { emptySourceHealthState, recordSourceRun } from "../source-health-tracker";
+import { resolveSourcesForCategory, orderedCandidateSourcesForCategory, preferredSourceNamesForCategory, costClassForSource, CATEGORY_SOURCE_PREFERENCES } from "../source-routing";
+import { emptySourceHealthState, disableSource, recordSourceRun } from "../source-health-tracker";
 import type { MarketSource } from "../market-source";
 
 function fakeSource(source: string, overrides: Partial<MarketSource> = {}): MarketSource {
@@ -97,5 +97,21 @@ describe("costClassForSource", () => {
 
   it("source inconnue -> 'paid' par défaut, jamais supposée gratuite", () => {
     expect(costClassForSource("some_future_source")).toBe("paid");
+  });
+});
+
+describe("orderedCandidateSourcesForCategory", () => {
+  it("produit exactement le même ordre que resolveSourcesForCategory SANS plafond — une seule logique d'ordonnancement partagée", () => {
+    const sources = [fakeSource("ricardo"), fakeSource("bricklink"), fakeSource("ebay")];
+    const ordered = orderedCandidateSourcesForCategory("lego", sources);
+    const resolved = resolveSourcesForCategory("lego", sources);
+    expect(ordered.map((s) => s.source)).toEqual(resolved.map((s) => s.source));
+  });
+
+  it("respecte la santé déclarée, comme resolveSourcesForCategory", () => {
+    const unhealthy = disableSource(emptySourceHealthState("ebay"));
+    const sources = [fakeSource("ebay")];
+    const ordered = orderedCandidateSourcesForCategory("lego", sources, { ebay: unhealthy });
+    expect(ordered).toEqual([]);
   });
 });

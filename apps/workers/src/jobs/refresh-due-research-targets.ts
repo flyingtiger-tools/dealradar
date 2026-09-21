@@ -8,7 +8,6 @@ import {
   initialRefreshBudgetState,
   canProcessAnotherTarget,
   recordTargetStarted,
-  recordSourceQueried,
   DEFAULT_REFRESH_BUDGET_LIMITS,
   computeVolatility,
   type CostClass,
@@ -26,7 +25,9 @@ import {
   reconcileAndPersistListingLifecycles,
   persistMarketSnapshotSummary,
   queryHistoricalPricePoints,
+  persistRefreshRunAudit,
   type ResearchTargetRow,
+  type RefreshRunTargetAuditInput,
 } from "@dealradar/ingestion";
 import { takeProductSnapshot } from "./take-product-snapshot";
 import { logger } from "../logger";
@@ -42,8 +43,8 @@ import { logger } from "../logger";
  * `claim_research_target`/`release_research_target` (migration 0021,
  * `packages/ingestion`, section 2).
  *
- * Flux par cible réclamée (section 3) : charger l'identité canonique
- * persistée → construire un plan de requête SÛR (`stripConflictedFields`,
+ * Flux par cible réclamée (section 3, mis à jour section 4) : charger
+ * l'identité canonique persistée → construire un plan de requête SÛR (`stripConflictedFields`,
  * jamais une requête exacte sur un champ contesté, section 7) → instantané
  * de marché conscient de la préparation live (`takeProductSnapshot`,
  * lui-même désormais conscient de la matrice de préparation, section 6) →
@@ -54,17 +55,10 @@ import { logger } from "../logger";
  * mise à jour de la cible → libération du bail. Une défaillance sur UNE
  * cible n'interrompt jamais le reste du lot (isolation explicite, section 3).
  *
- * LIMITE CONNUE (documentée honnêtement, jamais dissimulée) : les
- * garde-fous budgétaires (section 5) sont appliqués au niveau
- * "classe de coût maximale autorisée pour CETTE cible" via les options déjà
- * exposées par `takeProductSnapshot` (`maxCostClass`/`maxSourceCount`),
- * jamais au niveau de CHAQUE appel réseau individuel (le moteur
- * d'instantané sous-jacent interroge déjà ses sources en parallèle, sans
- * point d'accroche par appel). Le compteur RUN-WIDE (`highCostSourcesQueriedThisRun`)
- * est mis à jour de façon fiable APRÈS COUP à partir de
- * `coverageReport.perSource` (les sources RÉELLEMENT interrogées), donc
- * l'accounting inter-cibles reste exact même si le plafond PAR CIBLE de
- * sources payantes n'est qu'approximatif (voir BUILDER HANDOFF).
+ * ENFORCEMENT EXACT (LOT "Real DB Integration...", section 3/4) : le budget
+ * run-wide est propagé de cible en cible via `selectionPlan.budgetStateAfter`
+ * — la sélection elle-même applique déjà `canQuerySource`/`recordSourceQueried`
+ * AVANT de choisir une source, jamais après coup.
  */
 export interface RunDueMarketRefreshBatchOptions {
   db: SupabaseClient;
@@ -84,12 +78,16 @@ export interface PerTargetRefreshOutcome {
   productKey: string;
   outcome: "succeeded" | "failed";
   failureReason?: RefreshFailureReason;
+  /** `true` uniquement sur un SUCCÈS où au moins une observation a été écartée de la fusion faute de taux (manquant OU périmé) alors que d'autres restaient exploitables — succès réel, mais avec un avertissement FX explicite (LOT "Real DB Integration...", section 5), jamais confondu avec `fx_unavailable` (blocage TOTAL, classé comme échec). */
+  fxWarning: boolean;
   observationsPersisted: number;
   nextRefreshAt: string;
   priority: number;
 }
 
 export interface RunDueMarketRefreshBatchSummary {
+  /** Identifiant STABLE de ce run — clé d'idempotence de son audit (`market_refresh_runs.run_key`, section 6), jamais réutilisé. */
+  runKey: string;
   considered: number;
   claimed: number;
   skippedLocked: number;
@@ -100,6 +98,10 @@ export interface RunDueMarketRefreshBatchSummary {
   /** Compte d'observations agrégé PAR SOURCE, sur l'ensemble du run — jamais une URL/valeur de credential, uniquement des noms et des compteurs. */
   bySourceCoverage: Record<string, number>;
   elapsedMs: number;
+  /** `true` si le run s'est arrêté parce que `totalRunTimeoutMs` a été atteint (LOT "Real DB Integration...", section 8) — les cibles restantes dues ne sont alors jamais marquées rafraîchies, simplement différées au run suivant. */
+  timedOut: boolean;
+  /** `true` si le run s'est arrêté parce que `maxTargetsPerRun` a été atteint avant d'épuiser les cibles dues — distinct d'un arrêt par délai. */
+  budgetExhausted: boolean;
   perTarget: PerTargetRefreshOutcome[];
 }
 
@@ -124,21 +126,31 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
   const disappearanceRuleHours = options.disappearanceRuleHours ?? DEFAULT_DISAPPEARANCE_RULE_HOURS;
   const historicalLookbackDays = options.historicalLookbackDays ?? DEFAULT_HISTORICAL_LOOKBACK_DAYS;
 
+  const runKey = crypto.randomUUID();
   const dueAtStart = await queryDueResearchTargets(options.db, { limit: CONSIDERED_PREVIEW_LIMIT, now: new Date(startedAtMs) });
   const considered = dueAtStart.length;
 
   let budgetState: RefreshBudgetState = initialRefreshBudgetState(startedAtMs);
   const perTarget: PerTargetRefreshOutcome[] = [];
+  const auditTargets: RefreshRunTargetAuditInput[] = [];
   const bySourceCoverage: Record<string, number> = {};
+  const sourceCountsByStatus: Record<string, number> = {};
   let claimedCount = 0;
   let succeeded = 0;
   let failed = 0;
   let observationsPersistedTotal = 0;
+  let timedOut = false;
+  let budgetExhausted = false;
 
   for (;;) {
     const nowMs = (options.now?.() ?? new Date()).getTime();
     const budgetCheck = canProcessAnotherTarget(budgetState, limits, nowMs);
-    if (!budgetCheck.allowed) break;
+    if (!budgetCheck.allowed) {
+      // Distingue la cause d'arrêt (section 8) — jamais devinée depuis le texte de `budgetCheck.reason`, recalculée directement à partir des mêmes conditions que `canProcessAnotherTarget`.
+      timedOut = nowMs - startedAtMs >= limits.totalRunTimeoutMs;
+      budgetExhausted = !timedOut && budgetState.targetsProcessed >= limits.maxTargetsPerRun;
+      break;
+    }
 
     const claimed = await claimResearchTargets(options.db, { leaseOwner: options.leaseOwner, leaseDurationSeconds, limit: 1 });
     const target = claimed[0];
@@ -152,29 +164,49 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
         db: options.db,
         target,
         asOf: new Date(nowMs).toISOString(),
-        maxCostClass: highestAllowedCostClassForTarget(budgetState, limits),
-        maxSourceCount: limits.maxSourcesPerTarget,
+        budgetState,
+        budgetLimits: limits,
         disappearanceRuleHours,
         historicalLookbackDays,
       });
 
       perTarget.push(result.outcome);
+      auditTargets.push(result.auditDetail);
       if (result.outcome.outcome === "succeeded") succeeded += 1;
       else failed += 1;
       observationsPersistedTotal += result.outcome.observationsPersisted;
       for (const [source, count] of Object.entries(result.bySource)) {
         bySourceCoverage[source] = (bySourceCoverage[source] ?? 0) + count;
       }
-      // Comptabilité budgétaire RUN-WIDE mise à jour APRÈS COUP à partir des sources RÉELLEMENT interrogées (voir la limite connue documentée en en-tête de fichier).
-      for (const costClass of result.queriedCostClasses) budgetState = recordSourceQueried(budgetState, costClass);
+      // Le budget résultant de la SÉLECTION (déjà exact, décidée avant requête) devient l'état de départ de la cible suivante — jamais un recalcul après coup.
+      budgetState = result.budgetStateAfter;
     } catch (error) {
       // Une défaillance INATTENDUE sur une cible n'interrompt jamais le lot (section 3) — classée prudemment comme panne transitoire, jamais silencieusement ignorée.
       const safeMessage = error instanceof Error ? error.message : "erreur inconnue";
       logger.warn({ productKey: target.productKey, error: safeMessage }, "Rafraîchissement de cible : échec inattendu, cible reprogrammée prudemment");
       const decision = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "transient_source_outage", consecutiveFailures: target.consecutiveFailures, costClass: "free" });
-      await updateResearchTargetAfterCycle(options.db, target, decision, new Date(nowMs).toISOString(), safeMessage);
+      const asOf = new Date(nowMs).toISOString();
+      await updateResearchTargetAfterCycle(options.db, target, decision, asOf, safeMessage);
       failed += 1;
-      perTarget.push({ productKey: target.productKey, outcome: "failed", failureReason: "transient_source_outage", observationsPersisted: 0, nextRefreshAt: computeNextRefreshAtIso(nowMs, decision.delayHours), priority: target.priority });
+      const nextRefreshAt = computeNextRefreshAtIso(nowMs, decision.delayHours);
+      perTarget.push({ productKey: target.productKey, outcome: "failed", failureReason: "transient_source_outage", fxWarning: false, observationsPersisted: 0, nextRefreshAt, priority: target.priority });
+      auditTargets.push({
+        researchTargetId: target.id,
+        productKey: target.productKey,
+        claimedAt: target.claimedAt,
+        startedAt: asOf,
+        finishedAt: asOf,
+        outcome: "failed",
+        failureReason: "transient_source_outage",
+        selectedSources: [],
+        skippedSourceReasons: {},
+        observationsReturned: 0,
+        observationsPersisted: 0,
+        fxSkippedCount: 0,
+        identityConflictCount: 0,
+        nextRefreshAt,
+        safeErrorClass: "transient_source_outage",
+      });
     } finally {
       const released = await releaseResearchTarget(options.db, target.id, options.leaseOwner);
       if (!released) {
@@ -183,7 +215,20 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
     }
   }
 
-  return {
+  const targetCountsByOutcome: Record<string, number> = {};
+  const errorClassCounts: Record<string, number> = {};
+  for (const t of perTarget) {
+    const key = t.outcome === "succeeded" ? "succeeded" : (t.failureReason ?? "unknown");
+    targetCountsByOutcome[key] = (targetCountsByOutcome[key] ?? 0) + 1;
+    if (t.outcome === "failed") errorClassCounts[t.failureReason ?? "unknown"] = (errorClassCounts[t.failureReason ?? "unknown"] ?? 0) + 1;
+  }
+  for (const t of auditTargets) {
+    for (const source of t.selectedSources) sourceCountsByStatus[source] = (sourceCountsByStatus[source] ?? 0) + 1;
+  }
+
+  const finishedAtMs = (options.now?.() ?? new Date()).getTime();
+  const summary: RunDueMarketRefreshBatchSummary = {
+    runKey,
     considered,
     claimed: claimedCount,
     skippedLocked: Math.max(0, considered - claimedCount),
@@ -192,14 +237,38 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
     rescheduled: succeeded + failed,
     observationsPersisted: observationsPersistedTotal,
     bySourceCoverage,
-    elapsedMs: (options.now?.() ?? new Date()).getTime() - startedAtMs,
+    elapsedMs: finishedAtMs - startedAtMs,
+    timedOut,
+    budgetExhausted,
     perTarget,
   };
-}
 
-function highestAllowedCostClassForTarget(state: RefreshBudgetState, limits: RefreshBudgetLimits): CostClass {
-  if (state.highCostSourcesQueriedThisRun >= limits.maxHighCostSourcesPerRun) return "paid";
-  return "high_cost";
+  // Persistance d'audit ISOLÉE (section 6/7) — un échec ici ne doit JAMAIS faire échouer le lot lui-même, ni masquer le résumé déjà calculé.
+  try {
+    await persistRefreshRunAudit({
+      supabase: options.db,
+      runKey,
+      leaseOwner: options.leaseOwner,
+      startedAt: new Date(startedAtMs).toISOString(),
+      finishedAt: new Date(finishedAtMs).toISOString(),
+      considered,
+      claimed: claimedCount,
+      succeeded,
+      failed,
+      observationsPersisted: observationsPersistedTotal,
+      targetCountsByOutcome,
+      sourceCountsByStatus,
+      errorClassCounts,
+      elapsedMs: summary.elapsedMs,
+      timedOut,
+      budgetExhausted,
+      targets: auditTargets,
+    });
+  } catch (error) {
+    logger.warn({ runKey, error: error instanceof Error ? error.message : "erreur inconnue" }, "Persistance de l'audit de run impossible — résumé du lot non affecté");
+  }
+
+  return summary;
 }
 
 function computeNextRefreshAtIso(nowMs: number, delayHours: number): string {
@@ -232,8 +301,8 @@ interface RefreshOneTargetInput {
   db: SupabaseClient;
   target: ResearchTargetRow;
   asOf: string;
-  maxCostClass: CostClass;
-  maxSourceCount: number;
+  budgetState: RefreshBudgetState;
+  budgetLimits: RefreshBudgetLimits;
   disappearanceRuleHours: number;
   historicalLookbackDays: number;
 }
@@ -241,8 +310,10 @@ interface RefreshOneTargetInput {
 interface RefreshOneTargetResult {
   outcome: PerTargetRefreshOutcome;
   bySource: Record<string, number>;
-  /** Une entrée par source RÉELLEMENT interrogée ce cycle (jamais par observation) — alimente la comptabilité budgétaire run-wide, voir l'appelant. */
-  queriedCostClasses: CostClass[];
+  /** État du budget APRÈS la sélection EXACTE de sources pour cette cible (`SourceSelectionPlan.budgetStateAfter`) — jamais recalculé après coup. */
+  budgetStateAfter: RefreshBudgetState;
+  /** Détail d'audit PAR CIBLE (section 7) — métadonnées sûres uniquement, jamais un payload brut complet. */
+  auditDetail: RefreshRunTargetAuditInput;
 }
 
 async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOneTargetResult> {
@@ -253,33 +324,70 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
     // Aucune identité canonique connue pour cette cible — jamais une catégorie/des champs fabriqués. Les cibles sont normalement amorcées APRÈS une analyse interactive réussie (qui persiste déjà l'identité) ; ce cas reste un filet de sécurité, pas le chemin nominal.
     const decision = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "identity_too_weak", consecutiveFailures: target.consecutiveFailures, costClass: "free" });
     await updateResearchTargetAfterCycle(db, target, decision, asOf, decision.reason);
+    const nextRefreshAt = computeNextRefreshAtIso(Date.parse(asOf), decision.delayHours);
     return {
-      outcome: { productKey: target.productKey, outcome: "failed", failureReason: "identity_too_weak", observationsPersisted: 0, nextRefreshAt: computeNextRefreshAtIso(Date.parse(asOf), decision.delayHours), priority: Math.max(0, Math.min(100, target.priority)) },
+      outcome: { productKey: target.productKey, outcome: "failed", failureReason: "identity_too_weak", fxWarning: false, observationsPersisted: 0, nextRefreshAt, priority: Math.max(0, Math.min(100, target.priority)) },
       bySource: {},
-      queriedCostClasses: [],
+      budgetStateAfter: input.budgetState,
+      auditDetail: {
+        researchTargetId: target.id,
+        productKey: target.productKey,
+        claimedAt: target.claimedAt,
+        startedAt: asOf,
+        finishedAt: asOf,
+        outcome: "failed",
+        failureReason: "identity_too_weak",
+        selectedSources: [],
+        skippedSourceReasons: {},
+        observationsReturned: 0,
+        observationsPersisted: 0,
+        fxSkippedCount: 0,
+        identityConflictCount: 0,
+        nextRefreshAt,
+        safeErrorClass: "identity_too_weak",
+      },
     };
   }
 
   const healthSummary = summarizeIdentityHealth(identity, KNOWN_SOURCE_QUERY_PROFILES);
   const safeIdentityForPlanning = stripConflictedFields(identity);
 
-  const result = await takeProductSnapshot({
+  const { snapshot: result, selectionPlan } = await takeProductSnapshot({
     identity: safeIdentityForPlanning,
     categorySlug: identity.categorySlug,
     desiredCurrency: target.desiredCurrency,
     db,
-    maxCostClass: input.maxCostClass,
-    maxSourceCount: input.maxSourceCount,
+    identityHealth: healthSummary,
+    budgetState: input.budgetState,
+    budgetLimits: input.budgetLimits,
   });
 
-  const collectedEvidence = result.summary.observationCount > 0;
+  const rawObservationCount = result.summary.observationCount;
+  const collectedEvidence = rawObservationCount > 0;
   const persistenceFailed = Boolean(result.persistenceError || result.identityPersistenceError || result.fxPersistenceError);
-  const hasUsefulEvidence = collectedEvidence && !persistenceFailed;
+  // Distinction section 5 : `skippedForMissingRateCount`/`staleRateCount` comptent UNIQUEMENT les observations écartées de la vue normalisée faute de taux — jamais confondu avec des observations simplement absentes.
+  const fxSkippedCount = result.summary.skippedForMissingRateCount + result.summary.staleRateCount;
+  const normalizedUsableCount = rawObservationCount - fxSkippedCount;
+  // Blocage TOTAL par FX : des observations ont bien été collectées (et persistées, chacune dans sa devise d'origine) mais AUCUNE n'est exploitable pour la vue normalisée, uniquement à cause du change — jamais confondu avec "aucune observation du tout".
+  const fxFullyBlocked = collectedEvidence && !persistenceFailed && normalizedUsableCount === 0 && fxSkippedCount > 0;
+  // Succès partiel : au moins une observation reste exploitable malgré un avertissement FX sur d'autres — un succès réel, jamais reclassé en échec pour ce seul motif.
+  const fxWarning = collectedEvidence && !persistenceFailed && normalizedUsableCount > 0 && fxSkippedCount > 0;
+  const hasUsefulEvidence = collectedEvidence && !persistenceFailed && !fxFullyBlocked;
+
+  // Signal de RUNTIME dédié pour "policy_disabled_source_set" (section 9) — SEULE cause du blocage : chaque source candidate a été exclue PAR POLITIQUE (restricted/disabled_policy/license_required), jamais confondu avec des credentials manquantes/un budget épuisé/une identité insuffisante (chacun de ces trois autres motifs, s'il en existe UN SEUL, prend le pas — la politique n'est "la" cause que si elle est la SEULE).
+  const allBlockedByPolicyOnly =
+    selectionPlan.selectedSources.length === 0 &&
+    selectionPlan.excludedByPolicy.length > 0 &&
+    selectionPlan.excludedByMissingCredentials.length === 0 &&
+    selectionPlan.excludedByCostBudget.length === 0 &&
+    selectionPlan.excludedByIdentityWeakness.length === 0;
 
   let failureReason: RefreshFailureReason | undefined;
   if (!hasUsefulEvidence) {
     if (collectedEvidence && persistenceFailed) failureReason = "persistence_only_failure";
+    else if (fxFullyBlocked) failureReason = "fx_unavailable";
     else if (healthSummary.unresolvedConflictCount > 0 && healthSummary.exactSearchableSources.length === 0) failureReason = "hard_data_conflict";
+    else if (allBlockedByPolicyOnly) failureReason = "policy_disabled_source_set";
     else if (healthSummary.exactSearchableSources.length === 0 && healthSummary.fallbackOnlySources.length === 0) failureReason = "identity_too_weak";
     // sinon : laissé indéfini -> repli par défaut "all_sources_unavailable" à l'intérieur de `decideRefreshRetry`.
   }
@@ -361,16 +469,40 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
     })
     .eq("id", target.id);
 
+  const resolvedFailureReason = hasUsefulEvidence ? undefined : (failureReason ?? "all_sources_unavailable");
+  const skippedSourceReasons: Record<string, string> = {};
+  for (const entry of selectionPlan.entries) {
+    if (!entry.included) skippedSourceReasons[entry.source] = entry.reason;
+  }
+
   return {
     outcome: {
       productKey: target.productKey,
       outcome: hasUsefulEvidence ? "succeeded" : "failed",
-      failureReason: hasUsefulEvidence ? undefined : (failureReason ?? "all_sources_unavailable"),
+      failureReason: resolvedFailureReason,
+      fxWarning,
       observationsPersisted: result.observationsPersisted ?? 0,
       nextRefreshAt,
       priority: nextPriority,
     },
     bySource,
-    queriedCostClasses: result.coverageReport.perSource.map((entry) => entry.costClass),
+    budgetStateAfter: selectionPlan.budgetStateAfter,
+    auditDetail: {
+      researchTargetId: target.id,
+      productKey: target.productKey,
+      claimedAt: target.claimedAt,
+      startedAt: asOf,
+      finishedAt: asOf,
+      outcome: hasUsefulEvidence ? "succeeded" : "failed",
+      failureReason: resolvedFailureReason ?? null,
+      selectedSources: selectionPlan.selectedSources,
+      skippedSourceReasons,
+      observationsReturned: rawObservationCount,
+      observationsPersisted: result.observationsPersisted ?? 0,
+      fxSkippedCount,
+      identityConflictCount: healthSummary.unresolvedConflictCount,
+      nextRefreshAt,
+      safeErrorClass: resolvedFailureReason ?? null,
+    },
   };
 }

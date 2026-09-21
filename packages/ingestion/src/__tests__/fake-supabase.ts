@@ -216,7 +216,7 @@ export class FakeSupabase {
           upserted.push(inserted);
         }
       }
-      return { data: upserted, error: null };
+      return { data: state.single ? upserted[0] : upserted, error: null };
     }
 
     let result = rows.filter(matches);

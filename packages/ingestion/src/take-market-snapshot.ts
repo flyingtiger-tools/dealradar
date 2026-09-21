@@ -52,8 +52,10 @@ export interface MarketSnapshotSummary {
   observationCount: number;
   sourceDiversity: number;
   currenciesObserved: string[];
-  /** Observations écartées du résumé normalisé faute de taux fiable — jamais silencieusement absorbées (les lignes elles-mêmes restent persistées dans leur devise d'origine). */
+  /** Observations écartées du résumé normalisé faute de TOUT taux disponible (`reasonClass === "missing_rate"`) — jamais silencieusement absorbées (les lignes elles-mêmes restent persistées dans leur devise d'origine). */
   skippedForMissingRateCount: number;
+  /** Observations écartées car le taux disponible était PÉRIMÉ (`reasonClass === "stale_rate"`) — distinct de `skippedForMissingRateCount` (LOT "Real DB Integration...", section 5) : un taux existe mais n'est plus fiable, jamais confondu avec une absence totale de taux. */
+  staleRateCount: number;
   normalizedCurrency: string;
   normalizedRange: MedianRangeSignal | null;
 }
@@ -153,7 +155,8 @@ export async function takeMarketSnapshot(input: MarketSnapshotInput): Promise<Ma
     observationCount: observations.length,
     sourceDiversity: new Set(observations.map((o) => o.source)).size,
     currenciesObserved: [...new Set(observations.map((o) => o.currency))],
-    skippedForMissingRateCount: skipped.length,
+    skippedForMissingRateCount: skipped.filter((s) => s.reasonClass === "missing_rate").length,
+    staleRateCount: skipped.filter((s) => s.reasonClass === "stale_rate").length,
     normalizedCurrency: input.desiredCurrency,
     normalizedRange,
   };

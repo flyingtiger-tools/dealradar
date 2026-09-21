@@ -11,10 +11,11 @@ vi.mock("@dealradar/ingestion", async (importOriginal) => ({
 
 vi.mock("../../ingestion/market-source-factory", () => ({
   buildMarketSourcesFromEnv: vi.fn(() => ({ sources: [], diagnostics: [] })),
+  computeEnvPresenceBySource: vi.fn(() => ({})),
 }));
 
 const { gatherActiveListingEvidence, signStorageImageUrl, orchestrateMarketIntelligence } = await import("@dealradar/ingestion");
-const { buildMarketSourcesFromEnv } = await import("../../ingestion/market-source-factory");
+const { buildMarketSourcesFromEnv, computeEnvPresenceBySource } = await import("../../ingestion/market-source-factory");
 const { processAnalysis } = await import("../process-analysis");
 
 /** Source de marché factice qui déclare supporter "lego" — sert uniquement à faire passer `resolveSourcesForCategory`, jamais réellement interrogée (orchestrateMarketIntelligence est mocké). */
@@ -58,6 +59,7 @@ beforeEach(() => {
   vi.mocked(signStorageImageUrl).mockReset();
   vi.mocked(orchestrateMarketIntelligence).mockReset();
   vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [], diagnostics: [] });
+  vi.mocked(computeEnvPresenceBySource).mockReturnValue({});
 });
 
 afterEach(() => {
@@ -316,6 +318,7 @@ describe("processAnalysis", () => {
 
   it("sources multi-source disponibles + fusion estimée : utilise la valorisation fusionnée, marketEvidence rempli, decision cohérente", async () => {
     vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
     vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
       sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
       observationCount: 3,
@@ -388,6 +391,7 @@ describe("processAnalysis", () => {
 
   it("fusion multi-source insuffisante (aucune preuve exploitable trouvée) : reste INSUFFICIENT_DATA, marketEvidence reflète honnêtement l'absence de preuve", async () => {
     vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
     vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
       sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 0, latencyMs: 10 }],
       observationCount: 0,
@@ -447,6 +451,7 @@ describe("processAnalysis", () => {
 
   it("panne de l'intelligence de marché multi-source (exception) : le résultat existant est conservé, jamais un crash", async () => {
     vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
     vi.mocked(orchestrateMarketIntelligence).mockRejectedValue(new Error("panne réseau simulée"));
 
     const db = new FakeSupabase();

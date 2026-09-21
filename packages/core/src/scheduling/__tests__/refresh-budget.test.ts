@@ -74,4 +74,38 @@ describe("canQuerySource", () => {
     expect(state.highCostSourcesQueriedThisRun).toBe(1);
     expect(state.sourcesQueriedForCurrentTarget).toBe(0); // réinitialisé PAR CIBLE, correctement
   });
+
+  it("refuse au-delà du plafond de sources à coût élevé PAR CIBLE, même sous le plafond payant par cible et le plafond run-wide", () => {
+    let state = initialRefreshBudgetState(0);
+    for (let i = 0; i < DEFAULT_REFRESH_BUDGET_LIMITS.maxHighCostSourcesPerTarget; i++) state = recordSourceQueried(state, "high_cost");
+    const result = canQuerySource(state, DEFAULT_REFRESH_BUDGET_LIMITS, "high_cost");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("PAR CIBLE");
+  });
+
+  it("recordTargetStarted réinitialise highCostSourcesQueriedForCurrentTarget (par cible), jamais highCostSourcesQueriedThisRun (run-wide)", () => {
+    let state = initialRefreshBudgetState(0);
+    state = recordSourceQueried(state, "high_cost");
+    state = recordTargetStarted(state);
+    expect(state.highCostSourcesQueriedForCurrentTarget).toBe(0);
+    expect(state.highCostSourcesQueriedThisRun).toBe(1);
+  });
+
+  it("maxPaidSourcesPerRun (optionnel) refuse au-delà du plafond RUN-WIDE payant, jamais réinitialisé entre cibles", () => {
+    const limits = { ...DEFAULT_REFRESH_BUDGET_LIMITS, maxPaidSourcesPerTarget: 10, maxHighCostSourcesPerTarget: 10, maxHighCostSourcesPerRun: 10, maxPaidSourcesPerRun: 2 };
+    let state = initialRefreshBudgetState(0);
+    state = recordSourceQueried(state, "paid");
+    state = recordTargetStarted(state);
+    state = recordSourceQueried(state, "paid");
+    state = recordTargetStarted(state); // troisième cible — paidSourcesQueriedThisRun = 2, jamais réinitialisé.
+    const result = canQuerySource(state, limits, "paid");
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("run");
+  });
+
+  it("maxPaidSourcesPerRun absent (undefined) : aucune restriction run-wide payante appliquée", () => {
+    let state = initialRefreshBudgetState(0);
+    for (let i = 0; i < 50; i++) state = recordSourceQueried(state, "paid");
+    expect(canQuerySource(state, { ...DEFAULT_REFRESH_BUDGET_LIMITS, maxSourcesPerTarget: 100, maxPaidSourcesPerTarget: 100 }, "paid").allowed).toBe(true);
+  });
 });

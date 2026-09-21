@@ -91,21 +91,21 @@ export interface ResolveSourcesOptions {
 }
 
 /**
- * Résout la liste ORDONNÉE des sources réellement disponibles pour une
- * catégorie : préférence déclarée (donnée) ∩ sources enregistrées ∩
- * supportant la catégorie ∩ en bonne santé ∩ dans le plafond de coût ∩
- * dans le plafond de compte. Aucune source n'est jamais obligatoire — une
- * liste vide est un résultat valide (l'agrégateur dégrade gracieusement,
- * voir `aggregate-market-observations.ts`). L'ordre de préférence
- * (`CATEGORY_SOURCE_PREFERENCES`) place déjà les sources gratuites/peu
- * chères et les plus pertinentes en tête pour chaque catégorie — les
- * plafonds ci-dessous ne font que couper la fin de cette liste déjà
- * triée, jamais réordonner.
+ * Liste ORDONNÉE des sources candidates pour une catégorie, AVANT tout
+ * plafond de budget : préférence déclarée (donnée) ∩ sources enregistrées
+ * ∩ supportant la catégorie ∩ en bonne santé. Extrait de
+ * `resolveSourcesForCategory` (LOT "Real DB Integration + Exact Budget
+ * Enforcement...", section 3) pour être réutilisé tel quel par
+ * `buildSourceSelectionPlan` (`packages/ingestion`) — UNE SEULE définition
+ * de l'ordre de préférence, jamais deux logiques d'ordonnancement
+ * divergentes entre le chemin interactif et le chemin de rafraîchissement
+ * (exigence explicite du lot : "no hidden differences between the two
+ * paths unless explicitly documented").
  */
-export function resolveSourcesForCategory(
+export function orderedCandidateSourcesForCategory(
   categorySlug: string,
   availableSources: readonly MarketSource[],
-  options: ResolveSourcesOptions = {},
+  health?: Record<string, SourceHealthState>,
 ): MarketSource[] {
   const preferredNames = preferredSourceNamesForCategory(categorySlug);
   const bySource = new Map(availableSources.map((s) => [s.source, s] as const));
@@ -115,8 +115,8 @@ export function resolveSourcesForCategory(
     const source = bySource.get(name);
     if (!source) continue;
     if (!marketSourceSupportsCategory(source, categorySlug)) continue;
-    const health = options.health?.[source.source];
-    if (health && !isSourceHealthy(health)) continue;
+    const sourceHealth = health?.[source.source];
+    if (sourceHealth && !isSourceHealthy(sourceHealth)) continue;
     resolved.push(source);
   }
 
@@ -128,11 +128,34 @@ export function resolveSourcesForCategory(
   for (const source of availableSources) {
     if (resolved.includes(source)) continue;
     if (!marketSourceSupportsCategory(source, categorySlug)) continue;
-    const health = options.health?.[source.source];
-    if (health && !isSourceHealthy(health)) continue;
+    const sourceHealth = health?.[source.source];
+    if (sourceHealth && !isSourceHealthy(sourceHealth)) continue;
     resolved.push(source);
   }
 
+  return resolved;
+}
+
+/**
+ * Résout la liste ORDONNÉE des sources réellement disponibles pour une
+ * catégorie, PLAFONNÉE par coût/compte. Aucune source n'est jamais
+ * obligatoire — une liste vide est un résultat valide (l'agrégateur
+ * dégrade gracieusement, voir `aggregate-market-observations.ts`).
+ *
+ * NOTE (section 3 du lot) : ce plafonnage `maxCostClass`/`maxSourceCount`
+ * reste une approximation APRÈS-COUP par rapport à `buildSourceSelectionPlan`
+ * (`packages/ingestion`), qui applique désormais l'enforcement EXACT
+ * (compte par classe de coût, PAR CIBLE et PAR RUN) avant toute requête.
+ * Cette fonction reste utilisée par du code n'ayant pas encore migré vers
+ * le plan de sélection explicite — jamais supprimée pour préserver la
+ * compatibilité, mais plus la voie recommandée pour un nouvel appelant.
+ */
+export function resolveSourcesForCategory(
+  categorySlug: string,
+  availableSources: readonly MarketSource[],
+  options: ResolveSourcesOptions = {},
+): MarketSource[] {
+  const resolved = orderedCandidateSourcesForCategory(categorySlug, availableSources, options.health);
   const withinBudget = options.maxCostClass ? resolved.filter((s) => isWithinCostClass(s.source, options.maxCostClass!)) : resolved;
   return options.maxSourceCount !== undefined ? withinBudget.slice(0, options.maxSourceCount) : withinBudget;
 }

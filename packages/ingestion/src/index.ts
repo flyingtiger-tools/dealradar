@@ -32,3 +32,5 @@ export * from "./enrich-identity-from-observations";
 export * from "./persist-listing-lifecycle";
 export * from "./persist-market-snapshot-summary";
 export * from "./query-historical-price-points";
+export * from "./source-selection-plan";
+export * from "./persist-refresh-run-audit";

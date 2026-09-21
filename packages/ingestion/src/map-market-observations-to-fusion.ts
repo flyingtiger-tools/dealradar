@@ -34,31 +34,42 @@ export interface CurrencyConversionOptions {
   now?: () => Date;
 }
 
+/**
+ * Classe de raison STRUCTURÉE (LOT "Real DB Integration + Exact Budget
+ * Enforcement + Runtime Observability", section 5) — permet à l'appelant
+ * (le runner de rafraîchissement) de distinguer "aucun taux disponible"
+ * ("missing_rate") de "taux périmé" ("stale_rate") sans analyser un texte
+ * libre. `pair_mismatch`/`invalid_rate` restent des cas FX distincts eux
+ * aussi, jamais confondus avec une panne de persistance.
+ */
+export type FxSkipReasonClass = "missing_rate" | "pair_mismatch" | "invalid_rate" | "stale_rate";
+
 export interface SkippedObservation {
   observation: MarketObservation;
   reason: string;
+  reasonClass: FxSkipReasonClass;
 }
 
 export interface MapToFusionResult {
   fusionObservations: FusionObservation[];
-  /** Jamais silencieusement perdues — chaque observation écartée porte une raison explicite. */
+  /** Jamais silencieusement perdues — chaque observation écartée porte une raison explicite ET une classe structurée. */
   skipped: SkippedObservation[];
 }
 
-function convertedPriceCents(observation: MarketObservation, options: CurrencyConversionOptions, now: Date): { cents: number } | { reason: string } {
+function convertedPriceCents(observation: MarketObservation, options: CurrencyConversionOptions, now: Date): { cents: number } | { reason: string; reasonClass: FxSkipReasonClass } {
   if (observation.currency === options.targetCurrency) return { cents: observation.priceAmountCents };
 
   const rate = options.rates[observation.currency];
-  if (!rate) return { reason: `Aucun taux de change disponible pour ${observation.currency}->${options.targetCurrency}.` };
+  if (!rate) return { reason: `Aucun taux de change disponible pour ${observation.currency}->${options.targetCurrency}.`, reasonClass: "missing_rate" };
   if (rate.baseCurrency !== observation.currency || rate.quoteCurrency !== options.targetCurrency) {
-    return { reason: `Taux fourni pour ${rate.baseCurrency}->${rate.quoteCurrency}, attendu ${observation.currency}->${options.targetCurrency} — paire incompatible, refusé plutôt que mal appliqué.` };
+    return { reason: `Taux fourni pour ${rate.baseCurrency}->${rate.quoteCurrency}, attendu ${observation.currency}->${options.targetCurrency} — paire incompatible, refusé plutôt que mal appliqué.`, reasonClass: "pair_mismatch" };
   }
-  if (!Number.isFinite(rate.rate) || rate.rate <= 0) return { reason: "Taux de change invalide (non positif) — refusé plutôt qu'utilisé." };
+  if (!Number.isFinite(rate.rate) || rate.rate <= 0) return { reason: "Taux de change invalide (non positif) — refusé plutôt qu'utilisé.", reasonClass: "invalid_rate" };
 
   const rateAgeMs = now.getTime() - new Date(`${rate.rateDate}T00:00:00.000Z`).getTime();
   const rateAgeHours = rateAgeMs / (1000 * 60 * 60);
   if (rateAgeHours > options.maxRateAgeHours) {
-    return { reason: `Taux du ${rate.rateDate} trop ancien (${rateAgeHours.toFixed(1)}h > ${options.maxRateAgeHours}h autorisées) — refusé plutôt qu'utilisé silencieusement.` };
+    return { reason: `Taux du ${rate.rateDate} trop ancien (${rateAgeHours.toFixed(1)}h > ${options.maxRateAgeHours}h autorisées) — refusé plutôt qu'utilisé silencieusement.`, reasonClass: "stale_rate" };
   }
 
   return { cents: Math.round(observation.priceAmountCents * rate.rate) };
@@ -75,7 +86,7 @@ export function mapMarketObservationsToFusionObservations(
   for (const observation of observations) {
     const priceResult = convertedPriceCents(observation, options, now);
     if ("reason" in priceResult) {
-      skipped.push({ observation, reason: priceResult.reason });
+      skipped.push({ observation, reason: priceResult.reason, reasonClass: priceResult.reasonClass });
       continue;
     }
 
