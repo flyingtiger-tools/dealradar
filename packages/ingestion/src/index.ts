@@ -17,3 +17,5 @@ export * from "./gather-active-listing-evidence";
 export * from "./sign-storage-image-url";
 export * from "./aggregate-market-observations";
 export * from "./persist-market-observations";
+export * from "./map-market-observations-to-fusion";
+export * from "./orchestrate-market-intelligence";

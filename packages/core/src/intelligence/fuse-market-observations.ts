@@ -19,7 +19,22 @@ import { isLikelyBundleOrPartsListing } from "./listing-quality";
 export type EvidenceQualityTier = "A" | "B" | "C" | "D" | "E";
 
 export interface FusionObservation {
+  /** Slug de CONNECTEUR (ex. "google_shopping", "ebay") — voir `merchant` pour l'origine réelle sous-jacente. */
   source: string;
+  /**
+   * Origine RÉELLE (marchand/site) sous-jacente si connue et distincte du
+   * connecteur (LOT "Source Wave 2", section 8) — ex. une offre syndiquée
+   * via Google Shopping mais qui provient en réalité de "ebay.com" doit
+   * porter `merchant: "ebay"`, pas seulement `source: "google_shopping"`.
+   * `undefined`/égal à `source` = origine inconnue ou déjà le marchand
+   * direct (comportement par défaut, aucune régression pour les
+   * observations qui ne renseignent pas ce champ). La diversité de sources
+   * utilisée pour la confiance et l'amortissement de poids se base sur
+   * CE champ (avec repli sur `source`), jamais sur `source` seul — un même
+   * marchand vu via deux connecteurs différents ne doit jamais compter
+   * comme deux origines indépendantes.
+   */
+  merchant?: string;
   sourceItemId: string;
   title: string;
   priceCents: number;
@@ -59,6 +74,8 @@ export type InsufficiencyReason =
 export interface EvidenceMixEntry {
   tier: EvidenceQualityTier;
   source: string;
+  /** Origine réelle (voir `FusionObservation.merchant`) — égale à `source` quand l'origine sous-jacente n'est pas distincte/connue. */
+  merchant: string;
   count: number;
 }
 
@@ -144,15 +161,21 @@ interface WeightedObservation {
   weight: number;
 }
 
-/** Diminution de type racine carrée par source — N observations d'une même source pèsent comme environ √N observations indépendantes, jamais N (évite qu'une seule source nombreuse domine artificiellement le résultat). */
+/** Origine réelle à utiliser pour la diversité/l'amortissement — `merchant` si renseigné, sinon `source` (voir `FusionObservation.merchant`). */
+function merchantOf(observation: FusionObservation): string {
+  return observation.merchant ?? observation.source;
+}
+
+/** Diminution de type racine carrée par ORIGINE RÉELLE (voir `merchantOf`) — N observations d'une même origine pèsent comme environ √N observations indépendantes, jamais N (évite qu'une seule source nombreuse, ou qu'un même marchand syndiqué via plusieurs connecteurs, ne domine artificiellement le résultat). */
 function applySourceDiversityDamping(weighted: WeightedObservation[]): WeightedObservation[] {
-  const countBySource = new Map<string, number>();
+  const countByMerchant = new Map<string, number>();
   for (const { observation } of weighted) {
-    countBySource.set(observation.source, (countBySource.get(observation.source) ?? 0) + 1);
+    const merchant = merchantOf(observation);
+    countByMerchant.set(merchant, (countByMerchant.get(merchant) ?? 0) + 1);
   }
   return weighted.map(({ observation, weight }) => {
-    const countFromSource = countBySource.get(observation.source) ?? 1;
-    return { observation, weight: weight / Math.sqrt(countFromSource) };
+    const countFromMerchant = countByMerchant.get(merchantOf(observation)) ?? 1;
+    return { observation, weight: weight / Math.sqrt(countFromMerchant) };
   });
 }
 
@@ -285,20 +308,22 @@ export function fuseMarketObservations(observations: readonly FusionObservation[
   const highCents = Math.round(weightedPercentile(items, 0.75));
 
   const strongestTier = TIER_ORDER_DESC.find((tier) => usable.some((o) => o.evidenceTier === tier)) ?? null;
-  const sourceCount = new Set(usable.map((o) => o.source)).size;
+  // Diversité par ORIGINE RÉELLE (voir `merchantOf`) — jamais par nom de connecteur seul (section 8 : un même marchand syndiqué via deux connecteurs ne doit jamais compter comme deux sources indépendantes).
+  const sourceCount = new Set(usable.map((o) => merchantOf(o))).size;
   const mostRecentMs = Math.max(...usable.map((o) => Date.parse(o.observedAt)).filter((t) => !Number.isNaN(t)));
   const freshnessHours = Number.isFinite(mostRecentMs) ? Math.max(0, (Date.parse(asOf) - mostRecentMs) / (1000 * 60 * 60)) : null;
 
   const evidenceMix: EvidenceMixEntry[] = [];
-  const mixCounts = new Map<string, number>();
+  const mixCounts = new Map<string, EvidenceMixEntry>();
   for (const o of usable) {
-    const key = `${o.evidenceTier}:${o.source}`;
-    mixCounts.set(key, (mixCounts.get(key) ?? 0) + 1);
+    const merchant = merchantOf(o);
+    // Séparateur improbable dans un slug de source/marchand, mais la valeur reconstruite vient de l'entrée elle-même (jamais re-parsée depuis la clé) — évite toute ambiguïté si un slug contenait malgré tout ce caractère.
+    const key = `${o.evidenceTier} ${o.source} ${merchant}`;
+    const existing = mixCounts.get(key);
+    if (existing) existing.count += 1;
+    else mixCounts.set(key, { tier: o.evidenceTier, source: o.source, merchant, count: 1 });
   }
-  for (const [key, count] of mixCounts) {
-    const [tier, source] = key.split(":") as [EvidenceQualityTier, string];
-    evidenceMix.push({ tier, source, count });
-  }
+  evidenceMix.push(...mixCounts.values());
 
   const confidence = computeConfidence({ usable, strongestTier, sourceCount, freshnessHours, halfLifeDays });
 

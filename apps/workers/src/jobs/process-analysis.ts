@@ -3,12 +3,18 @@ import {
   runIntelligencePipeline,
   resolveCategoryProfile,
   buildSearchQueries,
+  computeNetProfit,
+  computeDealScore,
+  decideFromFusedValuation,
   type AnalysisProcessPayload,
   type AnalysisResult,
   type CostInputs,
   type NormalizedComparable,
   type NormalizedListing,
+  type FusedValuation,
+  type EvidenceQualityTier,
 } from "@dealradar/core";
+import { resolveSourcesForCategory } from "@dealradar/connectors";
 import {
   extractProduct,
   PROMPT_VERSION,
@@ -25,12 +31,14 @@ import {
   mapSoldRowToComparable,
   gatherActiveListingEvidence,
   signStorageImageUrl,
+  orchestrateMarketIntelligence,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
 import { tryBuildEbayConnectorFromEnv } from "../ingestion/connector-config";
+import { buildMarketSourcesFromEnv } from "../ingestion/market-source-factory";
 import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
 
@@ -54,6 +62,45 @@ const DEFAULT_COST_ASSUMPTIONS: Omit<CostInputs, "purchasePriceCents"> = {
 };
 
 const DEFAULT_CANDIDATE_POOL_LIMIT = 200;
+
+/**
+ * Provenance affichable (`marketDataProvenanceSchema`, `@dealradar/
+ * contracts`) depuis le palier de preuve le plus fort de la fusion
+ * multi-source (LOT "Source Wave 2", section 7) — jamais "sold_transaction"
+ * pour autre chose qu'un palier A (règle produit absolue, même principe que
+ * `usedSold ? "sold_transaction" : ...` déjà en place pour le chemin
+ * existant, voir plus bas).
+ */
+function provenanceForEvidenceTier(tier: EvidenceQualityTier | null): "sold_transaction" | "market_guide" | "active_listing" | "retail_price" | "unknown" {
+  switch (tier) {
+    case "A":
+      return "sold_transaction";
+    case "B":
+      return "market_guide";
+    case "C":
+    case "D":
+      return "active_listing";
+    case "E":
+      return "retail_price";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * Score de liquidité HEURISTIQUE pour une valorisation fusionnée
+ * (LOT "Source Wave 2") — analogue en esprit à `computeLiquidityScore`
+ * (volume + fraîcheur, `@dealradar/core/intelligence/scores.ts`) mais
+ * appliqué à une forme d'évidence différente (`FusedValuation` n'a pas de
+ * liste de comparables vendus individuels) : jamais présenté comme le
+ * même calcul, juste une approximation honnête documentée comme telle.
+ */
+function estimateLiquidityFromFusedValuation(fused: FusedValuation): number {
+  if (fused.status === "insufficient") return 0;
+  const volumeComponent = Math.min(fused.evidenceCount, 10) * 6;
+  const recencyComponent = fused.freshnessHours === null ? 0 : Math.max(0, 40 - Math.round(fused.freshnessHours / 24));
+  return Math.min(100, volumeComponent + recencyComponent);
+}
 
 interface AnalysisRequestRow {
   id: string;
@@ -344,16 +391,17 @@ export async function processAnalysis(
   // un blocage. Portée volontairement limitée : ne retente pas si la base
   // avait des lignes qui ont simplement échoué le filtrage de similarité
   // (cas plus rare, laissé pour un lot futur — voir BUILDER HANDOFF).
+  const queries = buildSearchQueries({
+    brand: extraction.product.brand?.value ?? null,
+    model: extraction.product.model?.value ?? null,
+    identifiers: [extraction.product.reference?.value ?? null],
+    titleFallback: productName,
+  });
+
   let activeCandidates: NormalizedComparable[] = [];
   if (soldCandidates.length === 0) {
     const ebayConnector = tryBuildEbayConnectorFromEnv();
     if (ebayConnector) {
-      const queries = buildSearchQueries({
-        brand: extraction.product.brand?.value ?? null,
-        model: extraction.product.model?.value ?? null,
-        identifiers: [extraction.product.reference?.value ?? null],
-        titleFallback: productName,
-      });
       try {
         activeCandidates = await gatherActiveListingEvidence({
           connector: ebayConnector,
@@ -379,6 +427,76 @@ export async function processAnalysis(
   const usedSold = pipelineResult.comparables.used.length > 0;
   const usedActiveListings = pipelineResult.estimate?.evidenceTier === "active_listing";
 
+  // Enrichissement multi-source (LOT "Source Wave 2", section 6) —
+  // UNIQUEMENT quand le chemin existant (ventes confirmées en base + repli
+  // eBay ci-dessus) n'a rien trouvé d'exploitable : jamais un mélange avec
+  // une estimation déjà statuée, exactement le même principe de repli déjà
+  // en place pour eBay ci-dessus. Une panne de cet enrichissement (source
+  // en panne, persistance indisponible) n'empêche jamais d'écrire le
+  // résultat existant — voir `orchestrateMarketIntelligence`, qui isole
+  // déjà la persistance, et le `try/catch` ici qui isole tout le reste.
+  let marketIntelligence: Awaited<ReturnType<typeof orchestrateMarketIntelligence>> | null = null;
+  if (pipelineResult.decision === "INSUFFICIENT_DATA") {
+    const { sources } = buildMarketSourcesFromEnv();
+    const resolvedSources = resolveSourcesForCategory(listing.categorySlug, sources);
+    if (resolvedSources.length > 0) {
+      const targetAttributes: Record<string, string | number> = {};
+      for (const [key, value] of Object.entries(listing.attributes)) {
+        if (typeof value === "string" || typeof value === "number") targetAttributes[key] = value;
+      }
+      try {
+        marketIntelligence = await orchestrateMarketIntelligence({
+          categorySlug: listing.categorySlug,
+          q: queries.exact || productName || listing.title,
+          sources: resolvedSources,
+          target: { currency: listing.currency, condition: listing.condition, attributes: targetAttributes },
+          // `fxRates` volontairement absent ce lot : aucune source de taux de
+          // change LIVE n'est encore câblée pour les observations de marché
+          // (limite honnête, voir BUILDER HANDOFF) — une observation dans
+          // une autre devise que `listing.currency` est simplement écartée
+          // par `mapMarketObservationsToFusionObservations`, jamais convertie
+          // au hasard.
+          persistence: { supabase: db },
+        });
+      } catch (error) {
+        logger.warn(
+          { error: error instanceof Error ? error.message : "erreur inconnue" },
+          "Intelligence de marché multi-source : échec, poursuite avec le résultat existant",
+        );
+      }
+    }
+  }
+
+  const fused = marketIntelligence?.fused;
+  const useFusedValuation = fused !== undefined && fused.status === "estimated";
+
+  const netProfitFromFusion = useFusedValuation
+    ? computeNetProfit(
+        { sampleSize: fused.evidenceCount, medianCents: fused.fairCents!, p25Cents: fused.lowCents!, p75Cents: fused.highCents!, conservativeCents: fused.lowCents! },
+        { purchasePriceCents: listing.priceCents, ...DEFAULT_COST_ASSUMPTIONS },
+      )
+    : null;
+  const dealScoreFromFusion = useFusedValuation ? computeDealScore(netProfitFromFusion) : null;
+  const fusedDecision = useFusedValuation ? decideFromFusedValuation(fused!, dealScoreFromFusion) : null;
+
+  const marketEvidence = marketIntelligence
+    ? {
+        strongestTier: fused!.strongestTier,
+        sourceCount: fused!.sourceCount,
+        observationCount: marketIntelligence.observationCount,
+        liveObservationCount: marketIntelligence.liveObservationCount,
+        historicalObservationCount: marketIntelligence.historicalObservationCount,
+        sourceNames: marketIntelligence.sourceNames,
+        retailOnlyWarning: fused!.strongestTier === "E",
+        activeListingsOnlyWarning: fused!.strongestTier === "C" || fused!.strongestTier === "D",
+        usedSpecialistHistory: fused!.evidenceMix.some((e) => e.tier === "B"),
+      }
+    : undefined;
+
+  const marketWarnings: string[] = [];
+  if (marketEvidence?.retailOnlyWarning) marketWarnings.push("MARKET_EVIDENCE_RETAIL_ONLY");
+  if (marketEvidence?.activeListingsOnlyWarning) marketWarnings.push("MARKET_EVIDENCE_ACTIVE_LISTINGS_ONLY");
+
   const analysisResult: AnalysisResult = {
     product: {
       name: productName,
@@ -387,43 +505,56 @@ export async function processAnalysis(
     },
     conditionEstimated: condition,
     priceDetected: { amount: request.purchase_price, currency: listing.currency },
-    marketValueEstimate: pipelineResult.estimate
-      ? {
-          amount: pipelineResult.estimate.conservativeCents / 100,
-          currency: listing.currency,
-          // Reflète honnêtement `evidenceTier` (LOT "Universal Object
-          // Valuation Foundation") — jamais "sold_transaction" pour une
-          // estimation qui repose en réalité sur des annonces actives.
-          provenance: usedSold ? "sold_transaction" : usedActiveListings ? "active_listing" : "unknown",
-        }
-      : null,
-    resaleRangeConservative: pipelineResult.estimate
-      ? {
-          low: pipelineResult.estimate.p25Cents / 100,
-          high: pipelineResult.estimate.p75Cents / 100,
-          currency: listing.currency,
-        }
-      : null,
-    grossMargin: pipelineResult.netProfit
-      ? (pipelineResult.netProfit.resaleBasisCents - listing.priceCents) / 100
-      : null,
-    estimatedFees: pipelineResult.netProfit
-      ? (pipelineResult.netProfit.platformFeeCents + pipelineResult.netProfit.riskReserveCents) / 100
-      : null,
-    netMargin: pipelineResult.netProfit ? pipelineResult.netProfit.netProfitCents / 100 : null,
-    confidenceScore: pipelineResult.scores.confidence,
-    liquidityScore: pipelineResult.scores.liquidity,
-    dealScore: pipelineResult.scores.deal,
-    decision: pipelineResult.decision,
-    warnings: baseWarnings,
-    reasons: pipelineResult.whyPanel.factors.map((f) => f.detail),
-    dataAvailability: { soldTransactions: usedSold, marketGuide: false },
+    marketValueEstimate: useFusedValuation
+      ? { amount: fused!.fairCents! / 100, currency: fused!.currency, provenance: provenanceForEvidenceTier(fused!.strongestTier) }
+      : pipelineResult.estimate
+        ? {
+            amount: pipelineResult.estimate.conservativeCents / 100,
+            currency: listing.currency,
+            // Reflète honnêtement `evidenceTier` (LOT "Universal Object
+            // Valuation Foundation") — jamais "sold_transaction" pour une
+            // estimation qui repose en réalité sur des annonces actives.
+            provenance: usedSold ? "sold_transaction" : usedActiveListings ? "active_listing" : "unknown",
+          }
+        : null,
+    resaleRangeConservative: useFusedValuation
+      ? { low: fused!.lowCents! / 100, high: fused!.highCents! / 100, currency: fused!.currency }
+      : pipelineResult.estimate
+        ? { low: pipelineResult.estimate.p25Cents / 100, high: pipelineResult.estimate.p75Cents / 100, currency: listing.currency }
+        : null,
+    grossMargin: useFusedValuation
+      ? netProfitFromFusion
+        ? (netProfitFromFusion.resaleBasisCents - listing.priceCents) / 100
+        : null
+      : pipelineResult.netProfit
+        ? (pipelineResult.netProfit.resaleBasisCents - listing.priceCents) / 100
+        : null,
+    estimatedFees: useFusedValuation
+      ? netProfitFromFusion
+        ? (netProfitFromFusion.platformFeeCents + netProfitFromFusion.riskReserveCents) / 100
+        : null
+      : pipelineResult.netProfit
+        ? (pipelineResult.netProfit.platformFeeCents + pipelineResult.netProfit.riskReserveCents) / 100
+        : null,
+    netMargin: useFusedValuation
+      ? netProfitFromFusion
+        ? netProfitFromFusion.netProfitCents / 100
+        : null
+      : pipelineResult.netProfit
+        ? pipelineResult.netProfit.netProfitCents / 100
+        : null,
+    confidenceScore: useFusedValuation ? fused!.confidence : pipelineResult.scores.confidence,
+    liquidityScore: useFusedValuation ? estimateLiquidityFromFusedValuation(fused!) : pipelineResult.scores.liquidity,
+    dealScore: useFusedValuation ? dealScoreFromFusion : pipelineResult.scores.deal,
+    decision: useFusedValuation ? fusedDecision!.decision : pipelineResult.decision,
+    warnings: [...baseWarnings, ...marketWarnings],
+    reasons: useFusedValuation ? [fusedDecision!.reason, ...fused!.reasons] : pipelineResult.whyPanel.factors.map((f) => f.detail),
+    dataAvailability: useFusedValuation
+      ? { soldTransactions: fused!.strongestTier === "A", marketGuide: marketEvidence!.usedSpecialistHistory }
+      : { soldTransactions: usedSold, marketGuide: false },
+    ...(marketEvidence ? { marketEvidence } : {}),
   };
 
-  await writeResult(
-    db,
-    analysisRequestId,
-    pipelineResult.decision === "INSUFFICIENT_DATA" ? "insufficient_data" : "completed",
-    analysisResult,
-  );
+  const finalDecision = useFusedValuation ? fusedDecision!.decision : pipelineResult.decision;
+  await writeResult(db, analysisRequestId, finalDecision === "INSUFFICIENT_DATA" ? "insufficient_data" : "completed", analysisResult);
 }

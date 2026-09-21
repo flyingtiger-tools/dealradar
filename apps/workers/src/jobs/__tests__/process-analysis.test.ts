@@ -1,14 +1,37 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
+import type { MarketSource } from "@dealradar/connectors";
 
 vi.mock("@dealradar/ingestion", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dealradar/ingestion")>()),
   gatherActiveListingEvidence: vi.fn(),
   signStorageImageUrl: vi.fn(),
+  orchestrateMarketIntelligence: vi.fn(),
 }));
 
-const { gatherActiveListingEvidence, signStorageImageUrl } = await import("@dealradar/ingestion");
+vi.mock("../../ingestion/market-source-factory", () => ({
+  buildMarketSourcesFromEnv: vi.fn(() => ({ sources: [], diagnostics: [] })),
+}));
+
+const { gatherActiveListingEvidence, signStorageImageUrl, orchestrateMarketIntelligence } = await import("@dealradar/ingestion");
+const { buildMarketSourcesFromEnv } = await import("../../ingestion/market-source-factory");
 const { processAnalysis } = await import("../process-analysis");
+
+/** Source de marché factice qui déclare supporter "lego" — sert uniquement à faire passer `resolveSourcesForCategory`, jamais réellement interrogée (orchestrateMarketIntelligence est mocké). */
+function fakeMarketSource(name: string): MarketSource {
+  return {
+    source: name,
+    displayName: name,
+    supportedCategorySlugs: "any",
+    evidenceTypes: ["historicalPrices"],
+    async search() {
+      return { observations: [] };
+    },
+    async healthCheck() {
+      return { status: "ok", checkedAt: "t", latencyMs: 1 };
+    },
+  };
+}
 
 const ANALYSIS_ID = "analysis-1";
 
@@ -33,6 +56,8 @@ beforeEach(() => {
   for (const key of EBAY_ENV_KEYS) delete process.env[key];
   vi.mocked(gatherActiveListingEvidence).mockReset();
   vi.mocked(signStorageImageUrl).mockReset();
+  vi.mocked(orchestrateMarketIntelligence).mockReset();
+  vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [], diagnostics: [] });
 });
 
 afterEach(() => {
@@ -249,5 +274,119 @@ describe("processAnalysis", () => {
     const row = db.table("analysis_requests")[0] as { status: string };
     // Aucune image exploitable -> l'extraction se comporte comme sans image, jamais une exception qui remonte.
     expect(row.status).toBe("insufficient_data");
+  });
+
+  it("aucune source de marché disponible (aucune credential) : jamais d'appel à orchestrateMarketIntelligence", async () => {
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(orchestrateMarketIntelligence).not.toHaveBeenCalled();
+  });
+
+  it("sources multi-source disponibles + fusion estimée : utilise la valorisation fusionnée, marketEvidence rempli, decision cohérente", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+      sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
+      observationCount: 3,
+      liveObservationCount: 0,
+      historicalObservationCount: 3,
+      sourceNames: ["bricklink"],
+      skippedForCurrencyCount: 0,
+      persistedCount: 3,
+      persistenceError: null,
+      fused: {
+        status: "estimated",
+        lowCents: 17000,
+        fairCents: 18000,
+        highCents: 19000,
+        currency: "CHF",
+        confidence: 80,
+        evidenceCount: 3,
+        sourceCount: 1,
+        strongestTier: "B",
+        evidenceMix: [{ tier: "B", source: "bricklink", merchant: "bricklink", count: 3 }],
+        freshnessHours: 2,
+        reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
+        insufficiencyReason: null,
+      },
+    });
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(orchestrateMarketIntelligence).toHaveBeenCalledTimes(1);
+    const row = db.table("analysis_requests")[0] as {
+      status: string;
+      result: {
+        decision: string;
+        marketValueEstimate: { amount: number; currency: string; provenance: string } | null;
+        marketEvidence?: { strongestTier: string | null; sourceCount: number; usedSpecialistHistory: boolean; retailOnlyWarning: boolean };
+        dataAvailability: { soldTransactions: boolean; marketGuide: boolean };
+      };
+    };
+    expect(row.status).not.toBe("insufficient_data");
+    expect(row.result.marketValueEstimate).toEqual({ amount: 180, currency: "CHF", provenance: "market_guide" });
+    expect(row.result.marketEvidence?.strongestTier).toBe("B");
+    expect(row.result.marketEvidence?.usedSpecialistHistory).toBe(true);
+    expect(row.result.marketEvidence?.retailOnlyWarning).toBe(false);
+    expect(row.result.dataAvailability.soldTransactions).toBe(false); // palier B, jamais présenté comme une vente confirmée
+    expect(row.result.dataAvailability.marketGuide).toBe(true);
+  });
+
+  it("fusion multi-source insuffisante (aucune preuve exploitable trouvée) : reste INSUFFICIENT_DATA, marketEvidence reflète honnêtement l'absence de preuve", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+      sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 0, latencyMs: 10 }],
+      observationCount: 0,
+      liveObservationCount: 0,
+      historicalObservationCount: 0,
+      sourceNames: [],
+      skippedForCurrencyCount: 0,
+      persistedCount: 0,
+      persistenceError: null,
+      fused: {
+        status: "insufficient",
+        lowCents: null,
+        fairCents: null,
+        highCents: null,
+        currency: "CHF",
+        confidence: 0,
+        evidenceCount: 0,
+        sourceCount: 0,
+        strongestTier: null,
+        evidenceMix: [],
+        freshnessHours: null,
+        reasons: [],
+        insufficiencyReason: "NO_OBSERVATIONS",
+      },
+    });
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    const row = db.table("analysis_requests")[0] as { status: string; result: { decision: string; marketEvidence?: { strongestTier: string | null } } };
+    expect(row.status).toBe("insufficient_data");
+    expect(row.result.decision).toBe("INSUFFICIENT_DATA");
+    expect(row.result.marketEvidence?.strongestTier).toBeNull();
+  });
+
+  it("panne de l'intelligence de marché multi-source (exception) : le résultat existant est conservé, jamais un crash", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(orchestrateMarketIntelligence).mockRejectedValue(new Error("panne réseau simulée"));
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    const row = db.table("analysis_requests")[0] as { status: string; result: { decision: string } };
+    expect(row.status).toBe("insufficient_data"); // comportement identique à l'absence totale d'enrichissement
+    expect(row.result.decision).toBe("INSUFFICIENT_DATA");
   });
 });

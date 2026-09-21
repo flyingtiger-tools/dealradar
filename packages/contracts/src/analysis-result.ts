@@ -43,6 +43,38 @@ export const analysisStatusSchema = z.enum([
 ]);
 export type AnalysisStatus = z.infer<typeof analysisStatusSchema>;
 
+/**
+ * Palier de preuve du moteur de fusion multi-source (LOT "Source Wave 2")
+ * — reflète `EvidenceQualityTier` (`@dealradar/core/intelligence/fuse-
+ * market-observations.ts`), jamais importé ici pour la même raison que le
+ * reste du fichier (`@dealradar/contracts` ne dépend jamais de
+ * `@dealradar/core`).
+ */
+export const marketEvidenceTierSchema = z.enum(["A", "B", "C", "D", "E"]);
+
+/**
+ * Provenance détaillée de l'évidence de marché multi-source, OPTIONNELLE
+ * (LOT "Source Wave 2", section 7) — absente pour tout résultat produit
+ * avant ce lot (TCG, ou chemin générique n'ayant pas eu besoin
+ * d'enrichissement multi-source) : jamais une régression de contrat pour
+ * les consommateurs existants (mobile) qui l'ignorent simplement. Ne
+ * remplace jamais `dataAvailability`/`marketValueEstimate.provenance`
+ * (déjà utilisés par le chemin TCG et le chemin générique existant) — les
+ * complète avec le détail que seule la fusion multi-source peut fournir.
+ */
+export const marketEvidenceSchema = z.object({
+  strongestTier: marketEvidenceTierSchema.nullable(),
+  sourceCount: z.number(),
+  observationCount: z.number(),
+  liveObservationCount: z.number(),
+  historicalObservationCount: z.number(),
+  sourceNames: z.array(z.string()),
+  retailOnlyWarning: z.boolean(),
+  activeListingsOnlyWarning: z.boolean(),
+  usedSpecialistHistory: z.boolean(),
+});
+export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
+
 export const analysisResultSchema = z.object({
   product: z.object({
     name: z.string().nullable(),
@@ -72,6 +104,8 @@ export const analysisResultSchema = z.object({
     soldTransactions: z.boolean(),
     marketGuide: z.boolean(),
   }),
+  /** Absent = pas d'enrichissement multi-source pour ce résultat (voir `marketEvidenceSchema`). */
+  marketEvidence: marketEvidenceSchema.optional(),
 });
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 

@@ -175,6 +175,29 @@ describe("fuseMarketObservations — diversité et duplication de source", () =>
     expect(threeSourcesResult.confidence).toBeGreaterThan(oneSourceResult.confidence);
   });
 
+  it("un même marchand syndiqué via deux connecteurs différents (ex. Google Shopping + eBay direct) ne compte jamais comme deux origines indépendantes", () => {
+    const viaTwoConnectors = [
+      obs({ source: "ebay", merchant: "ebay", sourceItemId: "e1", evidenceTier: "D", priceCents: 40000 }),
+      obs({ source: "google_shopping", merchant: "ebay", sourceItemId: "g1", evidenceTier: "D", priceCents: 40000 }),
+    ];
+    const twoIndependentMerchants = [
+      obs({ source: "ebay", merchant: "ebay", sourceItemId: "e1", evidenceTier: "D", priceCents: 40000 }),
+      obs({ source: "google_shopping", merchant: "fnac.ch", sourceItemId: "g1", evidenceTier: "D", priceCents: 40000 }),
+    ];
+    const sameOriginResult = fuseMarketObservations(viaTwoConnectors, { asOf: ASOF, target: TARGET_USD });
+    const distinctOriginResult = fuseMarketObservations(twoIndependentMerchants, { asOf: ASOF, target: TARGET_USD });
+
+    expect(sameOriginResult.sourceCount).toBe(1);
+    expect(distinctOriginResult.sourceCount).toBe(2);
+    expect(distinctOriginResult.confidence).toBeGreaterThan(sameOriginResult.confidence);
+  });
+
+  it("evidenceMix distingue le connecteur (source) de l'origine réelle (merchant)", () => {
+    const observations = [obs({ source: "google_shopping", merchant: "ebay", sourceItemId: "g1", evidenceTier: "D", priceCents: 40000 })];
+    const result = fuseMarketObservations(observations, { asOf: ASOF, target: TARGET_USD });
+    expect(result.evidenceMix).toEqual([{ tier: "D", source: "google_shopping", merchant: "ebay", count: 1 }]);
+  });
+
   it("20 annonces d'une seule source ne comptent jamais comme 20 signaux indépendants (amortissement racine carrée)", () => {
     const manyFromOneSource = Array.from({ length: 20 }, (_, i) => obs({ source: "ebay", sourceItemId: `many-${i}`, evidenceTier: "D", priceCents: 40000 }));
     const fewFromOneSource = Array.from({ length: 2 }, (_, i) => obs({ source: "ebay", sourceItemId: `few-${i}`, evidenceTier: "D", priceCents: 40000 }));
