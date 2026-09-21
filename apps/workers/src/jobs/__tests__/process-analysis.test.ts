@@ -4,9 +4,10 @@ import { FakeSupabase } from "./fake-supabase";
 vi.mock("@dealradar/ingestion", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dealradar/ingestion")>()),
   gatherActiveListingEvidence: vi.fn(),
+  signStorageImageUrl: vi.fn(),
 }));
 
-const { gatherActiveListingEvidence } = await import("@dealradar/ingestion");
+const { gatherActiveListingEvidence, signStorageImageUrl } = await import("@dealradar/ingestion");
 const { processAnalysis } = await import("../process-analysis");
 
 const ANALYSIS_ID = "analysis-1";
@@ -31,6 +32,7 @@ beforeEach(() => {
   delete process.env.AI_PROVIDER;
   for (const key of EBAY_ENV_KEYS) delete process.env[key];
   vi.mocked(gatherActiveListingEvidence).mockReset();
+  vi.mocked(signStorageImageUrl).mockReset();
 });
 
 afterEach(() => {
@@ -219,5 +221,33 @@ describe("processAnalysis", () => {
     await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
 
     expect(gatherActiveListingEvidence).not.toHaveBeenCalled();
+  });
+
+  it("une image fournie : tente de la signer avant extraction, jamais l'URL brute du bucket privé transmise telle quelle (bug réel corrigé ce lot)", async () => {
+    vi.mocked(signStorageImageUrl).mockResolvedValue("https://signed.example/analysis-uploads/user/req/photo.jpg?token=abc");
+
+    const db = new FakeSupabase();
+    const rawUrl = "https://project.supabase.co/storage/v1/object/analysis-uploads/user-1/req-1/photo.jpg";
+    db.seed("analysis_requests", [baseRow({ image_references: [{ url: rawUrl }] })]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(signStorageImageUrl).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(signStorageImageUrl).mock.calls[0]![1]).toBe(rawUrl);
+  });
+
+  it("la signature échoue pour toutes les images : elles sont omises, jamais un crash ni l'URL brute transmise en repli", async () => {
+    vi.mocked(signStorageImageUrl).mockResolvedValue(null);
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [
+      baseRow({ image_references: [{ url: "https://project.supabase.co/storage/v1/object/analysis-uploads/user-1/req-1/photo.jpg" }] }),
+    ]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    const row = db.table("analysis_requests")[0] as { status: string };
+    // Aucune image exploitable -> l'extraction se comporte comme sans image, jamais une exception qui remonte.
+    expect(row.status).toBe("insufficient_data");
   });
 });

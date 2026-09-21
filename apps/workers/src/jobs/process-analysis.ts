@@ -24,6 +24,7 @@ import {
   createSupabaseBudgetGuard,
   mapSoldRowToComparable,
   gatherActiveListingEvidence,
+  signStorageImageUrl,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
@@ -203,10 +204,24 @@ export async function processAnalysis(
     return;
   }
 
-  const images: ExtractionImage[] = (request.image_references ?? []).map((ref, position) => ({
-    url: ref.url,
-    position,
-  }));
+  // `image_references[].url` pointe vers le bucket PRIVÉ `analysis-uploads`
+  // (`public: false`) — un provider IA (OpenAI, `image_url: { url }`)
+  // télécharge l'image depuis SES propres serveurs, sans la session
+  // Supabase de l'utilisateur : l'URL brute est donc invisible pour lui,
+  // toute extraction échouerait silencieusement en `PROVIDER_ERROR` (bug
+  // réel trouvé et corrigé ce lot — `process-tcg-card-analysis.ts` évite
+  // déjà ce piège pour la verticale TCG, voir `signStorageImageUrl`). Une
+  // image qui ne peut pas être signée est simplement omise, jamais
+  // transmise en clair au provider (voir `sign-storage-image-url.ts`).
+  const images: ExtractionImage[] = [];
+  for (const [position, ref] of (request.image_references ?? []).entries()) {
+    const signedUrl = await signStorageImageUrl(db, ref.url);
+    if (!signedUrl) {
+      logger.warn({ analysisRequestId, url: ref.url }, "Impossible de générer une URL signée pour cette image — image ignorée");
+      continue;
+    }
+    images.push({ url: signedUrl, position });
+  }
 
   const aiConfig = buildAiExtractionConfigFromEnv();
   const cache = aiConfig
