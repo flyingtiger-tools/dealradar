@@ -19,3 +19,8 @@ export * from "./aggregate-market-observations";
 export * from "./persist-market-observations";
 export * from "./map-market-observations-to-fusion";
 export * from "./orchestrate-market-intelligence";
+export * from "./market-coverage-report";
+export * from "./take-market-snapshot";
+export * from "./product-identity-schemas";
+export * from "./persist-canonical-product-identity";
+export * from "./persist-research-target";

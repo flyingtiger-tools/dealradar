@@ -6,6 +6,10 @@ import {
   computeNetProfit,
   computeDealScore,
   decideFromFusedValuation,
+  createCanonicalProductIdentity,
+  deriveProductKey,
+  mergeIdentityEvidence,
+  decideNextSnapshotRefresh,
   type AnalysisProcessPayload,
   type AnalysisResult,
   type CostInputs,
@@ -14,7 +18,7 @@ import {
   type FusedValuation,
   type EvidenceQualityTier,
 } from "@dealradar/core";
-import { resolveSourcesForCategory, createFrankfurterProvider, createCachedFxRateProvider } from "@dealradar/connectors";
+import { resolveSourcesForCategory } from "@dealradar/connectors";
 import {
   extractProduct,
   PROMPT_VERSION,
@@ -32,6 +36,8 @@ import {
   gatherActiveListingEvidence,
   signStorageImageUrl,
   orchestrateMarketIntelligence,
+  persistCanonicalProductIdentity,
+  persistResearchTarget,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
@@ -39,6 +45,7 @@ import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config"
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
 import { tryBuildEbayConnectorFromEnv } from "../ingestion/connector-config";
 import { buildMarketSourcesFromEnv } from "../ingestion/market-source-factory";
+import { sharedFxRateProvider } from "../ingestion/fx-provider";
 import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
 
@@ -62,18 +69,6 @@ const DEFAULT_COST_ASSUMPTIONS: Omit<CostInputs, "purchasePriceCents"> = {
 };
 
 const DEFAULT_CANDIDATE_POOL_LIMIT = 200;
-
-/**
- * Fournisseur FX (LOT "Source Wave 3", section 1) — Frankfurter : gratuit,
- * aucune clé/authentification à poser (même choix que le MVP FX déjà en
- * place pour la verticale TCG, voir `docs/fx-provider-swap.md`), donc
- * TOUJOURS disponible sans configuration supplémentaire, contrairement à
- * chaque source de marché elle-même. Enveloppé dans un cache TTL borné
- * (15 min par défaut) au niveau MODULE — un seul processus workers sert
- * potentiellement de nombreuses analyses, le cache doit survivre entre
- * elles, jamais recréé à chaque appel de `processAnalysis`.
- */
-const fxRateProvider = createCachedFxRateProvider(createFrankfurterProvider());
 
 /**
  * Provenance affichable (`marketDataProvenanceSchema`, `@dealradar/
@@ -379,6 +374,59 @@ export async function processAnalysis(
     attributes,
   };
 
+  // Amorçage de cible de recherche (LOT "Historical Data Engine", section
+  // 14) — un scan utilisateur identifié avec succès (catégorie confirmée,
+  // état détecté, prix d'achat confirmé : exactement ce que `listing`
+  // représente à ce stade) peut amorcer un suivi de prix à long terme,
+  // INDÉPENDAMMENT du résultat de l'estimation ci-dessous (BUY/PASS/
+  // INSUFFICIENT_DATA n'a aucune influence sur cet amorçage). Isolé
+  // volontairement : un échec d'écriture ici ne doit JAMAIS faire échouer
+  // la requête d'analyse de l'utilisateur.
+  try {
+    const seedIdentity = mergeIdentityEvidence(
+      createCanonicalProductIdentity(
+        listing.categorySlug,
+        deriveProductKey(listing.categorySlug, {
+          brand: extraction.product.brand?.value,
+          model: extraction.product.model?.value,
+        }),
+      ),
+      {
+        source: "ai_identification",
+        confidence: 0.6,
+        observedAt: new Date().toISOString(),
+        fields: {
+          brand: extraction.product.brand?.value,
+          model: extraction.product.model?.value,
+          sku: extraction.product.reference?.value,
+        },
+      },
+    ).identity;
+
+    const scheduling = decideNextSnapshotRefresh({
+      asOf: new Date().toISOString(),
+      lastRefreshedAt: null,
+      priceVolatility: null,
+      recentActivity: true,
+      costClass: "free",
+    });
+
+    await persistCanonicalProductIdentity(db, seedIdentity);
+    await persistResearchTarget(db, {
+      productKey: seedIdentity.productKey,
+      reason: "user_scan",
+      priority: scheduling.priority,
+      desiredCurrency: listing.currency,
+      enabled: true,
+      nextRefreshAt: scheduling.nextRefreshAt,
+    });
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : "erreur inconnue" },
+      "Amorçage de la cible de recherche a échoué — poursuite de l'analyse utilisateur sans cet amorçage",
+    );
+  }
+
   const identityFilter = buildIdentityFilter(listing.categorySlug, listing.attributes);
   const { data: candidateRows } = await db
     .from("listings")
@@ -467,7 +515,7 @@ export async function processAnalysis(
           // gratuit, mis en cache au niveau module (voir plus haut). Une
           // observation sans taux disponible/fiable reste écartée, jamais
           // devinée (voir `mapMarketObservationsToFusionObservations`).
-          fxRateProvider,
+          fxRateProvider: sharedFxRateProvider,
           persistence: { supabase: db },
         });
       } catch (error) {

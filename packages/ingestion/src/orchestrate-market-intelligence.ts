@@ -3,7 +3,9 @@ import type { MarketSource, FxRate, FxRateProvider, SourceCostClass } from "@dea
 import { resolveFxRates, costClassForSource } from "@dealradar/connectors";
 import { aggregateMarketObservations, type SourceDiagnostic } from "./aggregate-market-observations";
 import { persistMarketObservations } from "./persist-market-observations";
+import { persistFxRate } from "./persist-fx-rate";
 import { mapMarketObservationsToFusionObservations } from "./map-market-observations-to-fusion";
+import { buildMarketCoverageReport, type MarketCoverageReport } from "./market-coverage-report";
 import { fuseMarketObservations, type FusedValuation, type FusionTarget } from "@dealradar/core";
 
 /**
@@ -99,6 +101,12 @@ export interface OrchestrateMarketIntelligenceResult {
   persistedCount: number | null;
   /** `null` si la persistance a réussi ou n'a pas été tentée — jamais levée comme exception (voir l'en-tête du fichier). */
   persistenceError: string | null;
+  /** `null` si `persistence` n'a pas été fourni ou qu'aucun taux n'a été utilisé — distinct de `0`. */
+  fxRatesPersistedCount: number | null;
+  /** `null` si la persistance FX a réussi ou n'a pas été tentée — jamais levée comme exception (même isolation que `persistenceError`). */
+  fxPersistenceError: string | null;
+  /** Voir `market-coverage-report.ts` — diagnostics de couverture assemblés pour CE cycle précis. */
+  coverageReport: MarketCoverageReport;
   fused: FusedValuation;
 }
 
@@ -141,6 +149,26 @@ export async function orchestrateMarketIntelligence(input: OrchestrateMarketInte
     autoResolvedRates = await resolveFxRates(input.fxRateProvider, input.target.currency, observedForeignCurrencies, input.asOf?.slice(0, 10));
   }
   const allRates: Record<string, FxRate> = { ...autoResolvedRates, ...manualRates };
+
+  // Audit FX (LOT "Source Wave 3" section 1 -> "Historical Data Engine"
+  // section 11) — persiste chaque taux EFFECTIVEMENT utilisé pour CETTE
+  // analyse via `persistFxRate` (`fx_rates`, déjà générique, aucun
+  // couplage à la verticale TCG). Isolée exactement comme la persistance
+  // des observations ci-dessus : une panne ne bloque JAMAIS la fusion.
+  // Idempotent (contrainte unique sur `fx_rates`, voir `persistFxRate`).
+  let fxRatesPersistedCount: number | null = null;
+  let fxPersistenceError: string | null = null;
+  if (input.persistence && Object.keys(allRates).length > 0) {
+    fxRatesPersistedCount = 0;
+    try {
+      for (const rate of Object.values(allRates)) {
+        await persistFxRate(input.persistence.supabase, rate);
+        fxRatesPersistedCount += 1;
+      }
+    } catch (error) {
+      fxPersistenceError = error instanceof Error ? error.message : "Erreur de persistance FX inconnue.";
+    }
+  }
 
   const { fusionObservations, skipped } = mapMarketObservationsToFusionObservations(aggregated.observations, {
     targetCurrency: input.target.currency,
@@ -196,6 +224,17 @@ export async function orchestrateMarketIntelligence(input: OrchestrateMarketInte
     skippedForCurrencyCount: skipped.length,
     persistedCount,
     persistenceError,
+    fxRatesPersistedCount,
+    fxPersistenceError,
+    coverageReport: buildMarketCoverageReport({
+      categorySlug: input.categorySlug,
+      asOf: input.asOf ?? new Date().toISOString(),
+      sourceDiagnostics: aggregated.diagnostics,
+      observationsReturned: aggregated.observations.length + aggregated.canonicalOriginMergedCount,
+      observationsAfterCanonicalDedupe: aggregated.observations.length,
+      observationsUsableAfterFx: fusionObservations.length,
+      observationsPersisted: persistedCount,
+    }),
     fused,
   };
 }

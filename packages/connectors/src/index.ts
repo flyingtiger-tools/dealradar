@@ -49,6 +49,7 @@ export * from "./market-intelligence/evidence-types";
 export * from "./market-intelligence/evidence-tiers";
 export * from "./market-intelligence/market-observation";
 export * from "./market-intelligence/canonical-origin-dedupe";
+export * from "./market-intelligence/source-readiness-matrix";
 export * from "./market-intelligence/market-source";
 export * from "./market-intelligence/source-health-tracker";
 export * from "./market-intelligence/scraping-provider";

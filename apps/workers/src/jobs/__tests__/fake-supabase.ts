@@ -11,10 +11,11 @@ type Row = Record<string, unknown>;
 
 interface QueryState {
   table: string;
-  operation: "select" | "insert" | "update";
+  operation: "select" | "insert" | "update" | "upsert";
   filters: { column: string; value: unknown }[];
   containsFilters: { column: string; value: Row }[];
-  payload?: Row;
+  payload?: Row | Row[];
+  onConflict?: string[];
   limitCount?: number;
   maybeSingle?: boolean;
 }
@@ -47,6 +48,12 @@ export class FakeSupabase {
       update(payload: Row) {
         state.operation = "update";
         state.payload = payload;
+        return builder;
+      },
+      upsert(payload: Row | Row[], opts?: { onConflict?: string }) {
+        state.operation = "upsert";
+        state.payload = payload;
+        state.onConflict = opts?.onConflict?.split(",");
         return builder;
       },
       eq(column: string, value: unknown) {
@@ -91,15 +98,34 @@ export class FakeSupabase {
       });
 
     if (state.operation === "insert") {
-      const inserted = { id: state.payload!.id ?? Math.random().toString(36).slice(2), ...state.payload };
+      const payload = state.payload as Row;
+      const inserted = { id: payload.id ?? Math.random().toString(36).slice(2), ...payload };
       rows.push(inserted);
       return { data: inserted, error: null };
     }
 
     if (state.operation === "update") {
       const targets = rows.filter(matches);
-      for (const row of targets) Object.assign(row, state.payload);
+      for (const row of targets) Object.assign(row, state.payload as Row);
       return { data: targets, error: null };
+    }
+
+    if (state.operation === "upsert") {
+      const payloads = Array.isArray(state.payload) ? state.payload : [state.payload!];
+      const onConflict = state.onConflict ?? ["id"];
+      const upserted: Row[] = [];
+      for (const p of payloads) {
+        const existing = rows.find((row) => onConflict.every((col) => row[col] === p[col]));
+        if (existing) {
+          Object.assign(existing, p);
+          upserted.push(existing);
+        } else {
+          const inserted = { id: p.id ?? Math.random().toString(36).slice(2), ...p };
+          rows.push(inserted);
+          upserted.push(inserted);
+        }
+      }
+      return { data: upserted, error: null };
     }
 
     let result = rows.filter(matches);

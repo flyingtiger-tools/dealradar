@@ -132,6 +132,35 @@ describe("processAnalysis", () => {
     expect(row.result.dataAvailability.soldTransactions).toBe(false);
   });
 
+  it("amorçage de cible de recherche (LOT Historical Data Engine, section 14) : une identification réussie persiste market_products/research_targets, INDÉPENDAMMENT du résultat INSUFFICIENT_DATA de l'estimation", async () => {
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(db.table("market_products")).toHaveLength(1);
+    expect(db.table("research_targets")).toHaveLength(1);
+    const target = db.table("research_targets")[0] as { reason: string; desired_currency: string; enabled: boolean };
+    expect(target.reason).toBe("user_scan");
+    expect(target.desired_currency).toBe("CHF");
+    expect(target.enabled).toBe(true);
+  });
+
+  it("panne d'écriture de la cible de recherche : isolée, jamais un échec de la requête d'analyse utilisateur", async () => {
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+    const originalFrom = db.from.bind(db);
+    vi.spyOn(db, "from").mockImplementation((table: string) => {
+      if (table === "market_products" || table === "research_targets") throw new Error("panne d'écriture simulée");
+      return originalFrom(table);
+    });
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    const row = db.table("analysis_requests")[0] as { status: string };
+    expect(row.status).toBe("insufficient_data"); // comportement identique à une analyse sans panne d'amorçage
+  });
+
   it("utilise le pool de comparables vendus déjà persisté (dataAvailability.soldTransactions=true)", async () => {
     const db = new FakeSupabase();
     db.seed("analysis_requests", [baseRow()]);
@@ -301,6 +330,21 @@ describe("processAnalysis", () => {
       skippedForCurrencyCount: 0,
       persistedCount: 3,
       persistenceError: null,
+      fxRatesPersistedCount: null,
+      fxPersistenceError: null,
+      coverageReport: {
+        categorySlug: "lego",
+        asOf: "2026-09-21T00:00:00.000Z",
+        sourcesQueried: 1,
+        sourcesSucceeded: 1,
+        sourcesFailed: 0,
+        perSource: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10, costClass: "free" }],
+        observationsReturned: 3,
+        observationsAfterCanonicalDedupe: 3,
+        observationsUsableAfterFx: 3,
+        observationsPersisted: 3,
+        medianLatencyMs: 10,
+      },
       fused: {
         status: "estimated",
         lowCents: 17000,
@@ -358,6 +402,21 @@ describe("processAnalysis", () => {
       skippedForCurrencyCount: 0,
       persistedCount: 0,
       persistenceError: null,
+      fxRatesPersistedCount: null,
+      fxPersistenceError: null,
+      coverageReport: {
+        categorySlug: "lego",
+        asOf: "2026-09-21T00:00:00.000Z",
+        sourcesQueried: 1,
+        sourcesSucceeded: 1,
+        sourcesFailed: 0,
+        perSource: [{ source: "bricklink", status: "success", observationCount: 0, latencyMs: 10, costClass: "free" }],
+        observationsReturned: 0,
+        observationsAfterCanonicalDedupe: 0,
+        observationsUsableAfterFx: 0,
+        observationsPersisted: 0,
+        medianLatencyMs: 10,
+      },
       fused: {
         status: "insufficient",
         lowCents: null,

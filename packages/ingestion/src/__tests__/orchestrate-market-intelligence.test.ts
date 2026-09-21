@@ -260,4 +260,60 @@ describe("orchestrateMarketIntelligence", () => {
     const result = await orchestrateMarketIntelligence({ categorySlug: "gaming", q: "x", sources: [cheap], target: TARGET });
     expect(result.costClassesUsed).toEqual(["cheap"]);
   });
+
+  it("audit FX (LOT Historical Data Engine, section 11) : chaque taux effectivement utilisé est persisté via persistFxRate", async () => {
+    const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD", priceAmountCents: 10000 })]);
+    const getRate = vi.fn().mockResolvedValue(fakeFxRate({ baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9 }));
+    const db = new FakeSupabase();
+
+    const result = await orchestrateMarketIntelligence({
+      categorySlug: "gaming",
+      q: "x",
+      sources: [source],
+      target: TARGET,
+      fxRateProvider: fakeFxRateProvider(getRate),
+      persistence: { supabase: db as never },
+    });
+
+    expect(result.fxRatesPersistedCount).toBe(1);
+    expect(result.fxPersistenceError).toBeNull();
+    expect(db.table("fx_rates")).toHaveLength(1);
+  });
+
+  it("panne de persistance FX isolée : jamais renvoyée comme exception, jamais un blocage de la fusion", async () => {
+    const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD", priceAmountCents: 10000 })]);
+    const getRate = vi.fn().mockResolvedValue(fakeFxRate({ baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9 }));
+    const throwingDb = { from() { throw new Error("panne réseau simulée vers fx_rates"); } };
+
+    const result = await orchestrateMarketIntelligence({
+      categorySlug: "gaming",
+      q: "x",
+      sources: [source],
+      target: TARGET,
+      fxRateProvider: fakeFxRateProvider(getRate),
+      persistence: { supabase: throwingDb as never },
+    });
+
+    expect(result.fxPersistenceError).toContain("panne réseau simulée");
+    expect(result.fused.status).toBe("estimated"); // la fusion n'est jamais bloquée par une panne d'audit FX
+  });
+
+  it("aucun taux utilisé (toutes les observations déjà dans la devise cible) : jamais de tentative de persistance FX", async () => {
+    const source = fakeSource("bricklink", [fakeObservation()]); // déjà en CHF
+    const db = new FakeSupabase();
+
+    const result = await orchestrateMarketIntelligence({ categorySlug: "lego", q: "x", sources: [source], target: TARGET, persistence: { supabase: db as never } });
+
+    expect(result.fxRatesPersistedCount).toBeNull();
+    expect(db.table("fx_rates")).toEqual([]);
+  });
+
+  it("sans option `persistence` : jamais de tentative de persistance FX, même avec un fxRateProvider fourni", async () => {
+    const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD" })]);
+    const getRate = vi.fn().mockResolvedValue(fakeFxRate());
+
+    const result = await orchestrateMarketIntelligence({ categorySlug: "gaming", q: "x", sources: [source], target: TARGET, fxRateProvider: fakeFxRateProvider(getRate) });
+
+    expect(result.fxRatesPersistedCount).toBeNull();
+  });
 });
