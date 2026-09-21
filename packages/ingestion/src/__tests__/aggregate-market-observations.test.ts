@@ -155,4 +155,44 @@ describe("aggregateMarketObservations", () => {
 
     expect(searchSpy).toHaveBeenCalledWith({ categorySlug: "watches", q: "rolex submariner", hints: { brand: "Rolex" }, country: "ch", limit: undefined });
   });
+
+  describe("annulation coopérative (LOT 'Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package', section 7)", () => {
+    it("transmet `signal` tel quel à MarketSourceQuery.signal pour chaque source", async () => {
+      const searchSpy = vi.fn().mockResolvedValue({ observations: [] });
+      const source = fakeSource("a", { search: searchSpy });
+      const controller = new AbortController();
+
+      await aggregateMarketObservations({ categorySlug: "watches", sources: [source], q: "x", signal: controller.signal });
+
+      expect(searchSpy.mock.calls[0]![0].signal).toBe(controller.signal);
+    });
+
+    it("une source dont l'appel est abandonné (`.aborted === true`) est classée status 'aborted', jamais 'error'/'timeout' — jamais confondue avec une panne fournisseur", async () => {
+      const source = fakeSource("a", {
+        async search() {
+          const err = new Error("Appel abandonné — délai global du run dépassé, jamais une panne fournisseur.") as Error & { aborted: boolean };
+          err.aborted = true;
+          throw err;
+        },
+      });
+
+      const result = await aggregateMarketObservations({ categorySlug: "watches", sources: [source], q: "x" });
+
+      expect(result.diagnostics).toHaveLength(1);
+      expect(result.diagnostics[0]?.status).toBe("aborted");
+      expect(result.observations).toEqual([]);
+    });
+
+    it("une erreur sans `.aborted` reste classée 'error' comme avant — jamais un abandon deviné", async () => {
+      const source = fakeSource("a", {
+        async search() {
+          throw new Error("panne réseau ordinaire");
+        },
+      });
+
+      const result = await aggregateMarketObservations({ categorySlug: "watches", sources: [source], q: "x" });
+
+      expect(result.diagnostics[0]?.status).toBe("error");
+    });
+  });
 });

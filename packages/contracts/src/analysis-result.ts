@@ -121,6 +121,15 @@ export const marketEvidenceSchema = z.object({
   historicalReferenceMedianCents: z.number().nullable().optional(),
   trendDescriptor: z.string().nullable().optional(),
   trendConfidence: z.number().nullable().optional(),
+  /**
+   * Position (0–100) du PRIX D'ACHAT CONFIRMÉ par l'utilisateur dans la
+   * distribution historique connue (LOT "Interactive History + Generic
+   * Result UI + Full Cancellation + Pre-Prod Activation Package", section
+   * 1) — jamais la position de la valeur juste fusionnée elle-même (deux
+   * questions différentes : "ce prix est-il bon historiquement" vs "quelle
+   * est la valeur juste"). `null` sans historique exploitable.
+   */
+  currentVsHistoryPercentile: z.number().nullable().optional(),
 });
 export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
 

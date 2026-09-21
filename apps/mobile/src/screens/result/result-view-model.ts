@@ -41,12 +41,27 @@ export interface ResultMarketInsight {
   currency: string | null;
   confidencePercent: number | null;
   sourceCount: number | null;
+  /** Code brut ("A".."E") — jamais affiché tel quel, voir `strongestEvidenceLabel`. Conservé pour toute logique future qui en aurait besoin. */
   strongestEvidenceTier: string | null;
-  /** `null` tant qu'aucun contexte d'historique n'a été fourni à la fusion — voir le commentaire dans `process-analysis.ts`. */
+  /** Libellé déjà traduit ("Vente confirmée", "Annonce active"...) — la SEULE forme que l'UI doit afficher. `null` si `strongestEvidenceTier` est `null`. */
+  strongestEvidenceLabel: string | null;
+  /** Code brut ("up"/"down"/"flat"/"insufficient") — jamais affiché tel quel, voir `trendLabel`. `null` sans historique persisté exploitable pour ce produit. */
   trendDescriptor: string | null;
+  /** Libellé déjà traduit, jamais une prédiction ("tendance récente à la hausse", jamais "va monter"). `null` si `trendDescriptor` est `null`. */
+  trendLabel: string | null;
   trendConfidence: number | null;
   retailOnlyWarning: boolean;
   activeListingOnlyWarning: boolean;
+  /**
+   * Position (0–100) du prix D'ACHAT confirmé par l'utilisateur dans
+   * l'historique connu (LOT "Interactive History...", section 1) — jamais
+   * la position de la fourchette de valeur juste elle-même. `null` sans
+   * historique exploitable. Code brut — jamais affiché tel quel (le mot
+   * "percentile" est du jargon statistique), voir `currentVsHistoryLabel`.
+   */
+  currentVsHistoryPercentile: number | null;
+  /** Libellé déjà traduit ("parmi les plus bas/élevés observés"...), jamais le mot "percentile" affiché à l'utilisateur. `null` si `currentVsHistoryPercentile` est `null`. */
+  currentVsHistoryLabel: string | null;
   /** Libellés courts déjà traduits (jamais les codes `QualityFlag` bruts) — voir `QUALITY_FLAG_LABELS`. */
   qualityReasons: string[];
 }

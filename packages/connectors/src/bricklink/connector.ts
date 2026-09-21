@@ -47,10 +47,11 @@ export function createBrickLinkConnector(options: BrickLinkConnectorOptions): Ma
     query: MarketSourceQuery,
     collectedAt: string,
   ): Promise<MarketObservation | null> {
-    const raw = (await client.get(`/items/${encodeURIComponent(itemType)}/${encodeURIComponent(itemNo)}/price`, {
-      guide_type: guideType,
-      new_or_used: newOrUsed,
-    })) as BrickLinkPriceGuideResponse;
+    const raw = (await client.get(
+      `/items/${encodeURIComponent(itemType)}/${encodeURIComponent(itemNo)}/price`,
+      { guide_type: guideType, new_or_used: newOrUsed },
+      query.signal,
+    )) as BrickLinkPriceGuideResponse;
 
     return normalizeBrickLinkPriceGuide(raw, { categorySlug: query.categorySlug, query: query.q, guideType, collectedAt });
   }

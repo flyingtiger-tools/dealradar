@@ -130,6 +130,22 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
   const dueAtStart = await queryDueResearchTargets(options.db, { limit: CONSIDERED_PREVIEW_LIMIT, now: new Date(startedAtMs) });
   const considered = dueAtStart.length;
 
+  // Annulation COOPÉRATIVE (LOT "Interactive History + Generic Result UI +
+  // Full Cancellation + Pre-Prod Activation Package", section 7) — UN SEUL
+  // `AbortController` pour tout le run, dont le signal est transmis à
+  // `refreshOneTarget` -> `takeProductSnapshot` -> `takeMarketSnapshot` ->
+  // `aggregateMarketObservations` -> CHAQUE `MarketSourceQuery.signal`.
+  // Déclenché sur `limits.totalRunTimeoutMs` de TEMPS RÉEL écoulé (jamais
+  // dérivé de `options.now`, qui ne pilote que les calculs de
+  // planification injectables pour les tests — un appel réseau en vol ne
+  // peut de toute façon être abandonné que par une horloge réelle).
+  // `canProcessAnotherTarget` (boucle ci-dessous) empêche déjà le
+  // LANCEMENT de nouvelles cibles à la même échéance (comportement
+  // préexistant) — ce contrôleur ajoute l'abandon des appels DÉJÀ EN VOL,
+  // jamais un remplacement.
+  const batchController = new AbortController();
+  const deadlineTimer = setTimeout(() => batchController.abort(), limits.totalRunTimeoutMs);
+
   let budgetState: RefreshBudgetState = initialRefreshBudgetState(startedAtMs);
   const perTarget: PerTargetRefreshOutcome[] = [];
   const auditTargets: RefreshRunTargetAuditInput[] = [];
@@ -168,6 +184,7 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
         budgetLimits: limits,
         disappearanceRuleHours,
         historicalLookbackDays,
+        signal: batchController.signal,
       });
 
       perTarget.push(result.outcome);
@@ -214,6 +231,8 @@ export async function runDueMarketRefreshBatch(options: RunDueMarketRefreshBatch
       }
     }
   }
+
+  clearTimeout(deadlineTimer); // jamais un minuteur qui traîne après la fin du run — voir la déclaration ci-dessus.
 
   const targetCountsByOutcome: Record<string, number> = {};
   const errorClassCounts: Record<string, number> = {};
@@ -305,6 +324,8 @@ interface RefreshOneTargetInput {
   budgetLimits: RefreshBudgetLimits;
   disappearanceRuleHours: number;
   historicalLookbackDays: number;
+  /** Déadline de CE RUN (LOT "Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package", section 7) — voir `runDueMarketRefreshBatch`, un seul `AbortController` partagé par tout le run. */
+  signal?: AbortSignal;
 }
 
 interface RefreshOneTargetResult {
@@ -360,6 +381,7 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
     identityHealth: healthSummary,
     budgetState: input.budgetState,
     budgetLimits: input.budgetLimits,
+    signal: input.signal,
   });
 
   const rawObservationCount = result.summary.observationCount;
@@ -382,9 +404,17 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
     selectionPlan.excludedByCostBudget.length === 0 &&
     selectionPlan.excludedByIdentityWeakness.length === 0;
 
+  // Abandon par la déadline du RUN (section 7/8) — au moins une source
+  // interrogée pour cette cible a été abandonnée par `input.signal`, jamais
+  // une panne fournisseur. Vérifié EN PREMIER : quand présent, c'est
+  // TOUJOURS l'explication la plus pertinente d'une absence de preuve pour
+  // ce cycle précis, prioritaire sur les autres classifications.
+  const anySourceAborted = result.coverageReport.perSource.some((s) => s.status === "aborted");
+
   let failureReason: RefreshFailureReason | undefined;
   if (!hasUsefulEvidence) {
-    if (collectedEvidence && persistenceFailed) failureReason = "persistence_only_failure";
+    if (anySourceAborted) failureReason = "run_deadline_exceeded";
+    else if (collectedEvidence && persistenceFailed) failureReason = "persistence_only_failure";
     else if (fxFullyBlocked) failureReason = "fx_unavailable";
     else if (healthSummary.unresolvedConflictCount > 0 && healthSummary.exactSearchableSources.length === 0) failureReason = "hard_data_conflict";
     else if (allBlockedByPolicyOnly) failureReason = "policy_disabled_source_set";
@@ -457,6 +487,11 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
     nextPriority = Math.max(0, Math.min(100, target.priority + retry.priorityAdjustment));
   }
 
+  // `run_deadline_exceeded` n'incrémente JAMAIS `consecutive_failures`
+  // (section 8 : "do not penalize source health for operator cancellation")
+  // — ce compteur alimente le backoff exponentiel d'autres motifs d'échec
+  // (`boundedBackoffHours`), jamais approprié pour une annulation opérateur.
+  const countsAsConsecutiveFailure = !hasUsefulEvidence && failureReason !== "run_deadline_exceeded";
   await db
     .from("research_targets")
     .update({
@@ -464,7 +499,7 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
       priority: nextPriority,
       last_refreshed_at: asOf,
       last_success_at: hasUsefulEvidence ? asOf : target.lastSuccessAt,
-      consecutive_failures: hasUsefulEvidence ? 0 : target.consecutiveFailures + 1,
+      consecutive_failures: countsAsConsecutiveFailure ? target.consecutiveFailures + 1 : hasUsefulEvidence ? 0 : target.consecutiveFailures,
       last_error: hasUsefulEvidence ? null : decision.reason,
     })
     .eq("id", target.id);

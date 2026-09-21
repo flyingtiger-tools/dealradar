@@ -81,6 +81,27 @@ function successResult(overrides: Partial<MarketSnapshotResult> = {}): MarketSna
   };
 }
 
+function abortedResult(): MarketSnapshotResult {
+  return successResult({
+    observations: [],
+    coverageReport: {
+      categorySlug: "lego",
+      asOf: NOW.toISOString(),
+      sourcesQueried: 1,
+      sourcesSucceeded: 0,
+      sourcesFailed: 1,
+      perSource: [{ source: "bricklink", status: "aborted", observationCount: 0, latencyMs: 10, costClass: "free" }],
+      observationsReturned: 0,
+      observationsAfterCanonicalDedupe: 0,
+      observationsUsableAfterFx: 0,
+      observationsPersisted: 0,
+      medianLatencyMs: 10,
+    },
+    observationsPersisted: 0,
+    summary: { observationCount: 0, sourceDiversity: 0, currenciesObserved: [], skippedForMissingRateCount: 0, staleRateCount: 0, normalizedCurrency: "CHF", normalizedRange: null },
+  });
+}
+
 function emptyResult(): MarketSnapshotResult {
   return successResult({
     observations: [],
@@ -407,6 +428,37 @@ describe("runDueMarketRefreshBatch", () => {
     expect(summary.succeeded).toBe(1);
     // Les deux baux ont été libérés malgré l'échec de la première cible.
     expect(db.table("research_targets").every((r) => r.claimed_by === null)).toBe(true);
+  });
+
+  it("annulation coopérative (LOT 'Interactive History...', section 7/8) : coverageReport signale une source ABANDONNÉE -> failureReason 'run_deadline_exceeded', jamais 'transient_source_outage', priorité et consecutive_failures INCHANGÉS", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(abortedResult(), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null, priority: 50, consecutive_failures: 1 })]);
+
+    const summary = await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    expect(summary.failed).toBe(1);
+    expect(summary.perTarget[0]?.failureReason).toBe("run_deadline_exceeded");
+    const row = db.table("research_targets")[0] as Record<string, unknown>;
+    // Ni pénalité de priorité, ni incrément de consecutive_failures — une annulation opérateur n'est jamais traitée comme un échec du produit/de la source.
+    expect(row.priority).toBe(50);
+    expect(row.consecutive_failures).toBe(1);
+  });
+
+  it("annulation coopérative : un AbortSignal (déadline du run) est TOUJOURS transmis à takeProductSnapshot, même quand il ne se déclenche jamais", async () => {
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult(), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    const callArgs = vi.mocked(takeProductSnapshot).mock.calls[0]![0];
+    expect(callArgs.signal).toBeInstanceOf(AbortSignal);
+    expect(callArgs.signal?.aborted).toBe(false);
   });
 
   it("une cible déjà sous bail ACTIF d'un autre worker n'est jamais réclamée — skippedLocked le reflète", async () => {

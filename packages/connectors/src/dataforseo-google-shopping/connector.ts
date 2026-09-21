@@ -19,8 +19,32 @@ const DEFAULT_LANGUAGE_CODE = "en";
 const DEFAULT_MAX_WAIT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 1500;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Attente entre deux sondages, abandonnable par `signal` (LOT "Interactive
+ * History + Generic Result UI + Full Cancellation + Pre-Prod Activation
+ * Package", section 6 — "DataForSEO async polling aborts between polls and
+ * cancels waiting promptly") — résout IMMÉDIATEMENT dès que le signal
+ * externe s'abandonne, jamais après `ms` complet. Le prochain
+ * `client.getTask(..., signal)` lève alors lui-même une `ConnectorError`
+ * classée `aborted: true` (voir `client.ts`) — cette fonction ne fait que
+ * raccourcir l'attente, jamais elle-même la classification de l'abandon.
+ */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
@@ -57,12 +81,15 @@ export function createDataForSeoGoogleShoppingConnector(options: DataForSeoGoogl
     async search(query: MarketSourceQuery): Promise<MarketSourceResult> {
       const collectedAt = new Date().toISOString();
 
-      const posted = await client.postTask({
-        keyword: query.q,
-        location_code: options.defaultLocationCode,
-        language_code: languageCode,
-        depth: query.limit,
-      });
+      const posted = await client.postTask(
+        {
+          keyword: query.q,
+          location_code: options.defaultLocationCode,
+          language_code: languageCode,
+          depth: query.limit,
+        },
+        query.signal,
+      );
 
       const task = posted.tasks?.[0];
       if (!task || task.status_code >= 40000) {
@@ -71,7 +98,7 @@ export function createDataForSeoGoogleShoppingConnector(options: DataForSeoGoogl
 
       const startedAt = Date.now();
       for (;;) {
-        const fetched = await client.getTask(task.id);
+        const fetched = await client.getTask(task.id, query.signal);
         const fetchedTask = fetched.tasks?.[0];
         if (fetchedTask?.result) {
           const observations = fetchedTask.result.flatMap((result) =>
@@ -84,7 +111,12 @@ export function createDataForSeoGoogleShoppingConnector(options: DataForSeoGoogl
           // Jamais une exception ici — une tâche qui n'a pas eu le temps d'aboutir dégrade gracieusement en "aucune observation", exactement comme une source en panne (voir l'en-tête du fichier).
           return { observations: [] };
         }
-        await sleep(pollIntervalMs);
+        // Attente abandonnable (section 6) — si `query.signal` s'abandonne
+        // PENDANT cette attente, elle se termine immédiatement ; le
+        // `client.getTask` suivant lève alors sa propre `ConnectorError`
+        // classée `aborted: true`, jamais un résultat vide qui masquerait
+        // une annulation opérateur en "aucune preuve trouvée".
+        await abortableSleep(pollIntervalMs, query.signal);
       }
     },
 

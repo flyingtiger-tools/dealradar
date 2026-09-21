@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 import type { DataForSeoTaskGetResponse, DataForSeoTaskPostRequestItem, DataForSeoTaskPostResponse } from "./raw-types";
 
 export interface DataForSeoClientOptions {
@@ -14,8 +15,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 2;
 
 export interface DataForSeoHttpClient {
-  postTask(params: DataForSeoTaskPostRequestItem): Promise<DataForSeoTaskPostResponse>;
-  getTask(taskId: string): Promise<DataForSeoTaskGetResponse>;
+  postTask(params: DataForSeoTaskPostRequestItem, signal?: AbortSignal): Promise<DataForSeoTaskPostResponse>;
+  getTask(taskId: string, signal?: AbortSignal): Promise<DataForSeoTaskGetResponse>;
 }
 
 /**
@@ -33,18 +34,22 @@ export function createDataForSeoClient(options: DataForSeoClientOptions): DataFo
     return `Basic ${Buffer.from(`${options.login}:${options.password}`).toString("base64")}`;
   }
 
-  async function requestOnce(path: string, body?: unknown): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  async function requestOnce(path: string, body?: unknown, externalSignal?: AbortSignal): Promise<Response> {
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
       return await fetchImpl(`${BASE_URL}${path}`, {
         method: body ? "POST" : "GET",
         headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: body ? JSON.stringify([body]) : undefined,
-        signal: controller.signal,
+        signal: bounded.controller.signal,
       });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError(`Appel DataForSEO abandonné (${path}) — délai global du run dépassé, jamais une panne fournisseur.`, { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -56,13 +61,14 @@ export function createDataForSeoClient(options: DataForSeoClientOptions): DataFo
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function requestWithRetry(path: string, body?: unknown): Promise<unknown> {
+  async function requestWithRetry(path: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
     let attempt = 0;
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(path, body);
-      } catch {
+        response = await requestOnce(path, body, signal);
+      } catch (error) {
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(`Délai dépassé ou erreur réseau lors de l'appel DataForSEO après ${attempt + 1} tentative(s).`, { retryable: true });
         }
@@ -87,11 +93,11 @@ export function createDataForSeoClient(options: DataForSeoClientOptions): DataFo
   }
 
   return {
-    async postTask(params) {
-      return (await requestWithRetry("/task_post", params)) as DataForSeoTaskPostResponse;
+    async postTask(params, signal) {
+      return (await requestWithRetry("/task_post", params, signal)) as DataForSeoTaskPostResponse;
     },
-    async getTask(taskId) {
-      return (await requestWithRetry(`/task_get/advanced/${taskId}`)) as DataForSeoTaskGetResponse;
+    async getTask(taskId, signal) {
+      return (await requestWithRetry(`/task_get/advanced/${taskId}`, undefined, signal)) as DataForSeoTaskGetResponse;
     },
   };
 }

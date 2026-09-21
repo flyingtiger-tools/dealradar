@@ -147,10 +147,14 @@ describe("mapAnalysisResultToViewModel", () => {
         confidencePercent: 63,
         sourceCount: 3,
         strongestEvidenceTier: "D",
+        strongestEvidenceLabel: "Annonce en cours",
         trendDescriptor: null,
+        trendLabel: null,
         trendConfidence: null,
         retailOnlyWarning: false,
         activeListingOnlyWarning: true,
+        currentVsHistoryPercentile: null,
+        currentVsHistoryLabel: null,
         qualityReasons: [],
       });
     });
@@ -172,7 +176,7 @@ describe("mapAnalysisResultToViewModel", () => {
         },
       });
       const view = mapAnalysisResultToViewModel(result, "completed", "general");
-      expect(view.marketInsight?.qualityReasons).toEqual(["Uniquement des prix neufs / retail", "Peu de sources différentes"]);
+      expect(view.marketInsight?.qualityReasons).toEqual(["Basé uniquement sur des prix neufs en boutique", "Peu de sources différentes consultées"]);
       expect(view.marketInsight?.qualityReasons.join(" ")).not.toMatch(/retail_only|low_source_diversity/);
     });
 
@@ -212,11 +216,85 @@ describe("mapAnalysisResultToViewModel", () => {
           trendDescriptor: "up",
           trendConfidence: 72,
           historicalReferenceMedianCents: 18000,
+          currentVsHistoryPercentile: 80,
         },
       });
       const view = mapAnalysisResultToViewModel(result, "completed", "general");
       expect(view.marketInsight?.trendDescriptor).toBe("up");
       expect(view.marketInsight?.trendConfidence).toBe(72);
+      expect(view.marketInsight?.currentVsHistoryPercentile).toBe(80);
+    });
+
+    it("tendance/palier traduits en libellés courts, jamais une prédiction ('va monter') ni un code brut ('Tier')", () => {
+      const result = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: "A",
+          sourceCount: 4,
+          observationCount: 6,
+          liveObservationCount: 0,
+          historicalObservationCount: 6,
+          sourceNames: ["ebay"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: false,
+          trendDescriptor: "up",
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight?.strongestEvidenceLabel).toBe("Vente confirmée");
+      expect(view.marketInsight?.trendLabel).toBe("Tendance récente à la hausse");
+      expect(view.marketInsight?.trendLabel).not.toMatch(/va monter|va baisser|prévision|prédiction/i);
+      expect([view.marketInsight?.strongestEvidenceLabel, view.marketInsight?.trendLabel].join(" ")).not.toMatch(/Tier/);
+    });
+
+    it("position dans l'historique : traduite en phrase naturelle, jamais le mot 'percentile' affiché", () => {
+      const low = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: "B",
+          sourceCount: 2,
+          observationCount: 4,
+          liveObservationCount: 0,
+          historicalObservationCount: 4,
+          sourceNames: ["bricklink"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: true,
+          currentVsHistoryPercentile: 10,
+        },
+      });
+      const high = baseResult({ ...low, marketEvidence: { ...low.marketEvidence!, currentVsHistoryPercentile: 90 } });
+      const mid = baseResult({ ...low, marketEvidence: { ...low.marketEvidence!, currentVsHistoryPercentile: 50 } });
+
+      const lowView = mapAnalysisResultToViewModel(low, "completed", "general");
+      const highView = mapAnalysisResultToViewModel(high, "completed", "general");
+      const midView = mapAnalysisResultToViewModel(mid, "completed", "general");
+
+      expect(lowView.marketInsight?.currentVsHistoryLabel).toBe("Ce prix se situe parmi les plus bas observés historiquement");
+      expect(highView.marketInsight?.currentVsHistoryLabel).toBe("Ce prix se situe parmi les plus élevés observés historiquement");
+      expect(midView.marketInsight?.currentVsHistoryLabel).toBe("Ce prix se situe dans la moyenne de l'historique connu");
+      expect(lowView.marketInsight?.currentVsHistoryLabel).not.toMatch(/percentile/i);
+    });
+
+    it("aucun palier/tendance connu : labels null, jamais une chaîne vide inventée", () => {
+      const result = baseResult({
+        product: { name: "x", category: null, modelOrReference: null },
+        marketEvidence: {
+          strongestTier: null,
+          sourceCount: 0,
+          observationCount: 0,
+          liveObservationCount: 0,
+          historicalObservationCount: 0,
+          sourceNames: [],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: false,
+          usedSpecialistHistory: false,
+        },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.marketInsight?.strongestEvidenceLabel).toBeNull();
+      expect(view.marketInsight?.trendLabel).toBeNull();
     });
   });
 });

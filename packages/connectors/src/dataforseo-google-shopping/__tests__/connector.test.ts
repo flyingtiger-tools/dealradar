@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDataForSeoGoogleShoppingConnector } from "../connector";
+import { ConnectorError } from "../../types";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -66,6 +67,34 @@ describe("createDataForSeoGoogleShoppingConnector", () => {
     expect(result.observations).toEqual([]);
     vi.restoreAllMocks();
     void time;
+  });
+
+  it("signal externe abandonné PENDANT l'attente entre deux sondages (LOT 'Interactive History...', section 6) : rejette avec ConnectorError.aborted=true, jamais un résultat vide qui masquerait l'annulation", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+      if ((init?.method ?? "GET") === "POST") return Promise.resolve(jsonResponse(200, POST_TASK_OK));
+      return Promise.resolve(jsonResponse(200, TASK_GET_NOT_READY));
+    }) as unknown as typeof fetch;
+
+    const externalController = new AbortController();
+    const connector = createDataForSeoGoogleShoppingConnector({
+      login: "l",
+      password: "p",
+      defaultLocationCode: 2756,
+      fetchImpl,
+      maxWaitMs: 10_000,
+      pollIntervalMs: 200,
+    });
+
+    const pending = connector.search({ categorySlug: "apple", q: "iphone 13", signal: externalController.signal });
+    await new Promise((resolve) => setTimeout(resolve, 20)); // laisse POST + premier GET (not ready) s'exécuter, entre dans l'attente de sondage.
+    externalController.abort();
+
+    await expect(pending).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ConnectorError);
+      expect((error as ConnectorError).aborted).toBe(true);
+      return true;
+    });
   });
 
   it("tâche refusée par DataForSEO (status_code d'erreur) : lève une ConnectorError, jamais un résultat vide silencieux", async () => {

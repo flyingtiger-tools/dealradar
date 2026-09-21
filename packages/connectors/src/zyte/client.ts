@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 
 export interface ZyteClientOptions {
   apiKey: string;
@@ -38,7 +39,7 @@ const DEFAULT_MAX_RETRIES = 2;
  * lot) — ce client ne fait que traduire `ScrapeRequest` (`../market-
  * intelligence/scraping-provider.ts`) vers leur API REST documentée.
  */
-export function createZyteClient(options: ZyteClientOptions): { extract(request: ZyteExtractRequest): Promise<ZyteExtractResponse> } {
+export function createZyteClient(options: ZyteClientOptions): { extract(request: ZyteExtractRequest, signal?: AbortSignal): Promise<ZyteExtractResponse> } {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -48,18 +49,22 @@ export function createZyteClient(options: ZyteClientOptions): { extract(request:
     return `Basic ${Buffer.from(`${options.apiKey}:`).toString("base64")}`;
   }
 
-  async function requestOnce(request: ZyteExtractRequest): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  async function requestOnce(request: ZyteExtractRequest, externalSignal?: AbortSignal): Promise<Response> {
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
       return await fetchImpl(BASE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: authHeader() },
         body: JSON.stringify(request),
-        signal: controller.signal,
+        signal: bounded.controller.signal,
       });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError("Appel Zyte abandonné — délai global du run dépassé, jamais une panne fournisseur.", { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -71,13 +76,14 @@ export function createZyteClient(options: ZyteClientOptions): { extract(request:
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function extract(request: ZyteExtractRequest): Promise<ZyteExtractResponse> {
+  async function extract(request: ZyteExtractRequest, signal?: AbortSignal): Promise<ZyteExtractResponse> {
     let attempt = 0;
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(request);
-      } catch {
+        response = await requestOnce(request, signal);
+      } catch (error) {
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(`Délai dépassé ou erreur réseau lors de l'appel Zyte après ${attempt + 1} tentative(s).`, { retryable: true });
         }

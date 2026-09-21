@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeHistoryIntelligenceV2, type HistoryIntelligenceV2, type HistoryPointV2 } from "@dealradar/core";
+import { computeHistoryIntelligenceV2, summarizeObservations, type HistoryIntelligenceV2, type HistoryPointV2 } from "@dealradar/core";
 import { queryHistoricalPricePoints } from "./query-historical-price-points";
 
 /**
@@ -33,6 +33,8 @@ export interface ProductHistoryResult {
   history: HistoryIntelligenceV2;
   activeSupplyCount: number;
   sourceDiversity: number;
+  /** Ancienneté du point le plus récent, en heures — `null` sans aucun point. Exposé séparément de `history` (qui ne le porte pas lui-même) car `toFusionHistoryContext` en a besoin pour construire un `FusionHistoryContext`. */
+  freshnessHours: number | null;
 }
 
 export interface QueryProductHistoryOptions {
@@ -73,6 +75,7 @@ export async function queryProductHistory(supabase: SupabaseClient, productKey: 
   const pricePoints = await queryHistoricalPricePoints(supabase, productKey, { sinceIso });
   const historyPoints: HistoryPointV2[] = pricePoints.map((p) => ({ observedAt: p.observedAt, priceCents: p.priceCents, source: p.source }));
   const history = computeHistoryIntelligenceV2(historyPoints, asOf, { currentPriceCents: options.currentPriceCents ?? null });
+  const freshnessHours = summarizeObservations(historyPoints, asOf).freshnessHours;
 
   const { data: summaryRows, error: summaryError } = await supabase
     .from("market_snapshot_summaries")
@@ -113,5 +116,6 @@ export async function queryProductHistory(supabase: SupabaseClient, productKey: 
     history,
     activeSupplyCount,
     sourceDiversity: history.sourceDiversityOverTime,
+    freshnessHours,
   };
 }

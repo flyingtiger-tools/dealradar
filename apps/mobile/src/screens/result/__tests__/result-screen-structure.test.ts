@@ -26,6 +26,21 @@ describe("Hiérarchie de ResultScreen (Phase 10/11, LOT visual product pass)", (
   it("ne construit jamais de JSON brut affiché à l'utilisateur", () => {
     expect(content).not.toMatch(/JSON\.stringify/);
   });
+
+  it("MarketInsightCard (LOT Interactive History..., section 3) est conditionné à view.marketInsight, jamais rendu inconditionnellement (garantie TCG : marketInsight est toujours null pour un résultat TCG)", () => {
+    expect(content).toMatch(/\{view\.marketInsight\s*&&\s*<MarketInsightCard/);
+  });
+
+  it("MarketInsightCard apparaît après 'Prix par source' et avant WhyPanel — jamais de fourchette de prix dupliquée avant PriceHero/ScoreConfidenceRow", () => {
+    const detailIndex = content.indexOf("Prix par source");
+    const insightIndex = content.indexOf("<MarketInsightCard");
+    const whyPanelIndex = content.indexOf("<WhyPanel");
+    expect(detailIndex).toBeGreaterThan(-1);
+    expect(insightIndex).toBeGreaterThan(-1);
+    expect(whyPanelIndex).toBeGreaterThan(-1);
+    expect(detailIndex).toBeLessThan(insightIndex);
+    expect(insightIndex).toBeLessThan(whyPanelIndex);
+  });
 });
 
 describe("HistoryScreen utilise le vrai dépôt (Phase 17, LOT visual product pass)", () => {

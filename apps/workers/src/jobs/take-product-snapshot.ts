@@ -36,6 +36,8 @@ export interface TakeProductSnapshotInput {
   identityHealth?: IdentityHealthSummary | null;
   budgetState?: RefreshBudgetState;
   budgetLimits?: RefreshBudgetLimits;
+  /** Signal d'annulation coopérative EXTERNE optionnel (LOT "Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package", section 7) — voir `runDueMarketRefreshBatch` pour la source (déadline de run). Absent = comportement identique à avant ce lot. */
+  signal?: AbortSignal;
 }
 
 export interface TakeProductSnapshotOutput {
@@ -74,6 +76,7 @@ export async function takeProductSnapshot(input: TakeProductSnapshotInput): Prom
     sources: resolvedSources,
     fxRateProvider: sharedFxRateProvider,
     persistence: { supabase: input.db },
+    signal: input.signal,
   });
 
   return { snapshot, selectionPlan };

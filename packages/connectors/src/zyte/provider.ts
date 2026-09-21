@@ -34,8 +34,8 @@ export function createZyteScrapingProvider(options: ZyteScrapingProviderOptions)
 
       try {
         const response = usedJsRendering
-          ? await client.extract({ url: request.url, browserHtml: true, geolocation: request.country })
-          : await client.extract({ url: request.url, httpResponseBody: true, geolocation: request.country });
+          ? await client.extract({ url: request.url, browserHtml: true, geolocation: request.country }, request.signal)
+          : await client.extract({ url: request.url, httpResponseBody: true, geolocation: request.country }, request.signal);
 
         const rawHtml = response.browserHtml ?? (response.httpResponseBody ? Buffer.from(response.httpResponseBody, "base64").toString("utf-8") : null);
 
@@ -56,6 +56,11 @@ export function createZyteScrapingProvider(options: ZyteScrapingProviderOptions)
         };
       } catch (error) {
         if (error instanceof ConnectorError) {
+          // Un abandon par le signal EXTERNE est terminal et jamais une panne
+          // fournisseur — vérifié EN PREMIER, avant toute classification par
+          // code HTTP (voir `ConnectorError.aborted`, même discipline que les
+          // autres clients du paquet).
+          if (error.aborted) throw new ScrapeError(error.message, { reason: "provider_error", retryable: false, aborted: true });
           if (error.httpStatus === 429) throw new ScrapeError(error.message, { reason: "timeout", retryable: true });
           if (error.httpStatus === 404 || error.httpStatus === 521) throw new ScrapeError(error.message, { reason: "not_found", retryable: false });
           if (error.httpStatus === 400) throw new ScrapeError(error.message, { reason: "invalid_request", retryable: false });

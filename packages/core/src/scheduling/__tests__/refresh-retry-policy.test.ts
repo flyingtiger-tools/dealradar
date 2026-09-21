@@ -53,6 +53,15 @@ describe("decideRefreshRetry", () => {
     expect(decision.priorityAdjustment).toBe(0);
   });
 
+  it("déadline du run atteinte (LOT 'Interactive History...', section 8) : délai COURT et neutre, jamais de pénalité, jamais de backoff exponentiel même avec des échecs consécutifs élevés", () => {
+    const first = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "run_deadline_exceeded", consecutiveFailures: 0, costClass: "free" });
+    const manyPriorFailures = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "run_deadline_exceeded", consecutiveFailures: 20, costClass: "free" });
+    expect(first.priorityAdjustment).toBe(0);
+    expect(manyPriorFailures.priorityAdjustment).toBe(0);
+    // Jamais un backoff exponentiel comme `transient_source_outage` — le délai reste identique quel que soit `consecutiveFailures` (annulation opérateur, jamais une panne accumulée).
+    expect(manyPriorFailures.delayHours).toBe(first.delayHours);
+  });
+
   it("ne jamais marteler une source payante/coûteuse : le plancher grandit avec la classe de coût", () => {
     const free = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "transient_source_outage", consecutiveFailures: 0, costClass: "free" });
     const paid = decideRefreshRetry({ hasUsefulEvidence: false, failureReason: "transient_source_outage", consecutiveFailures: 0, costClass: "paid" });

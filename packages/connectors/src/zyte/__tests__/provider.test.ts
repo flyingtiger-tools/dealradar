@@ -98,6 +98,29 @@ describe("createZyteScrapingProvider", () => {
     }
   });
 
+  it("signal externe abandonné (LOT 'Interactive History...', section 6) : ScrapeError.aborted=true, jamais reason 'provider_error' confondu avec une vraie panne", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      if (init?.signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    }) as unknown as typeof fetch;
+    const provider = createZyteScrapingProvider({ apiKey: "k", fetchImpl, timeoutMs: 5000, maxRetries: 2 });
+    const externalController = new AbortController();
+
+    const pending = provider.scrape({ url: "https://example.com", signal: externalController.signal });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    externalController.abort();
+
+    await expect(pending).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(ScrapeError);
+      expect((error as ScrapeError).aborted).toBe(true);
+      expect((error as ScrapeError).retryable).toBe(false);
+      return true;
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("jamais la clé API dans un message d'erreur", async () => {
     const fetchImpl = fakeFetch([{ status: 400, body: { status: 400, type: "/x", title: "Bad request" } }]);
     const provider = createZyteScrapingProvider({ apiKey: "super-secret-zyte-key", fetchImpl });

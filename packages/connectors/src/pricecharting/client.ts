@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 
 export interface PriceChartingClientOptions {
   token: string;
@@ -8,7 +9,7 @@ export interface PriceChartingClientOptions {
 }
 
 export interface PriceChartingHttpClient {
-  get(query: Record<string, string | undefined>): Promise<unknown>;
+  get(query: Record<string, string | undefined>, signal?: AbortSignal): Promise<unknown>;
 }
 
 const BASE_URL = "https://www.pricecharting.com/api/product";
@@ -30,13 +31,17 @@ export function createPriceChartingClient(options: PriceChartingClientOptions): 
     return url;
   }
 
-  async function requestOnce(query: Record<string, string | undefined>): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  async function requestOnce(query: Record<string, string | undefined>, externalSignal?: AbortSignal): Promise<Response> {
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
-      return await fetchImpl(buildUrl(query).toString(), { method: "GET", signal: controller.signal });
+      return await fetchImpl(buildUrl(query).toString(), { method: "GET", signal: bounded.controller.signal });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError("Appel PriceCharting abandonné — délai global du run dépassé, jamais une panne fournisseur.", { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -48,13 +53,14 @@ export function createPriceChartingClient(options: PriceChartingClientOptions): 
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function get(query: Record<string, string | undefined>): Promise<unknown> {
+  async function get(query: Record<string, string | undefined>, signal?: AbortSignal): Promise<unknown> {
     let attempt = 0;
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(query);
-      } catch {
+        response = await requestOnce(query, signal);
+      } catch (error) {
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(`Délai dépassé ou erreur réseau lors de l'appel PriceCharting après ${attempt + 1} tentative(s).`, { retryable: true });
         }

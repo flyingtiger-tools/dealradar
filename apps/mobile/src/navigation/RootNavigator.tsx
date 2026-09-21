@@ -15,6 +15,7 @@ import { InternalToolsScreen } from "../screens/internal/InternalToolsScreen";
 import { UiPreviewScreen } from "../screens/internal/UiPreviewScreen";
 import { BuildInfoScreen } from "../screens/internal/BuildInfoScreen";
 import { DiagnosticsScreen } from "../screens/internal/DiagnosticsScreen";
+import { OperatorDiagnosticsScreen } from "../screens/internal/OperatorDiagnosticsScreen";
 import { CopilotScreen } from "../screens/internal/CopilotScreen";
 import { signOut } from "../auth/session";
 import { colors } from "../theme/tokens";
@@ -86,6 +87,7 @@ function renderPushedScreen(screen: PushedScreen, setPushed: (screen: PushedScre
           onOpenUiPreview={() => setPushed("uiPreview")}
           onOpenBuildInfo={() => setPushed("buildInfo")}
           onOpenDiagnostics={() => setPushed("diagnostics")}
+          onOpenOperatorDiagnostics={() => setPushed("operatorDiagnostics")}
           onOpenUniversalCapture={() => setPushed("universalCapture")}
           onOpenCopilot={() => setPushed("copilot")}
           onOpenOnboardingPreview={() => setPushed("onboardingPreview")}
@@ -108,6 +110,8 @@ function renderPushedScreen(screen: PushedScreen, setPushed: (screen: PushedScre
       return <BuildInfoScreen onBack={back} />;
     case "diagnostics":
       return <DiagnosticsScreen onBack={back} />;
+    case "operatorDiagnostics":
+      return <OperatorDiagnosticsScreen onBack={back} />;
     case "onboardingPreview":
       return <OnboardingScreen onDone={back} />;
   }

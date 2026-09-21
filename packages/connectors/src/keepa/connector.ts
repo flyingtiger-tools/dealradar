@@ -53,7 +53,7 @@ export function createKeepaConnector(options: KeepaConnectorOptions): MarketSour
       const domainId = (query.country && COUNTRY_TO_DOMAIN[query.country.toUpperCase()]) || defaultDomainId;
       const collectedAt = new Date().toISOString();
 
-      const raw = await client.getProduct({ asin, code, domain: domainId, history: true });
+      const raw = await client.getProduct({ asin, code, domain: domainId, history: true }, query.signal);
       if (raw.error) {
         throw new ConnectorError(`Keepa a signalé une erreur : ${raw.error}`, { retryable: false });
       }

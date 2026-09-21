@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 import type { KeepaProductResponse } from "./raw-types";
 
 export interface KeepaClientOptions {
@@ -9,7 +10,7 @@ export interface KeepaClientOptions {
 }
 
 export interface KeepaHttpClient {
-  getProduct(query: { asin?: string; code?: string; domain: number; history?: boolean }): Promise<KeepaProductResponse>;
+  getProduct(query: { asin?: string; code?: string; domain: number; history?: boolean }, signal?: AbortSignal): Promise<KeepaProductResponse>;
 }
 
 const BASE_URL = "https://api.keepa.com/product";
@@ -32,13 +33,17 @@ export function createKeepaClient(options: KeepaClientOptions): KeepaHttpClient 
     return url;
   }
 
-  async function requestOnce(query: { asin?: string; code?: string; domain: number; history?: boolean }): Promise<Response> {
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  async function requestOnce(query: { asin?: string; code?: string; domain: number; history?: boolean }, externalSignal?: AbortSignal): Promise<Response> {
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
-      return await fetchImpl(buildUrl(query).toString(), { method: "GET", signal: controller.signal });
+      return await fetchImpl(buildUrl(query).toString(), { method: "GET", signal: bounded.controller.signal });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError("Appel Keepa abandonné — délai global du run dépassé, jamais une panne fournisseur.", { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -50,13 +55,14 @@ export function createKeepaClient(options: KeepaClientOptions): KeepaHttpClient 
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function getProduct(query: { asin?: string; code?: string; domain: number; history?: boolean }): Promise<KeepaProductResponse> {
+  async function getProduct(query: { asin?: string; code?: string; domain: number; history?: boolean }, signal?: AbortSignal): Promise<KeepaProductResponse> {
     let attempt = 0;
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(query);
-      } catch {
+        response = await requestOnce(query, signal);
+      } catch (error) {
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(`Délai dépassé ou erreur réseau lors de l'appel Keepa après ${attempt + 1} tentative(s).`, { retryable: true });
         }

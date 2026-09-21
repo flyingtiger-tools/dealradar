@@ -46,6 +46,7 @@ export function createPriceChartingConnector(options: PriceChartingClientOptions
       const collectedAt = new Date().toISOString();
       const raw = (await client.get(
         typeof productId === "string" ? { id: productId } : { upc: upc as string },
+        query.signal,
       )) as PriceChartingProductResponse;
 
       if (raw.status === "error") {

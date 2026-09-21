@@ -12,6 +12,7 @@ export interface InternalToolsScreenProps {
   onOpenUiPreview: () => void;
   onOpenBuildInfo: () => void;
   onOpenDiagnostics: () => void;
+  onOpenOperatorDiagnostics: () => void;
   onOpenUniversalCapture: () => void;
   onOpenCopilot: () => void;
   onOpenOnboardingPreview: () => void;
@@ -42,6 +43,7 @@ export function InternalToolsScreen({
   onOpenUiPreview,
   onOpenBuildInfo,
   onOpenDiagnostics,
+  onOpenOperatorDiagnostics,
   onOpenUniversalCapture,
   onOpenCopilot,
   onOpenOnboardingPreview,
@@ -60,6 +62,7 @@ export function InternalToolsScreen({
           <ListRow icon="color-palette-outline" label="UI Preview" onPress={onOpenUiPreview} />
           <ListRow icon="information-circle-outline" label="Build info" onPress={onOpenBuildInfo} />
           <ListRow icon="pulse-outline" label="Diagnostics" onPress={onOpenDiagnostics} />
+          <ListRow icon="server-outline" label="Diagnostics opérateur" onPress={onOpenOperatorDiagnostics} />
           <ListRow icon="camera-outline" label="Capture universelle (bêta)" onPress={onOpenUniversalCapture} />
           <ListRow icon="chatbubble-outline" label="Copilote (spike)" onPress={onOpenCopilot} />
           <ListRow icon="school-outline" label="Onboarding (aperçu)" onPress={onOpenOnboardingPreview} last />

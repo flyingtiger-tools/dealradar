@@ -46,6 +46,8 @@ export interface MarketSnapshotInput {
   fxRateProvider?: FxRateProvider;
   maxRateAgeHours?: number;
   persistence?: { supabase: SupabaseClient };
+  /** Signal d'annulation coopérative EXTERNE optionnel (LOT "Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package", section 7) — transmis tel quel à chaque `aggregateMarketObservations` (un appel par plan). Absent = comportement identique à avant ce lot. */
+  signal?: AbortSignal;
 }
 
 export interface MarketSnapshotSummary {
@@ -92,7 +94,7 @@ export async function takeMarketSnapshot(input: MarketSnapshotInput): Promise<Ma
     plans.flatMap((plan) => {
       const source = sourcesByName.get(plan.source);
       if (!source) return [];
-      return [aggregateMarketObservations({ categorySlug: input.categorySlug, sources: [source], q: plan.q, hints: plan.hints })];
+      return [aggregateMarketObservations({ categorySlug: input.categorySlug, sources: [source], q: plan.q, hints: plan.hints, signal: input.signal })];
     }),
   );
 

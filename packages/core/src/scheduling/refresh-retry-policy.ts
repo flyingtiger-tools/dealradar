@@ -16,7 +16,18 @@ export type RefreshFailureReason =
   | "persistence_only_failure"
   | "fx_unavailable"
   | "policy_disabled_source_set"
-  | "hard_data_conflict";
+  | "hard_data_conflict"
+  /**
+   * Le cycle s'est arrêté parce que la DÉADLINE DU RUN de rafraîchissement
+   * (`runDueMarketRefreshBatch`, `apps/workers`) a expiré PENDANT ce cycle
+   * — jamais une panne fournisseur (LOT "Interactive History + Generic
+   * Result UI + Full Cancellation + Pre-Prod Activation Package", section
+   * 8 : "an operator/deadline abort is NOT a provider outage"). Distinct
+   * de `transient_source_outage` précisément pour que `decideRefreshRetry`
+   * puisse appliquer un délai COURT ET NEUTRE, sans pénalité de priorité —
+   * voir le `case` dédié ci-dessous.
+   */
+  | "run_deadline_exceeded";
 
 export interface RefreshOutcomeInput {
   /** `true` si AU MOINS une observation exploitable a été obtenue — un instantané partiel compte comme un succès s'il apporte une preuve utile (règle explicite du lot), même si certaines sources ont échoué. */
@@ -86,6 +97,10 @@ export function decideRefreshRetry(input: RefreshOutcomeInput): RefreshRetryDeci
 
     case "fx_unavailable":
       return { isSuccess: false, delayHours: Math.max(COST_CLASS_MIN_DELAY_HOURS[input.costClass], 6), priorityAdjustment: 0, reason: "Taux de change indisponible — délai court à modéré, jamais une pénalité de priorité (limite externe, pas un échec du produit)." };
+
+    case "run_deadline_exceeded":
+      // Annulation OPÉRATEUR (déadline du run), jamais une panne fournisseur — délai COURT et neutre (même plancher qu'un succès), AUCUNE pénalité de priorité, jamais de backoff exponentiel (section 8 : "do not penalize... do not lower product priority solely because the batch deadline hit").
+      return { isSuccess: false, delayHours: COST_CLASS_MIN_DELAY_HOURS[input.costClass], priorityAdjustment: 0, reason: "Déadline du run de rafraîchissement atteinte pendant ce cycle — annulation opérateur, jamais une panne fournisseur ; nouvel essai court, sans pénalité de priorité." };
 
     case "transient_source_outage":
     case "all_sources_unavailable":

@@ -35,7 +35,7 @@ export function createRicardoConnector(options: RicardoConnectorOptions): Market
       // `ScrapeError` n'est jamais interceptée ici — elle doit se propager pour que
       // l'agrégateur (`aggregate-market-observations.ts`) l'enregistre honnêtement
       // comme un diagnostic "error", jamais masquée en faux succès à 0 résultat.
-      const scraped = await options.scrapingProvider.scrape({ url: pageUrl, country: "CH", renderJs: true });
+      const scraped = await options.scrapingProvider.scrape({ url: pageUrl, country: "CH", renderJs: true, signal: query.signal });
       if (!scraped.rawHtml) return { observations: [] };
 
       const observations = parseRicardoListingHtml(scraped.rawHtml, { query: query.q, collectedAt, pageUrl });

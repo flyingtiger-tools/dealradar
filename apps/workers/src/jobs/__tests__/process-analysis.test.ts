@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
 import type { MarketSource } from "@dealradar/connectors";
+import { deriveProductKey } from "@dealradar/core";
 
 vi.mock("@dealradar/ingestion", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@dealradar/ingestion")>()),
@@ -409,6 +410,100 @@ describe("processAnalysis", () => {
     expect(row.result.dataAvailability.marketGuide).toBe(true);
   });
 
+  it("historique persisté disponible pour productKey : contexte d'historique construit et transmis à orchestrateMarketIntelligence (LOT Interactive History..., section 1)", async () => {
+    const productKey = deriveProductKey("lego", { brand: "LEGO" });
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+    vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+      sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
+      observationCount: 3,
+      liveObservationCount: 0,
+      historicalObservationCount: 3,
+      sourceNames: ["bricklink"],
+      directSourceCount: 1,
+      aggregatorSourceCount: 0,
+      evidenceTypeMix: [{ evidenceType: "historicalPrices", count: 3 }],
+      costClassesUsed: ["free"],
+      fx: { observedCurrencies: ["CHF"], ratesUsed: [], skippedForMissingRateCount: 0 },
+      skippedForCurrencyCount: 0,
+      persistedCount: 3,
+      persistenceError: null,
+      fxRatesPersistedCount: null,
+      fxPersistenceError: null,
+      coverageReport: {
+        categorySlug: "lego",
+        asOf: "2026-09-21T00:00:00.000Z",
+        sourcesQueried: 1,
+        sourcesSucceeded: 1,
+        sourcesFailed: 0,
+        perSource: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10, costClass: "free" }],
+        observationsReturned: 3,
+        observationsAfterCanonicalDedupe: 3,
+        observationsUsableAfterFx: 3,
+        observationsPersisted: 3,
+        medianLatencyMs: 10,
+      },
+      fused: {
+        status: "estimated",
+        lowCents: 17000,
+        fairCents: 18000,
+        highCents: 19000,
+        currency: "CHF",
+        confidence: 80,
+        evidenceCount: 3,
+        sourceCount: 1,
+        strongestTier: "B",
+        evidenceMix: [{ tier: "B", source: "bricklink", merchant: "bricklink", count: 3 }],
+        freshnessHours: 2,
+        reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
+        insufficiencyReason: null,
+        confidenceComponents: null,
+        qualityFlags: [],
+        historicalReferenceMedianCents: 18000,
+        trendDescriptor: "flat",
+        trendConfidence: 40,
+        historyStabilizationApplied: false,
+      },
+    });
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+    db.seed("market_observations", [
+      { product_key: productKey, observed_at: "2026-09-01T00:00:00.000Z", price_cents: 18000, source: "bricklink" },
+      { product_key: productKey, observed_at: "2026-09-10T00:00:00.000Z", price_cents: 18500, source: "bricklink" },
+    ]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(orchestrateMarketIntelligence).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(orchestrateMarketIntelligence).mock.calls[0]![0] as { history?: { sampleSize: number; historicalMedianCents: number | null } };
+    expect(callArgs.history).toBeDefined();
+    expect(callArgs.history?.sampleSize).toBe(2);
+    expect(callArgs.history?.historicalMedianCents).not.toBeNull();
+
+    // Le `marketEvidence` écrit reflète ce que la fusion (mockée ici) a
+    // renvoyé — jamais recalculé côté worker (voir le test précédent).
+    const row = db.table("analysis_requests")[0] as { result: { marketEvidence?: { historicalReferenceMedianCents: number | null; trendDescriptor: string | null } } };
+    expect(row.result.marketEvidence?.historicalReferenceMedianCents).toBe(18000);
+    expect(row.result.marketEvidence?.trendDescriptor).toBe("flat");
+  });
+
+  it("aucun historique persisté pour productKey : orchestrateMarketIntelligence appelé SANS `history` — comportement identique à avant ce lot", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+    vi.mocked(orchestrateMarketIntelligence).mockRejectedValue(new Error("non pertinent pour ce test"));
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow()]);
+    // Aucune ligne dans `market_observations` : historique vide.
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    expect(orchestrateMarketIntelligence).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(orchestrateMarketIntelligence).mock.calls[0]![0] as { history?: unknown };
+    expect(callArgs.history).toBeUndefined();
+  });
+
   it("fusion multi-source insuffisante (aucune preuve exploitable trouvée) : reste INSUFFICIENT_DATA, marketEvidence reflète honnêtement l'absence de preuve", async () => {
     vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
     vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
@@ -488,5 +583,53 @@ describe("processAnalysis", () => {
     const row = db.table("analysis_requests")[0] as { status: string; result: { decision: string } };
     expect(row.status).toBe("insufficient_data"); // comportement identique à l'absence totale d'enrichissement
     expect(row.result.decision).toBe("INSUFFICIENT_DATA");
+  });
+
+  describe("résolution de productKey (LOT Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package, section 2)", () => {
+    it("même capacité extraite deux fois : le même product_key est persisté sur research_targets", async () => {
+      const db1 = new FakeSupabase();
+      db1.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db1 as never);
+      const key1 = (db1.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      const db2 = new FakeSupabase();
+      db2.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état, boîte incluse" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db2 as never);
+      const key2 = (db2.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      expect(key1).toBeDefined();
+      expect(key1).toBe(key2);
+    });
+
+    it("capacité différente (128GB vs 256GB) : product_key distinct — corrige un bug latent qui aurait fusionné leur historique", async () => {
+      const db128 = new FakeSupabase();
+      db128.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db128 as never);
+      const key128 = (db128.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      const db256 = new FakeSupabase();
+      db256.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 256GB très bon état" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db256 as never);
+      const key256 = (db256.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      expect(key128).toBeDefined();
+      expect(key256).toBeDefined();
+      expect(key128).not.toBe(key256);
+    });
+
+    it("changement d'état (condition) seul, même capacité : product_key inchangé — l'état reste une preuve, jamais un composant d'identité", async () => {
+      const dbGood = new FakeSupabase();
+      dbGood.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, dbGood as never);
+      const keyGood = (dbGood.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      const dbFair = new FakeSupabase();
+      dbFair.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB état correct" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, dbFair as never);
+      const keyFair = (dbFair.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      expect(keyGood).toBeDefined();
+      expect(keyGood).toBe(keyFair);
+    });
   });
 });

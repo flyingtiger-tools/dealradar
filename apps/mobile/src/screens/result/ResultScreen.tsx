@@ -5,6 +5,7 @@ import { deriveHeroPriceRange } from "./price-hero";
 import { RafResultHero } from "../../components/raf/RafResultHero";
 import { ErrorState } from "../../components/errors/ErrorState";
 import { PriceHero } from "../../components/result/PriceHero";
+import { MarketInsightCard } from "../../components/result/MarketInsightCard";
 import { Card } from "../../components/ui/Card";
 import { AppButton } from "../../components/ui/AppButton";
 import { Badge } from "../../components/ui/Badge";
@@ -158,6 +159,8 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
         </Card>
       )}
       {!view.hasPricing && <ErrorState source={{ kind: "code", code: "NO_PRICE" }} />}
+
+      {view.marketInsight && <MarketInsightCard insight={view.marketInsight} />}
 
       <WhyPanel positives={view.reasons} warnings={view.warnings} />
 

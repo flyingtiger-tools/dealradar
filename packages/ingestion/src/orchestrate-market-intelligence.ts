@@ -6,7 +6,7 @@ import { persistMarketObservations } from "./persist-market-observations";
 import { persistFxRate } from "./persist-fx-rate";
 import { mapMarketObservationsToFusionObservations } from "./map-market-observations-to-fusion";
 import { buildMarketCoverageReport, type MarketCoverageReport } from "./market-coverage-report";
-import { fuseMarketObservations, type FusedValuation, type FusionTarget } from "@dealradar/core";
+import { fuseMarketObservations, type FusedValuation, type FusionTarget, type FusionHistoryContext } from "@dealradar/core";
 
 /**
  * Chaîne complète agrégation -> persistance (isolée) -> conversion de
@@ -49,6 +49,16 @@ export interface OrchestrateMarketIntelligenceInput {
   limitPerSource?: number;
   /** Fournie = tentative de persistance ; absente = jamais de tentative (ex. table `market_observations` pas encore migrée en Production, voir la règle ci-dessus). */
   persistence?: { supabase: SupabaseClient };
+  /**
+   * Contexte d'historique déjà résumé (LOT "Interactive History + Generic
+   * Result UI + Full Cancellation + Pre-Prod Activation Package", section
+   * 1) — un résumé PUR (médiane/fraîcheur/tendance/confiance/taille
+   * d'échantillon), jamais recalculé ici, jamais des points bruts. Absent =
+   * comportement IDENTIQUE à avant ce lot (`fuseMarketObservations` sans
+   * ancrage d'historique) — voir `toFusionHistoryContext`,
+   * `query-product-history.ts` pour la composition typique.
+   */
+  history?: FusionHistoryContext;
 }
 
 /**
@@ -179,6 +189,7 @@ export async function orchestrateMarketIntelligence(input: OrchestrateMarketInte
   const fused = fuseMarketObservations(fusionObservations, {
     asOf: input.asOf ?? new Date().toISOString(),
     target: input.target,
+    ...(input.history ? { history: input.history } : {}),
   });
 
   // "Live" = état de marché actuel au moment de la requête (annonce active/bid-ask) ;

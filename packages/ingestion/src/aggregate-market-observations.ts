@@ -27,9 +27,19 @@ export interface AggregateMarketObservationsInput {
   maxConcurrency?: number;
   /** Budget de temps par source — une source qui dépasse est traitée comme un échec, jamais bloquant pour les autres. */
   perSourceTimeoutMs?: number;
+  /**
+   * Signal d'annulation coopérative EXTERNE optionnel (LOT "Interactive
+   * History + Generic Result UI + Full Cancellation + Pre-Prod Activation
+   * Package", section 7) — transmis tel quel à `MarketSourceQuery.signal`
+   * pour CHAQUE source interrogée. Un abandon par ce signal classe le
+   * diagnostic de la source `status: "aborted"`, jamais `"error"`/`"timeout"`
+   * (voir `runOneSource` ci-dessous) : une annulation opérateur n'est
+   * JAMAIS confondue avec une panne fournisseur.
+   */
+  signal?: AbortSignal;
 }
 
-export type SourceDiagnosticStatus = "success" | "error" | "timeout";
+export type SourceDiagnosticStatus = "success" | "error" | "timeout" | "aborted";
 
 export interface SourceDiagnostic {
   source: string;
@@ -95,10 +105,16 @@ async function runOneSource(
     };
   } catch (error) {
     const isTimeout = error instanceof SourceTimeoutError;
+    // Un abandon par le signal EXTERNE (déadline du run, jamais une panne
+    // fournisseur) est détecté via `.aborted` — même discipline que
+    // `ConnectorError.aborted`/`ScrapeError.aborted` (`@dealradar/
+    // connectors`) : vérifié AVANT `isTimeout`, jamais classé `"timeout"`
+    // (qui suggère une lenteur fournisseur, pas une annulation opérateur).
+    const isAborted = Boolean((error as { aborted?: boolean } | null)?.aborted);
     return {
       diagnostic: {
         source: source.source,
-        status: isTimeout ? "timeout" : "error",
+        status: isAborted ? "aborted" : isTimeout ? "timeout" : "error",
         observationCount: 0,
         latencyMs: Date.now() - startedAt,
         errorMessage: error instanceof Error ? error.message : "Erreur inconnue.",
@@ -137,6 +153,7 @@ export async function aggregateMarketObservations(input: AggregateMarketObservat
     hints: input.hints,
     country: input.country,
     limit: input.limitPerSource,
+    signal: input.signal,
   };
 
   const perSourceResults = await mapWithBoundedConcurrency(input.sources, maxConcurrency, (source) => runOneSource(source, query, perSourceTimeoutMs));

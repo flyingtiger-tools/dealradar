@@ -1,4 +1,5 @@
 import { ConnectorError } from "../types";
+import { createBoundedAbortController } from "../http-abort";
 import { signOAuth1Request, type OAuth1Credentials } from "./oauth1";
 
 export interface BrickLinkClientOptions extends OAuth1Credentials {
@@ -8,7 +9,7 @@ export interface BrickLinkClientOptions extends OAuth1Credentials {
 }
 
 export interface BrickLinkHttpClient {
-  get(path: string, query?: Record<string, string | undefined>): Promise<unknown>;
+  get(path: string, query?: Record<string, string | undefined>, signal?: AbortSignal): Promise<unknown>;
 }
 
 const BASE_URL = "https://api.bricklink.com/api/store/v1";
@@ -39,19 +40,23 @@ export function createBrickLinkHttpClient(options: BrickLinkClientOptions): Bric
     return { url, queryParams };
   }
 
-  async function requestOnce(path: string, query: Record<string, string | undefined>): Promise<Response> {
+  async function requestOnce(path: string, query: Record<string, string | undefined>, externalSignal?: AbortSignal): Promise<Response> {
     const { url, queryParams } = buildUrl(path, query);
     const authorization = signOAuth1Request(
       { consumerKey: options.consumerKey, consumerSecret: options.consumerSecret, token: options.token, tokenSecret: options.tokenSecret },
       { method: "GET", url: `${BASE_URL}${path}`, queryParams },
     );
 
-    const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    const bounded = createBoundedAbortController(timeoutMs, externalSignal);
     try {
-      return await fetchImpl(url.toString(), { method: "GET", headers: { Authorization: authorization }, signal: controller.signal });
+      return await fetchImpl(url.toString(), { method: "GET", headers: { Authorization: authorization }, signal: bounded.controller.signal });
+    } catch (error) {
+      if (bounded.outcome() === "external_signal") {
+        throw new ConnectorError(`Appel BrickLink abandonné (${path}) — délai global du run dépassé, jamais une panne fournisseur.`, { retryable: false, aborted: true });
+      }
+      throw error;
     } finally {
-      clearTimeout(timeoutHandle);
+      bounded.cleanup();
     }
   }
 
@@ -63,14 +68,16 @@ export function createBrickLinkHttpClient(options: BrickLinkClientOptions): Bric
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function get(path: string, query: Record<string, string | undefined> = {}): Promise<unknown> {
+  async function get(path: string, query: Record<string, string | undefined> = {}, signal?: AbortSignal): Promise<unknown> {
     let attempt = 0;
 
     for (;;) {
       let response: Response;
       try {
-        response = await requestOnce(path, query);
-      } catch {
+        response = await requestOnce(path, query, signal);
+      } catch (error) {
+        // Un abandon par le signal EXTERNE est terminal — jamais retenté (le run entier s'arrête, retenter n'aurait aucun sens).
+        if (error instanceof ConnectorError && error.aborted) throw error;
         if (attempt >= maxRetries) {
           throw new ConnectorError(`Délai dépassé ou erreur réseau lors de l'appel BrickLink (${path}) après ${attempt + 1} tentative(s).`, {
             retryable: true,

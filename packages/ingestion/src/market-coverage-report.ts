@@ -18,7 +18,7 @@ import type { SourceDiagnostic } from "./aggregate-market-observations";
  */
 export interface SourceCoverageEntry {
   source: string;
-  status: "success" | "error" | "timeout";
+  status: "success" | "error" | "timeout" | "aborted";
   observationCount: number;
   latencyMs: number;
   costClass: SourceCostClass;

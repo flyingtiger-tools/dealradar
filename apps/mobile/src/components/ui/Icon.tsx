@@ -62,6 +62,7 @@ export type IconName =
   | "cube-outline"
   | "color-palette-outline"
   | "pulse-outline"
+  | "server-outline"
   | "chatbubble-outline"
   | "school-outline"
   | "albums-outline"

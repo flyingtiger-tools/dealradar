@@ -25,6 +25,8 @@ export interface ScrapeRequest {
   /** Code pays ISO 3166-1 alpha-2 si le vendeur supporte le géociblage (ex. proxy résidentiel localisé) — `undefined` = comportement par défaut du vendeur. */
   country?: string;
   timeoutMs?: number;
+  /** Signal d'annulation coopérative EXTERNE optionnel (LOT "Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package", section 6) — combiné avec `timeoutMs`/le timeout par défaut du vendeur, jamais un remplacement. Un abandon par ce signal doit toujours être classé `ScrapeError.aborted: true`, jamais `provider_error`/`timeout` (voir `ConnectorError.aborted`, même discipline). */
+  signal?: AbortSignal;
 }
 
 export type ScrapeFailureReason = "timeout" | "blocked" | "not_found" | "provider_error" | "invalid_request";
@@ -32,12 +34,15 @@ export type ScrapeFailureReason = "timeout" | "blocked" | "not_found" | "provide
 export class ScrapeError extends Error {
   readonly reason: ScrapeFailureReason;
   readonly retryable: boolean;
+  /** `true` uniquement pour un abandon déclenché par `ScrapeRequest.signal` (annulation opérateur) — jamais pour une vraie panne/latence fournisseur, même si `reason` reste `"provider_error"` pour rester dans l'union existante. */
+  readonly aborted: boolean;
 
-  constructor(message: string, options: { reason: ScrapeFailureReason; retryable?: boolean }) {
+  constructor(message: string, options: { reason: ScrapeFailureReason; retryable?: boolean; aborted?: boolean }) {
     super(message);
     this.name = "ScrapeError";
     this.reason = options.reason;
     this.retryable = options.retryable ?? false;
+    this.aborted = options.aborted ?? false;
   }
 }
 

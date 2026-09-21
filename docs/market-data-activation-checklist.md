@@ -310,3 +310,22 @@ dues/en retard, runs à budget épuisé, runs expirés, volume d'observations
 persistées dans le temps, produits avec conflit d'identité non résolu. Voir
 `docs/market-valuation-quality.md` (section 8) pour le détail complet des
 champs retournés et la garantie "aucun secret, aucune URL brute".
+
+Le mobile (Internal Tools) consulte cette même vue via
+`GET /api/internal/operator/observability` (`apps/web`) — voir
+`apps/mobile/src/screens/internal/OperatorDiagnosticsScreen.tsx`.
+
+## 13. Rapport de préflight d'activation (LOT "Interactive History +
+Generic Result UI + Full Cancellation + Pre-Prod Activation Package",
+section 11)
+
+`pnpm --filter @dealradar/workers activation-preflight` — rapport JSON
+BORNÉ, EN LECTURE SEULE, sans Railway/le worker en ligne (uniquement des
+lectures Supabase directes + des vérifications d'environnement pur) :
+migrations 0017–0024 présentes, préparation par source (politique +
+présence de credentials — reflète `buildMarketSourcesFromEnv().diagnostics`,
+même logique que le test de fumée section 5), provider IA configuré,
+variables d'intégration DB réelle configurées, nombre de cibles dues.
+Statut `READY`/`BLOCKED`/`PARTIAL` par sous-système et global — jamais une
+décision automatique, seulement un instantané à relire avant d'envisager
+le Stage E ci-dessus. Voir `apps/workers/src/scripts/activation-preflight.ts`.

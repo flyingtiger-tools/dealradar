@@ -20,6 +20,7 @@ import {
   type NormalizedListing,
   type FusedValuation,
   type EvidenceQualityTier,
+  type IdentityField,
 } from "@dealradar/core";
 import {
   extractProduct,
@@ -41,6 +42,8 @@ import {
   persistCanonicalProductIdentity,
   persistResearchTarget,
   buildSourceSelectionPlan,
+  queryProductHistory,
+  toFusionHistoryContext,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
@@ -377,6 +380,25 @@ export async function processAnalysis(
     attributes,
   };
 
+  // Résolution de `productKey` (LOT "Interactive History + Generic Result
+  // UI + Full Cancellation + Pre-Prod Activation Package", section 2) —
+  // CENTRALISÉE ici et réutilisée pour l'amorçage de cible ci-dessous ET
+  // pour la lecture d'historique plus bas : une seule dérivation, jamais
+  // deux clés potentiellement différentes pour le même scan. Inclut
+  // `storage`/`color` (`deriveProductKey` les supporte déjà) — leur
+  // absence ici AVANT ce lot faisait dériver la MÊME clé pour un iPhone 15
+  // Pro 128 Go et 256 Go (bug latent réel : deux produits distincts
+  // auraient fusionné leur historique/observations sous une seule
+  // `productKey`). `capacity` (extraction IA) porte le rôle de `storage`
+  // (`IdentityField`) — aucun champ `storage` distinct n'existe côté
+  // extraction générique aujourd'hui.
+  const identitySeedFields: Partial<Record<IdentityField, string>> = {};
+  if (extraction.product.brand?.value) identitySeedFields.brand = extraction.product.brand.value;
+  if (extraction.product.model?.value) identitySeedFields.model = extraction.product.model.value;
+  if (extraction.product.capacity?.value) identitySeedFields.storage = extraction.product.capacity.value;
+  if (extraction.product.color?.value) identitySeedFields.color = extraction.product.color.value;
+  const productKey = deriveProductKey(listing.categorySlug, identitySeedFields);
+
   // Amorçage de cible de recherche (LOT "Historical Data Engine", section
   // 14) — un scan utilisateur identifié avec succès (catégorie confirmée,
   // état détecté, prix d'achat confirmé : exactement ce que `listing`
@@ -387,13 +409,7 @@ export async function processAnalysis(
   // la requête d'analyse de l'utilisateur.
   try {
     const seedIdentity = mergeIdentityEvidence(
-      createCanonicalProductIdentity(
-        listing.categorySlug,
-        deriveProductKey(listing.categorySlug, {
-          brand: extraction.product.brand?.value,
-          model: extraction.product.model?.value,
-        }),
-      ),
+      createCanonicalProductIdentity(listing.categorySlug, productKey),
       {
         source: "ai_identification",
         confidence: 0.6,
@@ -402,6 +418,8 @@ export async function processAnalysis(
           brand: extraction.product.brand?.value,
           model: extraction.product.model?.value,
           sku: extraction.product.reference?.value,
+          storage: extraction.product.capacity?.value,
+          color: extraction.product.color?.value,
         },
       },
     ).identity;
@@ -499,6 +517,12 @@ export async function processAnalysis(
   // résultat existant — voir `orchestrateMarketIntelligence`, qui isole
   // déjà la persistance, et le `try/catch` ici qui isole tout le reste.
   let marketIntelligence: Awaited<ReturnType<typeof orchestrateMarketIntelligence>> | null = null;
+  // Position du prix d'achat CONFIRMÉ (`listing.priceCents`) dans la
+  // distribution historique connue — répond à "ce prix est-il bon par
+  // rapport à l'historique", jamais une position de la valeur juste fusionnée
+  // (qui n'existe pas encore à ce point, la fusion n'a pas encore tourné).
+  // `null` tant qu'aucun historique exploitable n'a été lu.
+  let currentVsHistoryPercentile: number | null = null;
   if (pipelineResult.decision === "INSUFFICIENT_DATA") {
     const { sources } = buildMarketSourcesFromEnv();
     // `SourceSelectionPlan` EXACT (LOT "Real DB Integration + Exact Budget Enforcement...", section 4) — MÊME algorithme de sélection que le rafraîchissement en arrière-plan (`take-product-snapshot.ts`), jamais une logique divergente. Aucune identité canonique résolue à ce point du chemin interactif -> `identityHealth: null` (aucune exclusion pour faiblesse d'identité), budget à cible unique par défaut (un seul appel ponctuel, pas un run multi-cibles).
@@ -519,6 +543,30 @@ export async function processAnalysis(
       for (const [key, value] of Object.entries(listing.attributes)) {
         if (typeof value === "string" || typeof value === "number") targetAttributes[key] = value;
       }
+      // Contexte d'historique (LOT "Interactive History + Generic Result UI
+      // + Full Cancellation + Pre-Prod Activation Package", section 1) —
+      // ISOLÉ dans son propre try/catch : une table/migration absente ou
+      // une panne de lecture ne doit JAMAIS empêcher l'analyse ni la
+      // requête d'intelligence de marché ci-dessous (même discipline que
+      // l'amorçage de cible plus haut). `toFusionHistoryContext` renvoie
+      // `null` pour un historique vide -> `historyContext` reste `undefined`,
+      // `fuseMarketObservations` se comporte alors EXACTEMENT comme avant
+      // ce lot (aucun ancrage).
+      let historyContext: Awaited<ReturnType<typeof toFusionHistoryContext>> = null;
+      try {
+        const productHistory = await queryProductHistory(db, productKey, {
+          asOf: new Date().toISOString(),
+          currentPriceCents: listing.priceCents,
+        });
+        historyContext = toFusionHistoryContext(productHistory.history, productHistory.freshnessHours);
+        currentVsHistoryPercentile = productHistory.history.historicalPercentilePosition;
+      } catch (error) {
+        logger.warn(
+          { error: error instanceof Error ? error.message : "erreur inconnue" },
+          "Lecture de l'historique produit impossible — poursuite sans contexte d'historique (tables absentes ou migration non appliquée)",
+        );
+      }
+
       try {
         // Bucket canonique (LOT "Data Quality Calibration...", section 5) — même normalisation que côté observations (`map-market-observations-to-fusion.ts`), sinon `isCompatibleWithTarget` comparerait un vocabulaire cible (`ItemConditionRaw`) à un vocabulaire source distinct par égalité de chaîne stricte, produisant de fausses exclusions.
         const normalizedTargetCondition = listing.condition ? normalizeCondition({ rawCondition: listing.condition }) : null;
@@ -534,6 +582,7 @@ export async function processAnalysis(
           // devinée (voir `mapMarketObservationsToFusionObservations`).
           fxRateProvider: sharedFxRateProvider,
           persistence: { supabase: db },
+          ...(historyContext ? { history: historyContext } : {}),
         });
       } catch (error) {
         logger.warn(
@@ -572,17 +621,22 @@ export async function processAnalysis(
         evidenceTypeMix: marketIntelligence.evidenceTypeMix,
         costClassesUsed: marketIntelligence.costClassesUsed,
         fx: marketIntelligence.fx,
-        // LOT "Data Quality Calibration...", section 10 — porté tel quel
-        // depuis `FusedValuation` (déjà calculé par `fuseMarketObservations`,
-        // jamais recalculé ici). `trendDescriptor`/`trendConfidence`/
-        // `historicalReferenceMedianCents` restent `null` aujourd'hui : ce
-        // chemin interactif n'appelle pas encore `queryProductHistory` pour
-        // construire un `FusionHistoryContext` (voir BUILDER HANDOFF) — donc
-        // honnêtement absents plutôt que devinés.
+        // LOT "Data Quality Calibration...", section 10, puis LOT
+        // "Interactive History...", section 1 — porté tel quel depuis
+        // `FusedValuation` (déjà calculé par `fuseMarketObservations`,
+        // jamais recalculé ici). Non `null` dès que `queryProductHistory`
+        // (appelé plus haut, isolé dans son propre try/catch) a trouvé un
+        // historique exploitable pour `productKey` — sinon honnêtement
+        // absents plutôt que devinés (aucune table historique, historique
+        // vide, ou panne de lecture isolée).
         qualityFlags: fused!.qualityFlags,
         historicalReferenceMedianCents: fused!.historicalReferenceMedianCents,
         trendDescriptor: fused!.trendDescriptor,
         trendConfidence: fused!.trendConfidence,
+        // Position du prix d'achat CONFIRMÉ dans l'historique — jamais celle
+        // de la valeur juste fusionnée (voir le commentaire à la déclaration
+        // de `currentVsHistoryPercentile` plus haut).
+        currentVsHistoryPercentile,
       }
     : undefined;
 
