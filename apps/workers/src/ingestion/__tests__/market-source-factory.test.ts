@@ -79,16 +79,31 @@ describe("buildMarketSourcesFromEnv", () => {
     expect(result.sources.map((s) => s.source)).toContain("bricklink");
   });
 
-  it("PriceCharting avec token : construit", () => {
+  it("PriceCharting : verrouillé par policyStatus 'license_required' — jamais construit MÊME AVEC le token présent", () => {
     process.env.PRICECHARTING_TOKEN = "t";
     const result = buildMarketSourcesFromEnv();
-    expect(result.sources.map((s) => s.source)).toContain("pricecharting");
+    expect(result.sources.map((s) => s.source)).not.toContain("pricecharting");
+    const diag = result.diagnostics.find((d) => d.name === "pricecharting");
+    expect(diag?.enabled).toBe(false);
+    expect(diag?.readiness).toBe("license_required");
   });
 
-  it("Ricardo exige ZYTE_API_KEY (le fournisseur de scraping générique), pas de credential Ricardo dédiée", () => {
+  it("Ricardo : verrouillé par policyStatus 'restricted' — jamais construit MÊME AVEC ZYTE_API_KEY présent (changement de comportement délibéré, LOT 'Close the Refresh Loop' section 6)", () => {
     process.env.ZYTE_API_KEY = "z";
     const result = buildMarketSourcesFromEnv();
-    expect(result.sources.map((s) => s.source)).toContain("ricardo");
+    expect(result.sources.map((s) => s.source)).not.toContain("ricardo");
+    const diag = result.diagnostics.find((d) => d.name === "ricardo");
+    expect(diag?.enabled).toBe(false);
+    expect(diag?.readiness).toBe("restricted");
+  });
+
+  it("une source verrouillée par politique (Ricardo) ne bloque jamais une autre source prête (Keepa) — les credentials fictives de Ricardo n'affectent en rien Keepa", () => {
+    process.env.ZYTE_API_KEY = "z"; // fausse credential Ricardo — reste sans effet, verrouillé par la politique
+    process.env.KEEPA_API_KEY = "test-keepa-key";
+    const result = buildMarketSourcesFromEnv();
+    expect(result.sources.map((s) => s.source)).toEqual(["keepa"]);
+    expect(result.diagnostics.find((d) => d.name === "ricardo")?.enabled).toBe(false);
+    expect(result.diagnostics.find((d) => d.name === "keepa")?.enabled).toBe(true);
   });
 
   it("DataForSEO exige LOGIN + PASSWORD, jamais une seule des deux", () => {
@@ -109,7 +124,7 @@ describe("buildMarketSourcesFromEnv", () => {
     expect(result.diagnostics.find((d) => d.name === "dataforseo_google_shopping")?.enabled).toBe(true);
   });
 
-  it("toutes les credentials posées : les 7 sources sont construites", () => {
+  it("toutes les credentials posées : SEULES les 5 sources non verrouillées par politique sont construites (Ricardo/PriceCharting restent bloquées)", () => {
     process.env.EBAY_CLIENT_ID = "id";
     process.env.EBAY_CLIENT_SECRET = "secret";
     process.env.EBAY_MARKETPLACE_ID = "EBAY_CH";
@@ -126,7 +141,10 @@ describe("buildMarketSourcesFromEnv", () => {
     process.env.ZYTE_API_KEY = "z";
 
     const result = buildMarketSourcesFromEnv();
-    expect(result.sources).toHaveLength(7);
-    expect(result.diagnostics.every((d) => d.enabled)).toBe(true);
+    expect(result.sources.map((s) => s.source).sort()).toEqual(
+      ["bricklink", "dataforseo_google_shopping", "ebay", "google_shopping", "keepa"].sort(),
+    );
+    expect(result.diagnostics.find((d) => d.name === "ricardo")?.enabled).toBe(false);
+    expect(result.diagnostics.find((d) => d.name === "pricecharting")?.enabled).toBe(false);
   });
 });

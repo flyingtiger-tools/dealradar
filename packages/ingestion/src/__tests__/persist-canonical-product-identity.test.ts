@@ -58,7 +58,7 @@ describe("persistCanonicalProductIdentity", () => {
     expect(rows).toEqual([{ product_key: "apple:iphone-13", field: "googleProductId", value: "gp-123", source: "google_shopping", confidence: 0.7, observed_at: ASOF, id: expect.any(String) }]);
   });
 
-  it("un CONFLIT non résolu (deux UPC différents) reste représenté par deux lignes distinctes, jamais fusionné", async () => {
+  it("un CONFLIT non résolu (deux UPC différents) persiste DEUX lignes distinctes — la claim retenue ET la claim en désaccord, jamais fusionnées ni perdues (LOT 'Close the Refresh Loop', section 8)", async () => {
     const first = mergeIdentityEvidence(createCanonicalProductIdentity("apple", "apple:iphone-13"), {
       source: "ebay",
       confidence: 0.9,
@@ -70,10 +70,12 @@ describe("persistCanonicalProductIdentity", () => {
     const db = new FakeSupabase();
     await persistCanonicalProductIdentity(db as never, identity);
 
-    // Seule la claim EXISTANTE (ebay, jamais écrasée) est portée par identity.fields.upc -> une seule ligne persistée pour "upc" ce cycle, cohérent avec le comportement en mémoire (le conflit lui-même n'est pas encore un identifiant persistable, juste une divergence connue).
-    const rows = db.table("market_product_identifiers") as { field: string; value: string }[];
-    expect(rows.filter((r) => r.field === "upc")).toHaveLength(1);
-    expect(rows.find((r) => r.field === "upc")?.value).toBe("111111111111");
+    // La claim EXISTANTE (ebay, jamais écrasée en mémoire) reste "identity.fields.upc" ET la claim conflictuelle (google_shopping) est persistée comme preuve de désaccord — deux lignes, jamais une seule ni une fusion silencieuse.
+    const rows = db.table("market_product_identifiers") as { field: string; value: string; source: string }[];
+    const upcRows = rows.filter((r) => r.field === "upc");
+    expect(upcRows).toHaveLength(2);
+    expect(upcRows.find((r) => r.source === "ebay")?.value).toBe("111111111111");
+    expect(upcRows.find((r) => r.source === "google_shopping")?.value).toBe("222222222222");
   });
 
   it("idempotent : persister deux fois la même identité ne duplique jamais les lignes (upsert sur la contrainte unique)", async () => {

@@ -14,9 +14,13 @@ interface QueryState {
   notFilters: { column: string; value: unknown }[];
   inFilters: { column: string; values: unknown[] }[];
   containsFilters: { column: string; value: Row }[];
+  lteFilters: { column: string; value: unknown }[];
+  gteFilters: { column: string; value: unknown }[];
+  /** Clauses `.or("col.op.value,col2.op2.value2")` — au moins UNE doit passer (reste en ET avec le reste). */
+  orFilters: { column: string; op: "lte" | "gte" | "is"; value: unknown }[];
   payload?: Row | Row[];
   onConflict?: string[];
-  orderBy?: { column: string; ascending: boolean };
+  orderBy?: { column: string; ascending: boolean; nullsFirst?: boolean }[];
   limitCount?: number;
   single?: boolean;
   maybeSingle?: boolean;
@@ -69,6 +73,9 @@ export class FakeSupabase {
       notFilters: [],
       inFilters: [],
       containsFilters: [],
+      lteFilters: [],
+      gteFilters: [],
+      orFilters: [],
     };
     const execute = () => this.execute(state);
 
@@ -108,8 +115,29 @@ export class FakeSupabase {
         state.containsFilters.push({ column, value });
         return builder;
       },
-      order(column: string, opts?: { ascending?: boolean }) {
-        state.orderBy = { column, ascending: opts?.ascending ?? true };
+      lte(column: string, value: unknown) {
+        state.lteFilters.push({ column, value });
+        return builder;
+      },
+      gte(column: string, value: unknown) {
+        state.gteFilters.push({ column, value });
+        return builder;
+      },
+      /** Parseur minimal de la syntaxe postgrest `"col.op.value,col2.op2.value2"` — supporte lte/gte/is. */
+      or(expr: string) {
+        for (const clause of expr.split(",")) {
+          const [column, op, ...rest] = clause.split(".");
+          const value = rest.join(".");
+          if (!column || !op) continue;
+          if (op === "lte" || op === "gte" || op === "is") {
+            state.orFilters.push({ column, op, value: value === "null" ? null : value });
+          }
+        }
+        return builder;
+      },
+      order(column: string, opts?: { ascending?: boolean; nullsFirst?: boolean }) {
+        state.orderBy ??= [];
+        state.orderBy.push({ column, ascending: opts?.ascending ?? true, nullsFirst: opts?.nullsFirst });
         return builder;
       },
       limit(count: number) {
@@ -149,7 +177,16 @@ export class FakeSupabase {
       state.containsFilters.every((f) => {
         const target = row[f.column] as Row | undefined;
         return target !== undefined && Object.entries(f.value).every(([k, v]) => target[k] === v);
-      });
+      }) &&
+      state.lteFilters.every((f) => row[f.column] !== null && row[f.column] !== undefined && String(row[f.column]) <= String(f.value)) &&
+      state.gteFilters.every((f) => row[f.column] !== null && row[f.column] !== undefined && String(row[f.column]) >= String(f.value)) &&
+      (state.orFilters.length === 0 ||
+        state.orFilters.some((f) => {
+          const rv = row[f.column];
+          if (f.op === "is") return f.value === null ? rv === null || rv === undefined : rv === f.value;
+          if (f.op === "lte") return rv !== null && rv !== undefined && String(rv) <= String(f.value);
+          return rv !== null && rv !== undefined && String(rv) >= String(f.value);
+        }));
 
     if (state.operation === "insert") {
       const payloads = Array.isArray(state.payload) ? state.payload : [state.payload!];
@@ -183,13 +220,18 @@ export class FakeSupabase {
     }
 
     let result = rows.filter(matches);
-    if (state.orderBy) {
-      const { column, ascending } = state.orderBy;
+    if (state.orderBy?.length) {
+      const orderBy = state.orderBy;
       result = [...result].sort((a, b) => {
-        const av = a[column];
-        const bv = b[column];
-        if (av === bv) return 0;
-        return ((av as never) > (bv as never) ? 1 : -1) * (ascending ? 1 : -1);
+        for (const { column, ascending, nullsFirst } of orderBy) {
+          const av = a[column];
+          const bv = b[column];
+          if (av === bv) continue;
+          if (av === null || av === undefined) return nullsFirst ? -1 : 1;
+          if (bv === null || bv === undefined) return nullsFirst ? 1 : -1;
+          return ((av as never) > (bv as never) ? 1 : -1) * (ascending ? 1 : -1);
+        }
+        return 0;
       });
     }
     if (state.limitCount !== undefined) result = result.slice(0, state.limitCount);

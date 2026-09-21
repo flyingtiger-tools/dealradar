@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { MarketSource, FxRateProvider } from "@dealradar/connectors";
+import type { MarketSource, FxRateProvider, MarketObservation } from "@dealradar/connectors";
 import { resolveFxRates, dedupeByCanonicalOrigin } from "@dealradar/connectors";
 import type { CanonicalProductIdentity, QueryPlannerSourceProfile, SearchPlanStep } from "@dealradar/core";
 import { buildSearchPlans } from "@dealradar/core";
@@ -63,6 +63,15 @@ export interface MarketSnapshotResult {
   asOf: string;
   searchPlansUsed: SearchPlanStep[];
   coverageReport: MarketCoverageReport;
+  /**
+   * Observations RÉELLEMENT retenues pour ce cycle (après dédoublonnage
+   * canonique inter-sources) — exposées (LOT "Close the Refresh Loop",
+   * section 3) pour que l'appelant (le futur exécuteur de rafraîchissement)
+   * puisse les réutiliser pour la boucle d'enrichissement d'identité
+   * (section 8) et la réconciliation de cycle de vie d'annonces (section 9)
+   * SANS ré-interroger les sources une seconde fois.
+   */
+  observations: readonly MarketObservation[];
   observationsPersisted: number | null;
   persistenceError: string | null;
   identityPersisted: boolean;
@@ -165,6 +174,7 @@ export async function takeMarketSnapshot(input: MarketSnapshotInput): Promise<Ma
     asOf,
     searchPlansUsed: plans,
     coverageReport,
+    observations,
     observationsPersisted,
     persistenceError,
     identityPersisted,

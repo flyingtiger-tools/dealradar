@@ -3,8 +3,12 @@
  * copie locale volontaire (fichier de test interne, non exporté par
  * `@dealradar/ingestion`) plutôt qu'un import cross-paquet des internes de
  * test d'un autre paquet. Reproduit juste assez de postgrest-js
- * (select/insert/update/eq/contains/limit/maybeSingle, thenable) pour
- * exercer `process-analysis.ts` sans réseau.
+ * (select/insert/update/upsert/eq/contains/lte/gte/or/order/limit/
+ * maybeSingle/rpc, thenable) pour exercer `process-analysis.ts` ET
+ * `refresh-due-research-targets.ts` (LOT "Close the Refresh Loop") sans
+ * réseau — étendue ce lot avec `.or()`/`.lte()`/`.gte()`/`.order()`
+ * multi-colonnes/`.rpc()`, mêmes ajouts que le double de `packages/
+ * ingestion` (voir son en-tête pour le détail des garanties).
  */
 
 type Row = Record<string, unknown>;
@@ -14,8 +18,12 @@ interface QueryState {
   operation: "select" | "insert" | "update" | "upsert";
   filters: { column: string; value: unknown }[];
   containsFilters: { column: string; value: Row }[];
+  lteFilters: { column: string; value: unknown }[];
+  gteFilters: { column: string; value: unknown }[];
+  orFilters: { column: string; op: "lte" | "gte" | "is"; value: unknown }[];
   payload?: Row | Row[];
   onConflict?: string[];
+  orderBy?: { column: string; ascending: boolean; nullsFirst?: boolean }[];
   limitCount?: number;
   maybeSingle?: boolean;
 }
@@ -31,9 +39,30 @@ export class FakeSupabase {
     return this.tables[name] ?? [];
   }
 
+  private rpcHandlers: Record<string, (params: Row) => { data: unknown; error: unknown }> = {};
+
+  registerRpc(name: string, handler: (params: Row) => { data: unknown; error: unknown }): void {
+    this.rpcHandlers[name] = handler;
+  }
+
+  rpc(name: string, params: Row) {
+    const handler = this.rpcHandlers[name];
+    const result = handler ? handler(params) : { data: null, error: { message: `RPC non simulée : ${name}` } };
+    return {
+      then(onFulfilled: (value: { data: unknown; error: unknown }) => unknown, onRejected?: (reason: unknown) => unknown) {
+        try {
+          return Promise.resolve(onFulfilled(result));
+        } catch (error) {
+          if (onRejected) return Promise.resolve(onRejected(error));
+          throw error;
+        }
+      },
+    };
+  }
+
   from(table: string) {
     this.tables[table] ??= [];
-    const state: QueryState = { table, operation: "select", filters: [], containsFilters: [] };
+    const state: QueryState = { table, operation: "select", filters: [], containsFilters: [], lteFilters: [], gteFilters: [], orFilters: [] };
     const execute = () => this.execute(state);
 
     const builder = {
@@ -62,6 +91,30 @@ export class FakeSupabase {
       },
       contains(column: string, value: Row) {
         state.containsFilters.push({ column, value });
+        return builder;
+      },
+      lte(column: string, value: unknown) {
+        state.lteFilters.push({ column, value });
+        return builder;
+      },
+      gte(column: string, value: unknown) {
+        state.gteFilters.push({ column, value });
+        return builder;
+      },
+      or(expr: string) {
+        for (const clause of expr.split(",")) {
+          const [column, op, ...rest] = clause.split(".");
+          const value = rest.join(".");
+          if (!column || !op) continue;
+          if (op === "lte" || op === "gte" || op === "is") {
+            state.orFilters.push({ column, op, value: value === "null" ? null : value });
+          }
+        }
+        return builder;
+      },
+      order(column: string, opts?: { ascending?: boolean; nullsFirst?: boolean }) {
+        state.orderBy ??= [];
+        state.orderBy.push({ column, ascending: opts?.ascending ?? true, nullsFirst: opts?.nullsFirst });
         return builder;
       },
       limit(count: number) {
@@ -95,7 +148,16 @@ export class FakeSupabase {
       state.containsFilters.every((f) => {
         const target = row[f.column] as Row | undefined;
         return target !== undefined && Object.entries(f.value).every(([k, v]) => target[k] === v);
-      });
+      }) &&
+      state.lteFilters.every((f) => row[f.column] !== null && row[f.column] !== undefined && String(row[f.column]) <= String(f.value)) &&
+      state.gteFilters.every((f) => row[f.column] !== null && row[f.column] !== undefined && String(row[f.column]) >= String(f.value)) &&
+      (state.orFilters.length === 0 ||
+        state.orFilters.some((f) => {
+          const rv = row[f.column];
+          if (f.op === "is") return f.value === null ? rv === null || rv === undefined : rv === f.value;
+          if (f.op === "lte") return rv !== null && rv !== undefined && String(rv) <= String(f.value);
+          return rv !== null && rv !== undefined && String(rv) >= String(f.value);
+        }));
 
     if (state.operation === "insert") {
       const payload = state.payload as Row;
@@ -129,6 +191,20 @@ export class FakeSupabase {
     }
 
     let result = rows.filter(matches);
+    if (state.orderBy?.length) {
+      const orderBy = state.orderBy;
+      result = [...result].sort((a, b) => {
+        for (const { column, ascending, nullsFirst } of orderBy) {
+          const av = a[column];
+          const bv = b[column];
+          if (av === bv) continue;
+          if (av === null || av === undefined) return nullsFirst ? -1 : 1;
+          if (bv === null || bv === undefined) return nullsFirst ? 1 : -1;
+          return ((av as never) > (bv as never) ? 1 : -1) * (ascending ? 1 : -1);
+        }
+        return 0;
+      });
+    }
     if (state.limitCount !== undefined) result = result.slice(0, state.limitCount);
 
     if (state.maybeSingle) {

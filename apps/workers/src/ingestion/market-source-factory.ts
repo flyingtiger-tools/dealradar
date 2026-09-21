@@ -7,23 +7,40 @@ import {
   createZyteScrapingProvider,
   createRicardoConnector,
   createDataForSeoGoogleShoppingConnector,
+  SOURCE_READINESS_MATRIX,
+  resolveSourceReadiness,
+  type ActivationStatus,
   type MarketSource,
 } from "@dealradar/connectors";
 import { logger } from "../logger";
 import { tryBuildEbayConnectorFromEnv } from "./connector-config";
 
 /**
- * Usine de sources de marché (LOT "Source Wave 2", section 5) — construit
- * toutes les `MarketSource[]` disponibles DEPUIS L'ENVIRONNEMENT du
- * process workers. Une source dont les credentials/config sont absents ne
- * bloque JAMAIS la construction des autres (même discipline que
- * `tryBuildEbayConnectorFromEnv`, `connector-config.ts`) — les diagnostics
- * ne portent QUE des noms de source et un booléen `enabled`, jamais une
- * valeur de credential (règle absolue de tous les lots précédents).
+ * Usine de sources de marché (LOT "Source Wave 2", section 5 ; rendue
+ * consciente de la préparation live au LOT "Close the Refresh Loop",
+ * section 6) — construit toutes les `MarketSource[]` disponibles DEPUIS
+ * L'ENVIRONNEMENT du process workers. Une source dont les credentials/config
+ * sont absents ne bloque JAMAIS la construction des autres (même
+ * discipline que `tryBuildEbayConnectorFromEnv`, `connector-config.ts`) —
+ * les diagnostics ne portent QUE des noms de source et des statuts, jamais
+ * une valeur de credential (règle absolue de tous les lots précédents).
+ *
+ * IMPORTANT (changement de comportement délibéré de ce lot) : avant
+ * d'appeler le builder d'une source, on consulte
+ * `SOURCE_READINESS_MATRIX`/`resolveSourceReadiness`. Un verrou de
+ * politique (`restricted`/`disabled_policy`/`license_required`) ou
+ * `productionAllowed: false` bloque la construction MÊME SI toutes les
+ * credentials requises sont présentes — la présence d'une clé API ne peut
+ * jamais outrepasser une décision de politique produit. Concrètement :
+ * Ricardo (`restricted`) et PriceCharting (`license_required`) cessent
+ * d'être construits par cette fabrique tant qu'un futur lot ne change pas
+ * explicitement leur `policyStatus` dans la matrice.
  */
 export interface MarketSourceDiagnosticEntry {
   name: string;
   enabled: boolean;
+  /** Statut de préparation résolu (matrice + présence de credentials) — absent si la source n'est pas répertoriée dans la matrice. */
+  readiness?: ActivationStatus;
 }
 
 export interface BuildMarketSourcesResult {
@@ -31,16 +48,40 @@ export interface BuildMarketSourcesResult {
   diagnostics: MarketSourceDiagnosticEntry[];
 }
 
+/** Résout le statut de préparation pour une source nommée — jamais lu depuis process.env directement dans la matrice elle-même (voir source-readiness-matrix.ts). */
+function readinessFor(name: string): ActivationStatus | undefined {
+  const descriptor = SOURCE_READINESS_MATRIX.find((d) => d.source === name);
+  if (!descriptor) return undefined;
+  const envPresence: Record<string, boolean> = {};
+  for (const envVar of descriptor.requiredEnvVars) envPresence[envVar] = Boolean(process.env[envVar]);
+  return resolveSourceReadiness(descriptor, envPresence);
+}
+
+/** `true` seulement si la matrice autorise explicitement la construction — un verrou de politique prime toujours sur la présence de credentials. */
+function isConstructionAllowed(name: string, readiness: ActivationStatus | undefined): boolean {
+  if (readiness === undefined) return true; // source hors matrice (pas encore répertoriée) — ne bloque pas, comportement historique préservé.
+  const descriptor = SOURCE_READINESS_MATRIX.find((d) => d.source === name);
+  if (descriptor && !descriptor.productionAllowed) return false;
+  return readiness !== "restricted" && readiness !== "disabled_policy" && readiness !== "license_required";
+}
+
 function tryBuildSource(name: string, build: () => MarketSource | null): { source: MarketSource | null; diagnostic: MarketSourceDiagnosticEntry } {
+  const readiness = readinessFor(name);
+
+  if (!isConstructionAllowed(name, readiness)) {
+    logger.warn({ name, readiness }, `Source de marché "${name}" verrouillée par la politique de préparation — jamais construite malgré des credentials éventuellement présentes`);
+    return { source: null, diagnostic: { name, enabled: false, readiness } };
+  }
+
   try {
     const source = build();
-    return { source, diagnostic: { name, enabled: source !== null } };
+    return { source, diagnostic: { name, enabled: source !== null, readiness } };
   } catch (error) {
     logger.warn(
       { name, error: error instanceof Error ? error.message : "erreur inconnue" },
       `Source de marché "${name}" non construite depuis l'environnement`,
     );
-    return { source: null, diagnostic: { name, enabled: false } };
+    return { source: null, diagnostic: { name, enabled: false, readiness } };
   }
 }
 
