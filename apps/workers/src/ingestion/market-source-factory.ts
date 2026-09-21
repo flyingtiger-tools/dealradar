@@ -6,6 +6,7 @@ import {
   createKeepaConnector,
   createZyteScrapingProvider,
   createRicardoConnector,
+  createDataForSeoGoogleShoppingConnector,
   type MarketSource,
 } from "@dealradar/connectors";
 import { logger } from "../logger";
@@ -66,6 +67,21 @@ function tryBuildGoogleShopping(): MarketSource | null {
   return createGoogleShoppingConnector({ apiKey });
 }
 
+/** Suisse (code de géociblage Google Ads officiel, vérifié ce lot) — même défaut que `createGoogleShoppingConnector`'s `defaultCountry: "ch"`, jamais une supposition non documentée. `DATAFORSEO_LOCATION_CODE` permet de le surcharger sans redéploiement de code si un futur marché l'exige. */
+const DEFAULT_DATAFORSEO_LOCATION_CODE = 2756;
+
+function tryBuildDataForSeoGoogleShopping(): MarketSource | null {
+  const login = process.env.DATAFORSEO_LOGIN;
+  const password = process.env.DATAFORSEO_PASSWORD;
+  if (!login || !password) return null;
+  const locationCodeOverride = process.env.DATAFORSEO_LOCATION_CODE ? Number(process.env.DATAFORSEO_LOCATION_CODE) : undefined;
+  return createDataForSeoGoogleShoppingConnector({
+    login,
+    password,
+    defaultLocationCode: locationCodeOverride && Number.isFinite(locationCodeOverride) ? locationCodeOverride : DEFAULT_DATAFORSEO_LOCATION_CODE,
+  });
+}
+
 function tryBuildBrickLink(): MarketSource | null {
   const consumerKey = process.env.BRICKLINK_CONSUMER_KEY;
   const consumerSecret = process.env.BRICKLINK_CONSUMER_SECRET;
@@ -97,6 +113,7 @@ export function buildMarketSourcesFromEnv(): BuildMarketSourcesResult {
   const results = [
     tryBuildSource("ebay", tryBuildEbayMarketSource),
     tryBuildSource("google_shopping", tryBuildGoogleShopping),
+    tryBuildSource("dataforseo_google_shopping", tryBuildDataForSeoGoogleShopping),
     tryBuildSource("bricklink", tryBuildBrickLink),
     tryBuildSource("pricecharting", tryBuildPriceCharting),
     tryBuildSource("keepa", tryBuildKeepa),

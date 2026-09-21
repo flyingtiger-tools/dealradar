@@ -97,6 +97,30 @@ describe("aggregateMarketObservations", () => {
     expect(result.observations).toHaveLength(1);
   });
 
+  it("fusionne une même offre restituée par deux agrégateurs différents (SerpApi vs DataForSEO, même marchand/UPC/prix) — jamais comptée deux fois (LOT Source Wave 3)", async () => {
+    const serpApiObservation = fakeObservation({
+      source: "google_shopping",
+      sourceItemId: "s1",
+      marketplace: "fnac.ch",
+      identifiers: { upc: "0194252707326" },
+      priceAmountCents: 45000,
+    });
+    const dataForSeoObservation = fakeObservation({
+      source: "dataforseo_google_shopping",
+      sourceItemId: "d1",
+      marketplace: "fnac.ch",
+      identifiers: { upc: "0194252707326" },
+      priceAmountCents: 45020,
+    });
+    const serpApi = fakeSource("google_shopping", { async search() { return { observations: [serpApiObservation] }; } });
+    const dataForSeo = fakeSource("dataforseo_google_shopping", { async search() { return { observations: [dataForSeoObservation] }; } });
+
+    const result = await aggregateMarketObservations({ categorySlug: "apple", sources: [serpApi, dataForSeo], q: "test" });
+
+    expect(result.observations).toHaveLength(1);
+    expect(result.canonicalOriginMergedCount).toBe(1);
+  });
+
   it("aucune source : résultat vide, jamais une exception (aucune source n'est obligatoire)", async () => {
     const result = await aggregateMarketObservations({ categorySlug: "gaming", sources: [], q: "test" });
     expect(result.observations).toEqual([]);

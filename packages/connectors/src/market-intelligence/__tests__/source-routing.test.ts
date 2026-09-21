@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSourcesForCategory, preferredSourceNamesForCategory, CATEGORY_SOURCE_PREFERENCES } from "../source-routing";
+import { resolveSourcesForCategory, preferredSourceNamesForCategory, costClassForSource, CATEGORY_SOURCE_PREFERENCES } from "../source-routing";
 import { emptySourceHealthState, recordSourceRun } from "../source-health-tracker";
 import type { MarketSource } from "../market-source";
 
@@ -60,5 +60,42 @@ describe("resolveSourcesForCategory", () => {
     const sources = [fakeSource("ebay"), fakeSource("a_future_source")];
     const resolved = resolveSourcesForCategory("lego", sources);
     expect(resolved.map((s) => s.source)).toContain("a_future_source");
+  });
+
+  it("maxSourceCount tronque la LISTE DÉJÀ TRIÉE par préférence, jamais un réordonnancement", () => {
+    const sources = [fakeSource("ebay"), fakeSource("bricklink"), fakeSource("google_shopping")];
+    const resolved = resolveSourcesForCategory("lego", sources, { maxSourceCount: 2 });
+    expect(resolved.map((s) => s.source)).toEqual(["bricklink", "ebay"]); // les 2 premières dans l'ordre de préférence lego
+  });
+
+  it("maxCostClass exclut une source plus chère que le plafond (ricardo = high_cost)", () => {
+    const sources = [fakeSource("bricklink"), fakeSource("ricardo")];
+    const resolved = resolveSourcesForCategory("lego", sources, { maxCostClass: "cheap" });
+    expect(resolved.map((s) => s.source)).toEqual(["bricklink"]);
+  });
+
+  it("maxCostClass='high_cost' (le plus permissif) n'exclut rien", () => {
+    const sources = [fakeSource("bricklink"), fakeSource("ricardo")];
+    const resolved = resolveSourcesForCategory("lego", sources, { maxCostClass: "high_cost" });
+    expect(resolved.map((s) => s.source).sort()).toEqual(["bricklink", "ricardo"]);
+  });
+
+  it("aucun plafond fourni : comportement inchangé (rétrocompatible)", () => {
+    const sources = [fakeSource("bricklink"), fakeSource("ricardo"), fakeSource("ebay")];
+    const resolved = resolveSourcesForCategory("lego", sources);
+    expect(resolved.map((s) => s.source)).toEqual(["bricklink", "ebay", "ricardo"]);
+  });
+});
+
+describe("costClassForSource", () => {
+  it("source connue -> sa classe déclarée", () => {
+    expect(costClassForSource("ebay")).toBe("free");
+    expect(costClassForSource("pricecharting")).toBe("cheap");
+    expect(costClassForSource("keepa")).toBe("paid");
+    expect(costClassForSource("ricardo")).toBe("high_cost");
+  });
+
+  it("source inconnue -> 'paid' par défaut, jamais supposée gratuite", () => {
+    expect(costClassForSource("some_future_source")).toBe("paid");
   });
 });

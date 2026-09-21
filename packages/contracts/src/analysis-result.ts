@@ -62,6 +62,19 @@ export const marketEvidenceTierSchema = z.enum(["A", "B", "C", "D", "E"]);
  * (déjà utilisés par le chemin TCG et le chemin générique existant) — les
  * complète avec le détail que seule la fusion multi-source peut fournir.
  */
+/** Reflète `FxRate` (`@dealradar/connectors/fx/types.ts`) — donnée publique par nature (taux de change), jamais une valeur sensible. */
+export const marketEvidenceFxRateSchema = z.object({
+  baseCurrency: z.string(),
+  quoteCurrency: z.string(),
+  rate: z.number(),
+  rateDate: z.string(),
+  source: z.string(),
+  fetchedAt: z.string(),
+});
+
+/** Classe de coût déclarative (voir `SourceCostClass`, `@dealradar/connectors`) — jamais un montant réel, jamais un système de facturation. */
+export const marketEvidenceCostClassSchema = z.enum(["free", "cheap", "paid", "high_cost"]);
+
 export const marketEvidenceSchema = z.object({
   strongestTier: marketEvidenceTierSchema.nullable(),
   sourceCount: z.number(),
@@ -72,6 +85,23 @@ export const marketEvidenceSchema = z.object({
   retailOnlyWarning: z.boolean(),
   activeListingsOnlyWarning: z.boolean(),
   usedSpecialistHistory: z.boolean(),
+  /**
+   * Diagnostics étendus (LOT "Source Wave 3", section 9) — TOUS optionnels
+   * individuellement pour rester rétrocompatibles avec tout appelant qui
+   * construirait encore un `marketEvidence` au format du lot précédent
+   * (Source Wave 2) sans ces champs.
+   */
+  directSourceCount: z.number().optional(),
+  aggregatorSourceCount: z.number().optional(),
+  evidenceTypeMix: z.array(z.object({ evidenceType: z.string(), count: z.number() })).optional(),
+  costClassesUsed: z.array(marketEvidenceCostClassSchema).optional(),
+  fx: z
+    .object({
+      observedCurrencies: z.array(z.string()),
+      ratesUsed: z.array(marketEvidenceFxRateSchema),
+      skippedForMissingRateCount: z.number(),
+    })
+    .optional(),
 });
 export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
 

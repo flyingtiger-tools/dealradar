@@ -51,6 +51,17 @@ describe("createKeepaConnector", () => {
     expect(calledUrl).toContain("code=045496883254");
   });
 
+  it("recherche PAR IDENTIFIANT D'ABORD (LOT 'Source Wave 3', section 8) : avec hints.ean (ex. iPhone), interroge via 'code', jamais par texte libre même si q est renseigné", async () => {
+    const fetchImpl = fakeFetch([{ status: 200, body: { products: [] } }]);
+    const connector = createKeepaConnector({ apiKey: "test-key", fetchImpl });
+
+    await connector.search({ categorySlug: "apple", q: "iphone 13 128gb bleu presque neuf", hints: { ean: "0194252707326" } });
+
+    const calledUrl = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(calledUrl).toContain("code=0194252707326");
+    expect(calledUrl).not.toContain("iphone");
+  });
+
   it("query.country résout le domaine Keepa correspondant", async () => {
     const fetchImpl = fakeFetch([{ status: 200, body: { products: [] } }]);
     const connector = createKeepaConnector({ apiKey: "test-key", fetchImpl });

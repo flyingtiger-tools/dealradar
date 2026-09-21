@@ -39,6 +39,15 @@ export interface MarketSource extends EvidenceCapabilities {
   readonly source: string;
   readonly displayName: string;
   readonly supportedCategorySlugs: readonly string[] | "any";
+  /**
+   * `"direct"` (défaut si absent) = le connecteur EST l'origine des
+   * observations qu'il produit (ex. BrickLink, Keepa, eBay). `"aggregator"`
+   * = le connecteur restitue des offres d'AUTRES marchands (ex. Google
+   * Shopping/DataForSEO) — `MarketObservation.marketplace` porte alors
+   * l'origine réelle (LOT "Source Wave 3", section 9 : compte "direct vs
+   * aggregated source count" dans les diagnostics de provenance).
+   */
+  readonly sourceKind?: "direct" | "aggregator";
   search(query: MarketSourceQuery): Promise<MarketSourceResult>;
   healthCheck(): Promise<HealthCheckResult>;
 }

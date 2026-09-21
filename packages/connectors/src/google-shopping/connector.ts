@@ -28,6 +28,8 @@ export function createGoogleShoppingConnector(options: GoogleShoppingConnectorOp
     source: "google_shopping",
     displayName: "Google Shopping (SerpApi)",
     supportedCategorySlugs: "any",
+    // Restitue des offres d'AUTRES marchands, jamais l'origine directe — voir `MarketSource.sourceKind`.
+    sourceKind: "aggregator",
     evidenceTypes: ["retailPrices", "activeListings", "search"],
 
     async search(query: MarketSourceQuery): Promise<MarketSourceResult> {

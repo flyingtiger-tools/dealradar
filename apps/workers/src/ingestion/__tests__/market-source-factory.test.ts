@@ -7,6 +7,9 @@ const ALL_ENV_KEYS = [
   "EBAY_MARKETPLACE_ID",
   "EBAY_ENVIRONMENT",
   "SERPAPI_KEY",
+  "DATAFORSEO_LOGIN",
+  "DATAFORSEO_PASSWORD",
+  "DATAFORSEO_LOCATION_CODE",
   "BRICKLINK_CONSUMER_KEY",
   "BRICKLINK_CONSUMER_SECRET",
   "BRICKLINK_TOKEN_VALUE",
@@ -35,10 +38,10 @@ describe("buildMarketSourcesFromEnv", () => {
     }
   });
 
-  it("aucune credential : aucune source construite, mais 6 diagnostics 'enabled: false' — jamais une exception", () => {
+  it("aucune credential : aucune source construite, mais 7 diagnostics 'enabled: false' — jamais une exception", () => {
     const result = buildMarketSourcesFromEnv();
     expect(result.sources).toEqual([]);
-    expect(result.diagnostics).toHaveLength(6);
+    expect(result.diagnostics).toHaveLength(7);
     expect(result.diagnostics.every((d) => d.enabled === false)).toBe(true);
   });
 
@@ -88,12 +91,32 @@ describe("buildMarketSourcesFromEnv", () => {
     expect(result.sources.map((s) => s.source)).toContain("ricardo");
   });
 
-  it("toutes les credentials posées : les 6 sources sont construites", () => {
+  it("DataForSEO exige LOGIN + PASSWORD, jamais une seule des deux", () => {
+    process.env.DATAFORSEO_LOGIN = "login";
+    const partial = buildMarketSourcesFromEnv();
+    expect(partial.diagnostics.find((d) => d.name === "dataforseo_google_shopping")?.enabled).toBe(false);
+
+    process.env.DATAFORSEO_PASSWORD = "password";
+    const complete = buildMarketSourcesFromEnv();
+    expect(complete.sources.map((s) => s.source)).toContain("dataforseo_google_shopping");
+  });
+
+  it("DataForSEO : DATAFORSEO_LOCATION_CODE surcharge le code de géociblage par défaut sans code", () => {
+    process.env.DATAFORSEO_LOGIN = "login";
+    process.env.DATAFORSEO_PASSWORD = "password";
+    process.env.DATAFORSEO_LOCATION_CODE = "2840"; // US, juste pour prouver que la valeur env est bien lue
+    const result = buildMarketSourcesFromEnv();
+    expect(result.diagnostics.find((d) => d.name === "dataforseo_google_shopping")?.enabled).toBe(true);
+  });
+
+  it("toutes les credentials posées : les 7 sources sont construites", () => {
     process.env.EBAY_CLIENT_ID = "id";
     process.env.EBAY_CLIENT_SECRET = "secret";
     process.env.EBAY_MARKETPLACE_ID = "EBAY_CH";
     process.env.EBAY_ENVIRONMENT = "sandbox";
     process.env.SERPAPI_KEY = "s";
+    process.env.DATAFORSEO_LOGIN = "login";
+    process.env.DATAFORSEO_PASSWORD = "password";
     process.env.BRICKLINK_CONSUMER_KEY = "k";
     process.env.BRICKLINK_CONSUMER_SECRET = "s";
     process.env.BRICKLINK_TOKEN_VALUE = "t";
@@ -103,7 +126,7 @@ describe("buildMarketSourcesFromEnv", () => {
     process.env.ZYTE_API_KEY = "z";
 
     const result = buildMarketSourcesFromEnv();
-    expect(result.sources).toHaveLength(6);
+    expect(result.sources).toHaveLength(7);
     expect(result.diagnostics.every((d) => d.enabled)).toBe(true);
   });
 });

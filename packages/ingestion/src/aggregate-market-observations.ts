@@ -1,5 +1,5 @@
 import type { MarketObservation, MarketSource, MarketSourceQuery } from "@dealradar/connectors";
-import { marketObservationDedupeKey } from "@dealradar/connectors";
+import { marketObservationDedupeKey, dedupeByCanonicalOrigin } from "@dealradar/connectors";
 
 /**
  * Orchestrateur multi-source (LOT "Multi-Source Market Intelligence
@@ -41,8 +41,17 @@ export interface SourceDiagnostic {
 }
 
 export interface AggregateMarketObservationsResult {
-  /** Dédoublonnées entre ET au sein des sources (voir `marketObservationDedupeKey`) — jamais deux fois la même observation source+item+horodatage. */
+  /**
+   * Dédoublonnées entre ET au sein des sources (voir
+   * `marketObservationDedupeKey`) PUIS par origine canonique inter-
+   * connecteurs (LOT "Source Wave 3", section 7 — voir
+   * `dedupeByCanonicalOrigin`, `@dealradar/connectors` : deux agrégateurs
+   * larges différents, ex. SerpApi et DataForSEO, qui restituent la MÊME
+   * offre réelle d'un même marchand ne comptent jamais deux fois).
+   */
   observations: MarketObservation[];
+  /** Nombre d'observations fusionnées par le passage de dédoublonnage par origine canonique — `0` si aucun doublon inter-connecteur détecté, jamais un signal silencieux. */
+  canonicalOriginMergedCount: number;
   diagnostics: SourceDiagnostic[];
 }
 
@@ -135,15 +144,17 @@ export async function aggregateMarketObservations(input: AggregateMarketObservat
   const diagnostics = perSourceResults.map((r) => r.diagnostic);
 
   const seen = new Set<string>();
-  const observations: MarketObservation[] = [];
+  const dedupedByKey: MarketObservation[] = [];
   for (const { observations: sourceObservations } of perSourceResults) {
     for (const observation of sourceObservations) {
       const key = marketObservationDedupeKey(observation);
       if (seen.has(key)) continue;
       seen.add(key);
-      observations.push(observation);
+      dedupedByKey.push(observation);
     }
   }
 
-  return { observations, diagnostics };
+  const { observations, mergedCount: canonicalOriginMergedCount } = dedupeByCanonicalOrigin(dedupedByKey);
+
+  return { observations, canonicalOriginMergedCount, diagnostics };
 }

@@ -14,7 +14,7 @@ import {
   type FusedValuation,
   type EvidenceQualityTier,
 } from "@dealradar/core";
-import { resolveSourcesForCategory } from "@dealradar/connectors";
+import { resolveSourcesForCategory, createFrankfurterProvider, createCachedFxRateProvider } from "@dealradar/connectors";
 import {
   extractProduct,
   PROMPT_VERSION,
@@ -62,6 +62,18 @@ const DEFAULT_COST_ASSUMPTIONS: Omit<CostInputs, "purchasePriceCents"> = {
 };
 
 const DEFAULT_CANDIDATE_POOL_LIMIT = 200;
+
+/**
+ * Fournisseur FX (LOT "Source Wave 3", section 1) — Frankfurter : gratuit,
+ * aucune clé/authentification à poser (même choix que le MVP FX déjà en
+ * place pour la verticale TCG, voir `docs/fx-provider-swap.md`), donc
+ * TOUJOURS disponible sans configuration supplémentaire, contrairement à
+ * chaque source de marché elle-même. Enveloppé dans un cache TTL borné
+ * (15 min par défaut) au niveau MODULE — un seul processus workers sert
+ * potentiellement de nombreuses analyses, le cache doit survivre entre
+ * elles, jamais recréé à chaque appel de `processAnalysis`.
+ */
+const fxRateProvider = createCachedFxRateProvider(createFrankfurterProvider());
 
 /**
  * Provenance affichable (`marketDataProvenanceSchema`, `@dealradar/
@@ -450,12 +462,12 @@ export async function processAnalysis(
           q: queries.exact || productName || listing.title,
           sources: resolvedSources,
           target: { currency: listing.currency, condition: listing.condition, attributes: targetAttributes },
-          // `fxRates` volontairement absent ce lot : aucune source de taux de
-          // change LIVE n'est encore câblée pour les observations de marché
-          // (limite honnête, voir BUILDER HANDOFF) — une observation dans
-          // une autre devise que `listing.currency` est simplement écartée
-          // par `mapMarketObservationsToFusionObservations`, jamais convertie
-          // au hasard.
+          // Résout automatiquement un taux pour chaque devise étrangère
+          // réellement observée (LOT "Source Wave 3", section 1) — Frankfurter,
+          // gratuit, mis en cache au niveau module (voir plus haut). Une
+          // observation sans taux disponible/fiable reste écartée, jamais
+          // devinée (voir `mapMarketObservationsToFusionObservations`).
+          fxRateProvider,
           persistence: { supabase: db },
         });
       } catch (error) {
@@ -490,6 +502,11 @@ export async function processAnalysis(
         retailOnlyWarning: fused!.strongestTier === "E",
         activeListingsOnlyWarning: fused!.strongestTier === "C" || fused!.strongestTier === "D",
         usedSpecialistHistory: fused!.evidenceMix.some((e) => e.tier === "B"),
+        directSourceCount: marketIntelligence.directSourceCount,
+        aggregatorSourceCount: marketIntelligence.aggregatorSourceCount,
+        evidenceTypeMix: marketIntelligence.evidenceTypeMix,
+        costClassesUsed: marketIntelligence.costClassesUsed,
+        fx: marketIntelligence.fx,
       }
     : undefined;
 

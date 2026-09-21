@@ -44,6 +44,33 @@ describe("analysisResultSchema — compatibilité marketEvidence (LOT Source Wav
     expect(() => analysisResultSchema.parse(result)).not.toThrow();
   });
 
+  it("marketEvidence accepte les diagnostics étendus (LOT Source Wave 3) : fx/direct-vs-agrégateur/mix/cost-class", () => {
+    const result = {
+      ...baseResult(),
+      marketEvidence: {
+        strongestTier: "B",
+        sourceCount: 2,
+        observationCount: 5,
+        liveObservationCount: 2,
+        historicalObservationCount: 3,
+        sourceNames: ["bricklink", "keepa"],
+        retailOnlyWarning: false,
+        activeListingsOnlyWarning: false,
+        usedSpecialistHistory: true,
+        directSourceCount: 2,
+        aggregatorSourceCount: 0,
+        evidenceTypeMix: [{ evidenceType: "historicalPrices", count: 5 }],
+        costClassesUsed: ["free", "paid"],
+        fx: {
+          observedCurrencies: ["CHF", "USD"],
+          ratesUsed: [{ baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9, rateDate: "2026-09-21", source: "frankfurter", fetchedAt: "2026-09-21T00:00:00.000Z" }],
+          skippedForMissingRateCount: 0,
+        },
+      },
+    };
+    expect(() => analysisResultSchema.parse(result)).not.toThrow();
+  });
+
   it("marketEvidence.strongestTier peut être null (aucune preuve exploitable)", () => {
     const parsed = marketEvidenceSchema.parse({
       strongestTier: null,

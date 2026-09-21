@@ -1,11 +1,14 @@
 # Sources de marché multi-catégories — architecture et feuille de route
 
-Mis à jour par le LOT "Source Wave 2" (Keepa, marchés suisses Ricardo/
-Tutti/Anibis, premier fournisseur de scraping géré (Zyte), câblage worker,
-intégration dans le pipeline d'analyse générique — voir les sections
-dédiées en fin de document). Hérite du LOT "Multi-Source Fusion + Source
-Wave 1" (état eBay/BrickLink/PriceCharting/Google Shopping et moteur de
-fusion) et du LOT "Multi-Source Market Intelligence Foundation". Complète (ne remplace pas)
+Mis à jour par le LOT "Source Wave 3" (abstraction FX réelle avec cache,
+DataForSEO comme second fournisseur Google Shopping, audits factuels
+TCGplayer/StockX/WatchCharts, priorité/classe de coût dans le routage,
+dédoublonnage inter-fournisseurs par origine canonique — voir les sections
+dédiées en fin de document). Hérite du LOT "Source Wave 2" (Keepa, marchés
+suisses Ricardo/Tutti/Anibis, Zyte, câblage worker, intégration dans le
+pipeline d'analyse générique) et du LOT "Multi-Source Fusion + Source Wave
+1" (état eBay/BrickLink/PriceCharting/Google Shopping et moteur de fusion).
+Complète (ne remplace pas)
 [`external-data-sources.md`](./external-data-sources.md), qui reste la référence
 pour le statut licence MVP-vs-commercial des sources **TCG** déjà branchées
 (eBay, Pokémon TCG API, JustTCG, TCGdex, Frankfurter/OpenExchangeRates). Ce
@@ -37,7 +40,7 @@ Aucune source de ce document ne doit jamais :
 | Source | Catégories | Types de preuve | Accès | Credentials live | Statut | Réserve |
 | --- | --- | --- | --- | --- | --- | --- |
 | Google Shopping (SerpApi) | toutes (`any`) | `retailPrices`, `activeListings` (si `second_hand_condition`), `search` | API officielle (agrégateur légal de résultats Google) | `SERPAPI_KEY` — **ABSENT** (local et non vérifié sur Railway ce lot) | **Implémenté et câblé** (`packages/connectors/src/google-shopping/`) : client/normalize/connecteur + tests fixtures complets. Câblé ce lot dans le chemin commun `resolveSourcesForCategory` → `aggregateMarketObservations` (`packages/ingestion/src/__tests__/google-shopping-source-integration.test.ts`, fetch factice). **NOT TESTED live** — aucun appel réel possible sans clé | Jamais présenté comme vente confirmée (Google Shopping n'expose que des prix affichés à l'instant T) |
-| Google Shopping (DataForSEO) | toutes | idem SerpApi | API officielle, alternative tarifaire à SerpApi | `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` — **ABSENT** | Non implémenté — `SerpApi` retenu en premier (implémentation plus simple, un seul secret plutôt qu'une paire login/mot de passe + auth basique) | — |
+| Google Shopping (DataForSEO) | toutes | `retailPrices` uniquement (voir réserve) | API officielle Merchant, `POST /v3/merchant/google/products/task_post` puis `GET /v3/merchant/google/products/task_get/advanced/{id}` (auth HTTP Basic `login:password`) | `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` — noms canoniques câblés CE LOT dans `apps/workers/src/ingestion/market-source-factory.ts` — **ABSENT** | **Implémenté et câblé ce lot** (`packages/connectors/src/dataforseo-google-shopping/`, 15 tests) — second fournisseur Google Shopping, indépendant de SerpApi (le lot demandait explicitement "so Google Shopping is not tied to a single aggregator"). **NOT TESTED live** — aucune credential disponible | **Contrainte technique structurante, documentée honnêtement** : contrairement à SerpApi (un seul aller-retour HTTP synchrone), cette API n'a AUCUN mode synchrone pour la recherche de produits — uniquement un modèle de tâche asynchrone. `search()` fait donc POST puis sondage BORNÉ (15s par défaut, configurable) avant GET ; si la tâche n'est pas prête à l'expiration, retourne un résultat vide plutôt qu'une exception ou un blocage — latence réelle mais bornée, compromis honnête face à SerpApi. Aucun champ `condition` documenté par cet endpoint -> toujours palier E (`retailPrices`), jamais D deviné pour une offre d'occasion. `marketplace` = domaine du marchand réel (`domain`/`seller`) — clé pour le dédoublonnage inter-fournisseurs (voir la section dédiée). Code de géociblage requis explicitement (`defaultLocationCode`, jamais deviné dans le code — `2756` = Suisse vérifié ce lot, valeur recommandée câblée dans l'usine de sources workers, surchargeable via `DATAFORSEO_LOCATION_CODE`) |
 | Keepa (Amazon) | gaming, apple, pc_components | `retailPrices` (séries AMAZON/NEW, palier E) + `historicalPrices` (séries USED/COLLECTIBLE/REFURBISHED/WAREHOUSE/NEW_FBA, palier B) + `barcodeLookup` (paramètre `code`, EAN/UPC/ISBN) | API officielle payante, `GET /product` | `KEEPA_API_KEY` — **ABSENT** (nom canonique exigé par ce lot, câblé dans `apps/workers/src/ingestion/market-source-factory.ts`) | **Implémenté et câblé ce lot** (`packages/connectors/src/keepa/`) : énumération `CsvType` reprise du backend open-source officiel Keepa (`keepacom/api_backend`), downsampling d'historique documenté (premier+dernier point, points de changement ≥5%, au moins un point par fenêtre de 30 jours — jamais un horodatage fabriqué), 26 tests. **NOT TESTED live** — aucune clé disponible | Keepa ne représente JAMAIS une vente individuelle confirmée sur cet endpoint (seulement un historique de prix affichés/trackés) — jamais palier A, quelle que soit la série. AMAZON/NEW = retail neuf (palier E) ; USED/COLLECTIBLE/REFURBISHED/WAREHOUSE/NEW_FBA = suivi spécialisé Keepa de marchés secondaires (palier B), jamais fusionnés entre eux |
 
 ## Marketplaces généralistes
@@ -55,9 +58,9 @@ Aucune source de ce document ne doit jamais :
 | --- | --- | --- | --- | --- | --- | --- |
 | BrickLink | lego | `historicalPrices` (price guide `guide_type=sold`, palier **B**, jamais A) + `activeListings` (`guide_type=stock`, inventaire courant, palier D) | API officielle (BrickLink API, OAuth 1.0a signé à la main — `packages/connectors/src/bricklink/oauth1.ts`) | `BRICKLINK_CONSUMER_KEY`/`BRICKLINK_CONSUMER_SECRET`/`BRICKLINK_TOKEN_VALUE`/`BRICKLINK_TOKEN_SECRET` — noms canoniques câblés CE LOT dans `apps/workers/src/ingestion/market-source-factory.ts` — **ABSENT** (local et Railway) | **Implémenté et câblé ce lot** (`packages/connectors/src/bricklink/` + usine de sources workers) : signeur OAuth 1.0a vérifié par un test croisé non-tautologique (base HMAC-SHA1 dérivée à la main, indépendante de l'implémentation), client HTTP, normalisation, connecteur. Tests complets (26 tests connecteur + 8 tests usine de sources). **NOT TESTED live** — aucune credential disponible | **Décision de palier documentée** : le "sold" (6 derniers mois) de BrickLink est une agrégation de statistiques (`min`/`max`/`avg`/`qty_avg_price`) sur la période, PAS un horodatage de vente individuelle confirmée dans la réponse API — impossible de garantir A sans supposer une sémantique non documentée. Choix conservateur : **palier B**, jamais A tant que la sémantique exacte de `date_ordered` (champ marqué non fiable dans `raw-types.ts`) n'est pas vérifiée contre un appel live réel. `search()` exige `hints.bricklinkNo`, ne devine jamais un numéro de set |
 | PriceCharting | gaming, collectibles | `historicalPrices` (loose/CIB/neuf/gradé séparés) | API HTTP simple (token en paramètre de requête) | `PRICECHARTING_TOKEN` — nom canonique câblé CE LOT dans `apps/workers/src/ingestion/market-source-factory.ts` — **ABSENT**. **Conditions de licence commerciale toujours non vérifiées** pour un usage serveur applicatif (déjà noté bloquant dans `external-data-sources.md`) | **Contrat typé implémenté, câblé ET testé ce lot** (`packages/connectors/src/pricecharting/` + usine de sources workers), conformément à l'instruction du lot précédent ("si la licence rend l'usage serveur incertain, documenter et s'arrêter à un contrat/adaptateur typé plutôt que de forcer") : normalisation en jusqu'à 4 observations distinctes (loose/CIB/neuf/gradé), toutes palier B. **NOT TESTED live**, **réserve de licence toujours ouverte** — ne pas activer en production sans vérification explicite des CGU commerciales PriceCharting, même si le câblage technique est prêt | Chaque champ de prix est une valeur de marché CALCULÉE par PriceCharting à partir de son historique agrégé — jamais une transaction individuelle confirmée, jamais palier A. Devise toujours USD (marché ciblé par l'API) |
-| TCGplayer | pokemon_tcg (et autres TCG plus tard) | `activeListings`, `historicalPrices` | API officielle (partenaire) | `TCGPLAYER_PUBLIC_KEY`/`TCGPLAYER_PRIVATE_KEY` — **ABSENT** | Non implémenté — JustTCG/TCGdex couvrent déjà le pricing TCG pour ce MVP (voir `external-data-sources.md`) | Redondant à court terme avec les sources TCG déjà branchées ; utile si JustTCG s'avère insuffisant en couverture |
-| StockX | sneakers (et objets "bid/ask" plus tard) | `bidAsk` (leur mécanisme natif : offre/demande en direct, jamais un prix affiché unique) | Pas d'API publique officielle documentée | — | Non implémenté | Aucun scraping envisagé sans API officielle — StockX est connu pour une politique anti-bot stricte, hors de portée de ce lot (règle absolue : aucun contournement anti-bot) |
-| WatchCharts | watches | `historicalPrices` | Payant, licence à vérifier | — | Non implémenté, explicitement "later" (voir instruction du lot) | Coût/licence à évaluer avant toute intégration |
+| TCGplayer | pokemon_tcg (et autres TCG plus tard) | `activeListings`, `historicalPrices` | **Constat factuel de ce lot (audit web)** : TCGplayer n'accepte PLUS de nouvelles candidatures développeur publiques depuis le rachat par eBay (2022) — l'accès est restreint aux détenteurs de clés déjà existants et aux partenaires/vendeurs établis (`developer.tcgplayer.com`, candidature publique fermée, aucun délai/liste d'attente publiés) | `TCGPLAYER_PUBLIC_KEY`/`TCGPLAYER_PRIVATE_KEY` — **ABSENT** (et non obtenables via une inscription standard aujourd'hui) | **Non implémenté — accès structurellement indisponible, pas juste "clé manquante"**. Conformément à l'instruction du lot ("if current API onboarding is restricted/deprecated/unavailable, document factual status... rather than inventing access"), aucun code n'a été écrit : un contrat typé pour une API dont je n'ai vérifié ni les champs de réponse réels ni un accès effectif aurait risqué de présenter une structure devinée comme vérifiée | JustTCG/TCGdex couvrent déjà le pricing TCG pour ce MVP (voir `external-data-sources.md`) — aucune régression, cette source reste additive et non bloquante |
+| StockX | sneakers (et objets "bid/ask" plus tard) | `bidAsk` (leur mécanisme natif : offre/demande en direct) | **Constat factuel de ce lot (audit web)** : le "StockX Public API" (`developer.stockx.com`, OAuth2 authorization_code + `x-api-key`) est positionnée comme des outils VENDEUR ("Seller/Order/Catalog APIs... to help you manage your business at scale") — conçue pour des vendeurs StockX déjà actifs qui gèrent leur propre inventaire, pas comme une API de recherche de prix ouverte à des tiers non-vendeurs | — | **Non implémenté — accès généralement lié à un statut de vendeur StockX approuvé, pas un accès self-service pour un simple usage de recherche de comparables**. DealRadar n'est pas vendeur sur StockX ; devenir vendeur juste pour lire des données de marché serait disproportionné et hors du périmètre de ce lot. Aucun scraping envisagé en alternative (politique anti-bot stricte connue de StockX, règle absolue du lot) | Palier C (`bidAsk`) resterait la sémantique correcte si l'accès devenait un jour disponible — a réévaluer si DealRadar noue une relation vendeur StockX |
+| WatchCharts | watches | `historicalPrices`/`marketPrice` | **Constat factuel de ce lot (audit web, `watchcharts.com/api/license`)** : un abonnement payant "Professional + API" est requis rien que pour obtenir une clé API, ET une licence de Distribution ou de Revente SÉPARÉE (négociée directement avec WatchCharts, jamais self-service) est explicitement exigée pour AFFICHER leurs données à des utilisateurs tiers — exactement l'usage que ferait DealRadar (afficher une valorisation dérivée à ses propres utilisateurs) | — | **Non activé — la licence ne correspond pas à une appli en beta sans accord de distribution négocié**. Aucun contrat/adaptateur typé écrit non plus : la page de documentation technique (`watchcharts.com/api`) était inaccessible ce lot (protection Cloudflare, même symptôme que Tutti/Anibis), donc la forme exacte des champs de réponse n'a jamais pu être vérifiée — écrire un normalizer sur une structure devinée aurait contredit la discipline "jamais une structure inventée" suivie pour toutes les autres sources de ce lot | Palier B (valorisation calculée) resterait la sémantique correcte si une licence de Distribution/Revente était un jour négociée ET que la documentation technique devienne consultable |
 
 ## Fournisseurs de scraping générique (vendeurs, jamais un contournement maison)
 
@@ -105,7 +108,7 @@ modifié par ce lot).
 ## Moteur de fusion multi-source (LOT "Multi-Source Fusion + Source Wave 1", section 5 — pièce centrale)
 
 `fuseMarketObservations` (`packages/core/src/intelligence/fuse-market-observations.ts`,
-23 tests) — fonction PURE, aucune dépendance à `@dealradar/connectors` (même
+25 tests, +2 ce lot pour la provenance marchand inter-connecteurs) — fonction PURE, aucune dépendance à `@dealradar/connectors` (même
 discipline que `history-signals.ts` : entrée locale `FusionObservation[]`,
 jamais `MarketObservation[]` directement ; `packages/ingestion` fait la
 conversion). Jamais appelée depuis le pipeline TCG existant (`pipeline.ts`,
@@ -134,7 +137,7 @@ plus fort — une preuve A/B fortement contradictoire réduit la confiance au
 lieu d'être moyennée silencieusement (vérifié par test).
 
 **NOT TESTED live** — aucune source réelle (BrickLink/PriceCharting/SerpApi)
-n'a de credentials disponibles ce lot ; les 23 tests couvrent le
+n'a de credentials disponibles ce lot ; les 25 tests couvrent le
 comportement pur de la fonction avec des fixtures (iPhone 128 vs 256GB, PS5
 console vs manette, LEGO neuf vs occasion, jeu loose vs CIB, sneaker mauvaise
 taille, palier A qui domine D/E, preuve contradictoire, source unique
@@ -157,14 +160,21 @@ nombreuse vs sources diversifiées, décroissance de fraîcheur).
 ## Usine de sources côté worker (LOT "Source Wave 2", section 5)
 
 `buildMarketSourcesFromEnv()` (`apps/workers/src/ingestion/market-source-
-factory.ts`, 8 tests) — construit TOUTES les `MarketSource[]` disponibles
-depuis l'environnement du process workers : eBay (adapté), Google Shopping,
-BrickLink, PriceCharting, Keepa, Ricardo (via Zyte). Une credential absente
-pour UNE source ne désactive jamais les autres — chaque source est
-construite indépendamment (`tryBuildSource`), les diagnostics ne portent
-que des noms + un booléen `enabled`, jamais une valeur de credential
-(vérifié par test explicite). Utilisée par `process-analysis.ts` avec
-`resolveSourcesForCategory` (routage par catégorie déjà existant).
+factory.ts`, 10 tests) — construit TOUTES les `MarketSource[]` disponibles
+depuis l'environnement du process workers : eBay (adapté), Google Shopping
+(SerpApi), **Google Shopping (DataForSEO, nouveau ce lot)**, BrickLink,
+PriceCharting, Keepa, Ricardo (via Zyte). TCGplayer/StockX/WatchCharts ne
+sont PAS câblés — aucun connecteur réel n'existe pour eux (voir les
+constats factuels d'accès ci-dessus). Ricardo reste construit uniquement si
+`ZYTE_API_KEY` est présent, sans activation silencieuse ni changement de
+politique ce lot (toujours non recommandé en production, voir plus haut).
+Une credential absente pour UNE source ne désactive jamais les autres —
+chaque source est construite indépendamment (`tryBuildSource`), les
+diagnostics ne portent que des noms + un booléen `enabled`, jamais une
+valeur de credential (vérifié par test explicite). Utilisée par
+`process-analysis.ts` avec `resolveSourcesForCategory` (routage par
+catégorie déjà existant, désormais avec plafonds de coût/compte
+optionnels — voir la section dédiée).
 
 ## Intégration dans le pipeline d'analyse générique (LOT "Source Wave 2", section 6)
 
@@ -200,14 +210,125 @@ historique (par `evidenceType`, jamais par âge), noms de source, et deux
 avertissements honnêtes (`retailOnlyWarning` si palier E seul,
 `activeListingsOnlyWarning` si palier C/D seul).
 
-**Limite honnête, non résolue ce lot** : aucune source de taux de change LIVE
-n'est câblée pour les observations de marché multi-source — une observation
-dans une devise étrangère sans taux fourni est simplement écartée (jamais
-convertie au hasard), donc en pratique seules les observations déjà dans la
-devise de l'analyse (souvent CHF) contribuent aujourd'hui à la fusion côté
-worker. `persist-fx-rate.ts` existe déjà mais comme chemin d'ÉCRITURE pour la
-verticale TCG, pas comme un lookup réutilisable ici — câblage explicitement
-laissé à un lot futur.
+**Limite résolue ce lot** (Source Wave 3) : `process-analysis.ts` câble
+désormais un `fxRateProvider` (Frankfurter mis en cache) dans l'appel à
+`orchestrateMarketIntelligence` — une observation dans une devise étrangère
+observée bénéficie maintenant d'une tentative de conversion réelle et
+horodatée avant d'être potentiellement écartée (voir la section FX dédiée
+plus bas pour le détail complet).
+
+## Abstraction FX + cache (LOT "Source Wave 3", section 1)
+
+Point de départ : `FxRateProvider` (`packages/connectors/src/fx/types.ts`)
+existait DÉJÀ (deux implémentations réelles pré-existantes : `Frankfurter`,
+gratuit sans clé, et `OpenExchangeRates`, payant — voir
+`docs/fx-provider-swap.md`). Ce lot ajoute ce qui manquait pour que
+`orchestrateMarketIntelligence` puisse réellement les utiliser :
+
+- **`createCachedFxRateProvider`** (`fx/cache.ts`, 5 tests) — enveloppe
+  n'importe quel `FxRateProvider` d'un cache mémoire à TTL borné (15 min
+  par défaut). Ne met JAMAIS en cache un résultat `null` (une absence
+  transitoire est retentée, jamais figée pour toute la durée du TTL). Clé
+  de cache par paire ET par date (`onDate`).
+- **`resolveFxRates`/`resolveOneFxRate`/`invertFxRate`** (`fx/resolve-
+  rates.ts`, 10 tests) — résout un taux DIRECT d'abord, puis la direction
+  INVERSE (`1/rate`, mêmes `rateDate`/`source`/`fetchedAt`, jamais une
+  nouvelle source de vérité) si le fournisseur ne connaît que l'autre sens.
+  Jamais de triangulation via une devise pivot — inutile ici, Frankfurter
+  et OpenExchangeRates acceptent tous deux une paire base/quote arbitraire
+  directement. Une devise sans taux (aucune des deux directions) est
+  simplement absente du résultat, jamais devinée.
+- **`orchestrateMarketIntelligence`** accepte désormais un `fxRateProvider`
+  optionnel : résout automatiquement un taux pour CHAQUE devise étrangère
+  RÉELLEMENT présente parmi les observations agrégées et absente d'un
+  éventuel `fxRates` fourni à la main (qui garde toujours la priorité,
+  jamais écrasé par une résolution automatique — vérifié par test). La
+  fraîcheur maximale utilisable reste gouvernée par `maxRateAgeHours`
+  (mécanisme déjà en place au lot précédent, inchangé).
+- **`apps/workers/src/jobs/process-analysis.ts`** câble désormais un
+  Frankfurter mis en cache (`createCachedFxRateProvider(createFrankfurterProvider())`),
+  construit UNE FOIS au niveau module (le cache survit entre plusieurs
+  analyses traitées par le même process workers) — choisi comme source FX
+  par défaut car gratuit et sans authentification, donc TOUJOURS
+  disponible sans configuration supplémentaire (contrairement à chaque
+  source de marché elle-même).
+- **Test de succès explicitement demandé par le lot** — vérifié
+  (`orchestrate-market-intelligence.test.ts`, "succès de la fusion
+  multi-devise") : une observation USD (Keepa), une EUR (PriceCharting) et
+  une CHF (BrickLink) contribuent TOUTES à une seule fusion en CHF, via des
+  taux explicites horodatés résolus automatiquement.
+
+Persistance des taux : `persistFxRate`/`fx_rates` (`packages/ingestion/
+src/persist-fx-rate.ts`) restent réutilisables tels quels (table déjà
+générique, jamais spécifique à la verticale TCG) mais ne sont PAS
+re-branchés dans `orchestrateMarketIntelligence` ce lot — cette fonction ne
+fait qu'utiliser un `FxRateProvider` pour CONVERTIR, jamais pour écrire en
+base ; router les taux effectivement résolus vers `persistFxRate` pour
+audit reste une amélioration future distincte, non nécessaire au succès
+du lot.
+
+## Priorité et classe de coût dans le routage (LOT "Source Wave 3", section 6)
+
+`SOURCE_COST_CLASS`/`costClassForSource` (`source-routing.ts`) — classe
+DÉCLARATIVE (`free`/`cheap`/`paid`/`high_cost`), JAMAIS un système de
+facturation (aucun montant réel suivi). `resolveSourcesForCategory` accepte
+désormais `maxSourceCount` (plafond de COMPTE, "budget-ready hook") et
+`maxCostClass` (exclut les sources plus chères que le plafond) — appliqués
+APRÈS l'ordre de préférence déjà en place par catégorie (`CATEGORY_SOURCE_
+PREFERENCES`, qui place déjà les sources gratuites/pertinentes en tête),
+donc ces plafonds ne font QUE tronquer la fin d'une liste déjà triée,
+jamais un réordonnancement. Une source non déclarée dans `SOURCE_COST_
+CLASS` est traitée `"paid"` par défaut — jamais supposée gratuite. Aucun
+plafond fourni = comportement strictement inchangé (rétrocompatible, 13
+tests couvrant l'existant + les nouveaux plafonds).
+
+## Dédoublonnage par origine canonique inter-fournisseurs (LOT "Source Wave 3", section 7)
+
+`dedupeByCanonicalOrigin` (`packages/connectors/src/market-intelligence/
+canonical-origin-dedupe.ts`, 10 tests) — appelé automatiquement par
+`aggregateMarketObservations` (après le dédoublonnage par clé source+item+
+horodatage déjà existant, jamais à sa place). Traite le cas qu'un même
+`marketObservationDedupeKey` ne peut JAMAIS capturer : deux CONNECTEURS
+différents (ex. SerpApi et DataForSEO, tous deux Google Shopping) qui
+restituent la MÊME offre réelle d'un même marchand.
+
+Volontairement CONSERVATEUR — fusionne UNIQUEMENT quand un identifiant
+STRUCTUREL (UPC/EAN/GTIN/MPN) est présent et identique des deux côtés, le
+`marketplace` (marchand réel) est identique, la devise est identique, la
+condition (si connue des deux côtés) est identique, et le prix est quasi
+identique (tolérance 2 %). JAMAIS un rapprochement par simple titre — texte
+libre trop ambigu pour distinguer size/storage/variant (le risque de "faux
+rapprochement" explicitement à éviter selon le lot). Garde la preuve du
+palier le PLUS FORT entre les deux doublons. `AggregateMarketObservations
+Result.canonicalOriginMergedCount` expose le nombre de fusions effectuées,
+jamais un signal silencieux.
+
+**Limite honnête** : SerpApi et DataForSEO n'exposent aujourd'hui aucun
+UPC/EAN/GTIN partagé dans leurs résultats Google Shopping de base (voir les
+réserves de chaque connecteur ci-dessus) — le dédoublonnage inter-
+fournisseurs pour CES deux sources précises ne se déclenchera donc pas
+tant qu'un identifiant structurel commun n'est pas disponible (ex. via une
+future étape d'enrichissement produit). Le mécanisme est prêt et testé,
+mais son utilité pratique pour SerpApi/DataForSEO dépend de ce futur
+enrichissement — documenté honnêtement plutôt que présenté comme déjà
+pleinement exploité.
+
+## Diagnostics de provenance étendus (LOT "Source Wave 3", section 9)
+
+`OrchestrateMarketIntelligenceResult` (`packages/ingestion`) expose
+désormais : `directSourceCount`/`aggregatorSourceCount` (via `MarketSource.
+sourceKind`, nouveau champ optionnel — Google Shopping/DataForSEO déclarent
+`"aggregator"`, toutes les autres sources restent `"direct"` par défaut),
+`evidenceTypeMix` (répartition brute par `evidenceType`, distincte de la
+répartition par palier déjà exposée par `fused.evidenceMix`),
+`costClassesUsed` (classes de coût des sources INTERROGÉES, même celles
+n'ayant produit aucune observation), et `fx` (`observedCurrencies`,
+`ratesUsed` avec paire/taux/date/source horodatés, `skippedForMissing
+RateCount`). Tout est répercuté dans `AnalysisResult.marketEvidence`
+(`@dealradar/contracts`) via des champs ADDITIONNELS optionnels — jamais
+une régression pour un appelant qui construirait encore la forme du lot
+précédent. Aucune donnée sensible exposée (taux de change publics par
+nature, jamais une clé/URL de fournisseur).
 
 ## Provenance marchand inter-sources (LOT "Source Wave 2", section 8)
 
@@ -224,16 +345,20 @@ jamais comme deux origines indépendantes (2 tests dédiés dans
 
 ## 3 prochaines intégrations les plus utiles (recommandation)
 
-1. **Activation des credentials** (Keepa/BrickLink/PriceCharting/SerpApi/Zyte)
-   — les cinq connecteurs + le fournisseur de scraping sont entièrement
-   construits, testés et câblés jusque dans le pipeline d'analyse générique ;
-   il ne manque que des secrets réels pour passer de "NOT TESTED live" à un
-   premier flux réel multi-source de bout en bout.
-2. **Câblage d'un lookup de taux de change LIVE** pour
-   `orchestrateMarketIntelligence` — condition pour que les observations
-   Keepa (USD)/PriceCharting (USD) contribuent réellement à la fusion pour
-   des analyses en CHF (voir la limite honnête ci-dessus).
-3. **StockX ou WatchCharts** (palier C/B respectivement, catégories
-   sneakers/watches non couvertes par Source Wave 1/2) — les deux prochaines
-   verticales déclarées dans `CATEGORY_SOURCE_PREFERENCES` sans connecteur
-   réel derrière.
+1. **Activation des credentials** (Keepa/BrickLink/PriceCharting/SerpApi/
+   DataForSEO/Zyte) — les six connecteurs de marché + le fournisseur de
+   scraping sont entièrement construits, testés et câblés jusque dans le
+   pipeline d'analyse générique, avec conversion FX automatique déjà
+   opérationnelle ; il ne manque que des secrets réels pour passer de
+   "NOT TESTED live" à un premier flux réel multi-source de bout en bout.
+2. **Router les taux FX effectivement résolus vers `persistFxRate`** pour
+   un audit traçable en base (table `fx_rates` déjà générique et prête) —
+   `orchestrateMarketIntelligence` ne fait aujourd'hui que CONVERTIR via le
+   `FxRateProvider`, jamais persister les taux utilisés.
+3. **Réévaluer StockX/WatchCharts/TCGplayer si le contexte change** — StockX
+   si DealRadar noue une relation vendeur, WatchCharts si une licence de
+   Distribution/Revente est négociée ET que la documentation technique
+   redevient consultable, TCGplayer si un accès partenaire s'ouvre. Aucun
+   des trois n'est un blocage technique résolvable par du code — un
+   changement de statut d'accès/licence est un préalable à toute
+   implémentation, pas une question d'ingénierie.

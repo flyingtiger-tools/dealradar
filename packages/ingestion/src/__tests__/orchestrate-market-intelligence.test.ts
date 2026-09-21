@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { MarketObservation, MarketSource } from "@dealradar/connectors";
+import { describe, expect, it, vi } from "vitest";
+import type { MarketObservation, MarketSource, FxRate, FxRateProvider } from "@dealradar/connectors";
 import { FakeSupabase } from "./fake-supabase";
 import { orchestrateMarketIntelligence } from "../orchestrate-market-intelligence";
 
@@ -34,7 +34,7 @@ function fakeObservation(overrides: Partial<MarketObservation> = {}): MarketObse
   };
 }
 
-function fakeSource(source: string, observations: MarketObservation[] | (() => never)): MarketSource {
+function fakeSource(source: string, observations: MarketObservation[] | (() => never), overrides: Partial<MarketSource> = {}): MarketSource {
   return {
     source,
     displayName: source,
@@ -47,7 +47,16 @@ function fakeSource(source: string, observations: MarketObservation[] | (() => n
     async healthCheck() {
       return { status: "ok", checkedAt: "t", latencyMs: 1 };
     },
+    ...overrides,
   };
+}
+
+function fakeFxRateProvider(getRate: FxRateProvider["getRate"]): FxRateProvider {
+  return { source: "fake-fx", getRate };
+}
+
+function fakeFxRate(overrides: Partial<FxRate> = {}): FxRate {
+  return { baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9, rateDate: "2026-09-21", source: "fake-fx", fetchedAt: "2026-09-21T00:00:00.000Z", ...overrides };
 }
 
 const TARGET = { currency: "CHF" };
@@ -156,5 +165,99 @@ describe("orchestrateMarketIntelligence", () => {
     const result = await orchestrateMarketIntelligence({ categorySlug: "lego", q: "lego 10300", sources: [source], target: TARGET });
     expect(result.skippedForCurrencyCount).toBe(1);
     expect(result.fused.status).toBe("insufficient");
+  });
+
+  it("fxRateProvider résout automatiquement un taux pour une devise étrangère réellement observée, jamais devinée", async () => {
+    const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD", priceAmountCents: 10000 })]);
+    const getRate = vi.fn().mockResolvedValue(fakeFxRate({ baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9 }));
+
+    const result = await orchestrateMarketIntelligence({
+      categorySlug: "gaming",
+      q: "x",
+      sources: [source],
+      target: TARGET,
+      fxRateProvider: fakeFxRateProvider(getRate),
+    });
+
+    expect(result.skippedForCurrencyCount).toBe(0);
+    expect(result.fused.status).toBe("estimated");
+    expect(result.fused.fairCents).toBe(9000);
+    expect(getRate).toHaveBeenCalledWith("USD", "CHF", undefined);
+  });
+
+  it("succès de la fusion multi-devise : USD (Keepa) + EUR + CHF contribuent ensemble à une fusion en CHF via des taux explicites horodatés", async () => {
+    const usdSource = fakeSource("keepa", [fakeObservation({ source: "keepa", sourceItemId: "u1", currency: "USD", priceAmountCents: 10000 })]);
+    const eurSource = fakeSource("pricecharting", [fakeObservation({ source: "pricecharting", sourceItemId: "e1", currency: "EUR", priceAmountCents: 9500 })]);
+    const chfSource = fakeSource("bricklink", [fakeObservation({ source: "bricklink", sourceItemId: "c1", currency: "CHF", priceAmountCents: 9800 })]);
+
+    const getRate = vi.fn().mockImplementation(async (base: string, quote: string) => {
+      if (base === "USD" && quote === "CHF") return fakeFxRate({ baseCurrency: "USD", quoteCurrency: "CHF", rate: 0.9, rateDate: "2026-09-20" });
+      if (base === "EUR" && quote === "CHF") return fakeFxRate({ baseCurrency: "EUR", quoteCurrency: "CHF", rate: 0.95, rateDate: "2026-09-20" });
+      return null;
+    });
+
+    const result = await orchestrateMarketIntelligence({
+      categorySlug: "gaming",
+      q: "x",
+      sources: [usdSource, eurSource, chfSource],
+      target: TARGET,
+      fxRateProvider: fakeFxRateProvider(getRate),
+    });
+
+    expect(result.skippedForCurrencyCount).toBe(0);
+    expect(result.fused.status).toBe("estimated");
+    expect(result.fused.evidenceCount).toBe(3);
+    expect(result.fx.observedCurrencies.sort()).toEqual(["CHF", "EUR", "USD"]);
+    expect(result.fx.ratesUsed).toHaveLength(2); // USD->CHF et EUR->CHF, jamais un 3e taux inventé pour CHF->CHF
+    expect(result.fx.ratesUsed.every((r) => r.rateDate === "2026-09-20")).toBe(true);
+  });
+
+  it("un taux fourni explicitement dans fxRates n'est JAMAIS écrasé par une résolution automatique", async () => {
+    const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD", priceAmountCents: 10000 })]);
+    const getRate = vi.fn().mockResolvedValue(fakeFxRate({ rate: 0.5 })); // taux auto délibérément différent pour détecter une éventuelle substitution
+
+    const result = await orchestrateMarketIntelligence({
+      categorySlug: "gaming",
+      q: "x",
+      sources: [source],
+      target: TARGET,
+      fxRates: { USD: fakeFxRate({ rate: 0.9 }) },
+      fxRateProvider: fakeFxRateProvider(getRate),
+    });
+
+    expect(result.fused.fairCents).toBe(9000); // 10000 * 0.9 (fxRates manuel), jamais 10000 * 0.5 (auto)
+    expect(getRate).not.toHaveBeenCalled(); // la devise USD est déjà couverte par fxRates, jamais interrogée en plus
+  });
+
+  it("directSourceCount / aggregatorSourceCount distinguent les connecteurs directs des agrégateurs (MarketSource.sourceKind)", async () => {
+    const direct = fakeSource("bricklink", [fakeObservation({ source: "bricklink" })]);
+    const aggregator = fakeSource("google_shopping", [fakeObservation({ source: "google_shopping", sourceItemId: "g1", marketplace: "fnac.ch" })], { sourceKind: "aggregator" });
+
+    const result = await orchestrateMarketIntelligence({ categorySlug: "lego", q: "lego 10300", sources: [direct, aggregator], target: TARGET });
+
+    expect(result.directSourceCount).toBe(1);
+    expect(result.aggregatorSourceCount).toBe(1);
+  });
+
+  it("evidenceTypeMix reflète la répartition réelle par type de preuve", async () => {
+    const source = fakeSource("bricklink", [
+      fakeObservation({ sourceItemId: "1", evidenceType: "historicalPrices" }),
+      fakeObservation({ sourceItemId: "2", evidenceType: "activeListings", evidenceTier: "D" }),
+    ]);
+
+    const result = await orchestrateMarketIntelligence({ categorySlug: "lego", q: "lego 10300", sources: [source], target: TARGET });
+
+    expect(result.evidenceTypeMix).toEqual(
+      expect.arrayContaining([
+        { evidenceType: "historicalPrices", count: 1 },
+        { evidenceType: "activeListings", count: 1 },
+      ]),
+    );
+  });
+
+  it("costClassesUsed reflète les sources INTERROGÉES, même celles qui n'ont produit aucune observation", async () => {
+    const cheap = fakeSource("pricecharting", []);
+    const result = await orchestrateMarketIntelligence({ categorySlug: "gaming", q: "x", sources: [cheap], target: TARGET });
+    expect(result.costClassesUsed).toEqual(["cheap"]);
   });
 });
