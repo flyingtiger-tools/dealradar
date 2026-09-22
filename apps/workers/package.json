@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "ingest": "tsx src/ingestion/cli.ts",
     "smoke-test": "tsx src/scripts/source-smoke-test.ts",
+    "catalog-smoke-test": "tsx src/scripts/catalog-smoke-test.ts",
     "activation-preflight": "tsx src/scripts/activation-preflight.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",

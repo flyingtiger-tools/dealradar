@@ -56,5 +56,18 @@ export const analysisRequestSchema = z.object({
    * reste du pipeline : aucune correspondance par nom seul).
    */
   providedTcgHints: tcgCardProvidedHintsSchema.nullable().default(null),
+  /**
+   * Code-barres EXACT déjà normalisé côté client (LOT "Live Identity
+   * Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness",
+   * section 1/2) — forme GTIN numérique native (EAN-13/EAN-8/UPC-A/
+   * GTIN-14), jamais un padding/une variante devinée (voir
+   * `normalize-barcode.ts`, mobile). `null` = aucun code-barres exploitable
+   * détecté pendant la capture (aucun scanné, ou uniquement des formats
+   * non-GTIN/`upc_e` — voir la même source). N'a de sens que pour le
+   * chemin GÉNÉRIQUE (non-TCG) : ignoré par `process-analysis.ts` pour
+   * `categorySlug === "pokemon_tcg"`, exactement comme `providedTcgHints`
+   * est ignoré pour les catégories génériques.
+   */
+  barcode: z.string().max(20).nullable().default(null),
 });
 export type AnalysisRequest = z.infer<typeof analysisRequestSchema>;

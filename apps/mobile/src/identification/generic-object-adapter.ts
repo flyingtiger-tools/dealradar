@@ -2,6 +2,7 @@ import type { CategorySlug, AnalysisResult } from "@dealradar/contracts";
 import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled, AnalysisPollAbortedError } from "../api/analyses-client";
+import { selectBestBarcodeForLookup } from "../capture/normalize-barcode";
 import type { UniversalCaptureResult } from "../capture/types";
 import type { CategoryAdapter, IdentificationCandidate, OnAnalysisProgress, RafAnalysis } from "./types";
 import { failedAnalysis } from "./raf-analysis-helpers";
@@ -41,6 +42,7 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
       analysisId,
       productKey: result.productKey ?? null,
       marketEvidence: result.marketEvidence,
+      identityQuality: result.identityQuality,
     };
   }
 
@@ -65,6 +67,7 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
     analysisId,
     productKey: result.productKey ?? null,
     marketEvidence: result.marketEvidence,
+    identityQuality: result.identityQuality,
   };
 }
 
@@ -103,6 +106,14 @@ export function createGenericObjectAdapter(category: Exclude<CategorySlug, "poke
         const { url } = await uploadTcgCardPhoto(clientRequestId, capture.normalizedImage.uri);
         uploaded = true;
 
+        // Code-barres EXACT déjà normalisé (LOT "Live Identity Enrichment +
+        // Barcode-First + upc.dev Fallback + Railway Readiness", section 2)
+        // — jamais transmis en plus/à la place de la photo : l'image reste
+        // nécessaire à l'estimation d'état, le code-barres ENRICHIT
+        // l'identité côté serveur, il ne la remplace jamais (voir
+        // `process-analysis.ts`).
+        const barcode = selectBestBarcodeForLookup(capture.barcodes);
+
         onProgress?.("submitting");
         const created = await createAnalysis({
           sourceType: "mobile_camera",
@@ -117,6 +128,7 @@ export function createGenericObjectAdapter(category: Exclude<CategorySlug, "poke
           consentVersion: CONSENT_VERSION,
           clientRequestId,
           providedTcgHints: null,
+          barcode,
         });
 
         // `created.id` transmis DÈS ce point (section 6/7) — c'est le premier

@@ -297,4 +297,27 @@ describe("mapAnalysisResultToViewModel", () => {
       expect(view.marketInsight?.trendLabel).toBeNull();
     });
   });
+
+  describe("identityQualityLabel (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 12)", () => {
+    it("identityQuality absent : identityQualityLabel null, jamais un libellé deviné", () => {
+      const result = baseResult({ product: { name: "x", category: null, modelOrReference: null } });
+      const view = mapAnalysisResultToViewModel(result, "completed", "general");
+      expect(view.identityQualityLabel).toBeNull();
+    });
+
+    it("identityQuality présent (barcode_confirmed) : libellé déjà traduit reporté sur le ResultViewModel", () => {
+      const result = baseResult({
+        product: { name: "Apple iPhone 15 Pro", category: "apple", modelOrReference: "iPhone 15 Pro" },
+        identityQuality: { method: "barcode_confirmed", sourcesConsulted: ["wikidata"], conflicts: [] },
+      });
+      const view = mapAnalysisResultToViewModel(result, "completed", "apple");
+      expect(view.identityQualityLabel).toBe("Identifié par code-barres");
+    });
+
+    it("même reporté pour un résultat 'insufficient_data' (produit non identifié) — un enrichissement catalogue peut avoir réussi même sans preuve de marché suffisante", () => {
+      const result = baseResult({ identityQuality: { method: "barcode_confirmed", sourcesConsulted: ["open_food_facts"], conflicts: [] } });
+      const view = mapAnalysisResultToViewModel(result, "insufficient_data", "general");
+      expect(view.identityQualityLabel).toBe("Identifié par code-barres");
+    });
+  });
 });

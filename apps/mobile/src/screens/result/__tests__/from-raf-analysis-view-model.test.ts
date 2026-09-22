@@ -192,4 +192,28 @@ describe("mapRafAnalysisToViewModel", () => {
       expect(view.productKey).toBeNull();
     });
   });
+
+  describe("identityQualityLabel (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 12) — même flux RÉEL que UniversalScanScreen.tsx", () => {
+    it("identityQuality absent : identityQualityLabel null", () => {
+      const analysis = baseAnalysis({ status: "identified", product: { name: "x", setName: null, collectorNumber: null, language: null } });
+      const view = mapRafAnalysisToViewModel(analysis, "general");
+      expect(view.identityQualityLabel).toBeNull();
+    });
+
+    it("identityQuality présent (lego_catalog_confirmed) : libellé déjà traduit reporté sur le ResultViewModel", () => {
+      const analysis = baseAnalysis({
+        status: "identified",
+        product: { name: "LEGO 75313", setName: "LEGO", collectorNumber: "75313", language: null },
+        identityQuality: { method: "lego_catalog_confirmed", sourcesConsulted: ["rebrickable"], conflicts: [] },
+      });
+      const view = mapRafAnalysisToViewModel(analysis, "lego");
+      expect(view.identityQualityLabel).toBe("Catalogue LEGO confirmé");
+    });
+
+    it("produit non identifié (insufficient_data) : identityQuality quand même reporté si présent", () => {
+      const analysis = baseAnalysis({ identityQuality: { method: "visual_only", sourcesConsulted: [], conflicts: [] } });
+      const view = mapRafAnalysisToViewModel(analysis, "general");
+      expect(view.identityQualityLabel).toBe("Identification visuelle seulement");
+    });
+  });
 });

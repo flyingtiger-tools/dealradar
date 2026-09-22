@@ -39,7 +39,7 @@ export interface IdentityHints {
 }
 
 export interface IdentitySourceRoutingEntry {
-  source: "open_food_facts" | "open_products_facts" | "rebrickable" | "tcgdex" | "igdb" | "wikidata";
+  source: "open_food_facts" | "open_products_facts" | "rebrickable" | "tcgdex" | "igdb" | "wikidata" | "upcdev";
   /** Slug de catégorie DealRadar le plus directement concerné — indicatif, jamais une restriction stricte imposée par ce module. */
   categorySlug: string;
   reason: string;
@@ -90,6 +90,17 @@ export function routeIdentitySources(hints: IdentityHints): IdentitySourceRoutin
     // clairsemée (audit confirmé section 5), jamais essayé avant Open
     // Food/Products Facts pour le même indice.
     entries.push({ source: "wikidata", categorySlug: "general", reason: "code-barres exact — complément final à faible taux de succès, jamais une source primaire" });
+
+    // upc.dev EN DERNIER (LOT "Live Identity Enrichment + Barcode-First +
+    // upc.dev Fallback + Railway Readiness", section 3) — repli de SECOND
+    // RANG payant-par-clé (`UPCDEV_API_KEY`, palier gratuit 100/jour),
+    // jamais consulté avant les trois sources gratuites SANS clé
+    // ci-dessus : un appel réel ce lot a confirmé qu'au moins un produit
+    // upc.dev est lui-même backé par Open Food Facts (chevauchement direct,
+    // audit `docs/free-open-sources-audit.md`) — le consulter en premier
+    // gaspillerait son quota quotidien limité sur des produits déjà
+    // couverts gratuitement.
+    entries.push({ source: "upcdev", categorySlug: "general", reason: "code-barres exact — repli de second rang payant-par-clé, jamais avant Open Food/Products Facts/Wikidata (quota quotidien limité, chevauchement confirmé avec Open Food Facts)" });
   }
 
   return entries;

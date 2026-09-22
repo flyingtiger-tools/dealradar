@@ -8,6 +8,7 @@ vi.mock("@dealradar/ingestion", async (importOriginal) => ({
   gatherActiveListingEvidence: vi.fn(),
   signStorageImageUrl: vi.fn(),
   orchestrateMarketIntelligence: vi.fn(),
+  enrichProductIdentity: vi.fn(),
 }));
 
 vi.mock("../../ingestion/market-source-factory", () => ({
@@ -15,7 +16,21 @@ vi.mock("../../ingestion/market-source-factory", () => ({
   computeEnvPresenceBySource: vi.fn(() => ({})),
 }));
 
-const { gatherActiveListingEvidence, signStorageImageUrl, orchestrateMarketIntelligence } = await import("@dealradar/ingestion");
+// LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback +
+// Railway Readiness", section 1 — `buildCatalogSourcesFromEnv` mocké de la
+// même façon que `buildMarketSourcesFromEnv` (aucune source catalogue
+// réelle construite pendant les tests, jamais un appel réseau).
+// `createCatalogLookup` renvoie une fonction `lookup` factice — les tests
+// qui exercent réellement `enrichProductIdentity` la surchargent via
+// `vi.mocked(enrichProductIdentity)` directement, jamais via ce lookup.
+vi.mock("../../ingestion/catalog-source-factory", () => ({
+  buildCatalogSourcesFromEnv: vi.fn(() => ({ sources: new Map(), diagnostics: [] })),
+  createCatalogLookup: vi.fn(() => vi.fn().mockResolvedValue([])),
+  createCachedCatalogLookup: vi.fn(() => vi.fn().mockResolvedValue([])),
+  sharedCatalogLookupCache: new Map(),
+}));
+
+const { gatherActiveListingEvidence, signStorageImageUrl, orchestrateMarketIntelligence, enrichProductIdentity } = await import("@dealradar/ingestion");
 const { buildMarketSourcesFromEnv, computeEnvPresenceBySource } = await import("../../ingestion/market-source-factory");
 const { processAnalysis } = await import("../process-analysis");
 
@@ -61,6 +76,21 @@ beforeEach(() => {
   vi.mocked(orchestrateMarketIntelligence).mockReset();
   vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [], diagnostics: [] });
   vi.mocked(computeEnvPresenceBySource).mockReturnValue({});
+  // Défaut = comportement HONNÊTE d'un enrichissement qui n'a rien trouvé
+  // (aucune source catalogue interrogée avec succès) : renvoie les champs
+  // IA TELS QUELS, jamais un champ modifié — préserve le comportement de
+  // TOUS les tests écrits AVANT ce lot, qui ne connaissent rien de
+  // l'enrichissement catalogue. Les tests dédiés ci-dessous surchargent ce
+  // défaut explicitement.
+  vi.mocked(enrichProductIdentity).mockReset();
+  vi.mocked(enrichProductIdentity).mockImplementation(async (input) => ({
+    identity: { productKey: "placeholder", categorySlug: input.categorySlug, fields: {}, aliases: [], conflicts: [] },
+    mergedFields: input.aiFields,
+    sourcesConsulted: [],
+    sourcesSkipped: [],
+    qualityMethod: "visual_only",
+    hadConflict: false,
+  }));
 });
 
 afterEach(() => {
@@ -747,6 +777,226 @@ describe("processAnalysis", () => {
 
       expect(keyGood).toBeDefined();
       expect(keyGood).toBe(keyFair);
+    });
+  });
+
+  describe("enrichissement d'identité catalogue (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 1) — vérification du câblage bout-en-bout, la politique de fusion elle-même est testée séparément dans enrich-product-identity.test.ts", () => {
+    it("request.barcode est transmis tel quel dans les hints passés à enrichProductIdentity", async () => {
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état", barcode: "00194253000000" })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      expect(enrichProductIdentity).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(enrichProductIdentity).mock.calls[0]![0];
+      expect(call.hints.barcode).toBe("00194253000000");
+      expect(call.categorySlug).toBe("apple");
+      // Les champs IA déjà extraits sont transmis tels quels comme base de fusion.
+      expect(call.aiFields.storage).toBe("128GB");
+    });
+
+    it("sans barcode sur la requête : hints.barcode est null, jamais une chaîne vide ou un crash", async () => {
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état", barcode: null })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const call = vi.mocked(enrichProductIdentity).mock.calls[0]![0];
+      expect(call.hints.barcode).toBeNull();
+    });
+
+    it("un enrichissement qui corrige la capacité (128GB IA -> 256GB catalogue exact) : le productKey final ET modelOrReference reflètent le champ CORRIGÉ, jamais le champ IA brut", async () => {
+      vi.mocked(enrichProductIdentity).mockResolvedValueOnce({
+        identity: {
+          productKey: "placeholder",
+          categorySlug: "apple",
+          fields: {
+            brand: { value: "Apple", source: "wikidata", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" },
+            model: { value: "iPhone 15 Pro", source: "wikidata", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" },
+            storage: { value: "256GB", source: "wikidata", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" },
+          },
+          aliases: [],
+          conflicts: [
+            {
+              field: "storage",
+              claims: [
+                { source: "ai_identification", value: "128GB", confidence: 0.6, observedAt: "2026-09-21T00:00:00.000Z" },
+                { source: "wikidata", value: "256GB", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" },
+              ],
+            },
+          ],
+        },
+        mergedFields: { brand: "Apple", model: "iPhone 15 Pro", storage: "256GB" },
+        sourcesConsulted: ["wikidata"],
+        sourcesSkipped: [],
+        qualityMethod: "barcode_confirmed",
+        hadConflict: true,
+      });
+
+      const db128 = new FakeSupabase();
+      db128.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état", barcode: "00194253000000" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db128 as never);
+      const keyCorrected = (db128.table("research_targets")[0] as { product_key: string } | undefined)?.product_key;
+
+      // Le productKey doit refléter EXACTEMENT `mergedFields` (le champ storage CORRIGÉ par le catalogue), jamais les champs IA bruts (qui auraient produit `storage: "128GB"`).
+      expect(keyCorrected).toBeDefined();
+      expect(keyCorrected).toBe(deriveProductKey("apple", { brand: "Apple", model: "iPhone 15 Pro", storage: "256GB" }));
+      expect(keyCorrected).not.toBe(deriveProductKey("apple", { brand: "Apple", model: "iPhone 15 Pro", storage: "128GB" }));
+
+      const row = db128.table("analysis_requests")[0] as {
+        result: {
+          product: { modelOrReference: string | null };
+          identityQuality?: { method: string; sourcesConsulted: string[]; conflicts: { field: string; aiValue: string | null; catalogValue: string | null }[] };
+        };
+      };
+      // `enrichedFields.model` ("iPhone 15 Pro", renvoyé par le catalogue) est préféré au modèle IA brut extrait du titre — jamais l'inverse.
+      expect(row.result.product.modelOrReference).toBe("iPhone 15 Pro");
+      expect(row.result.identityQuality).toEqual({
+        method: "barcode_confirmed",
+        sourcesConsulted: ["wikidata"],
+        conflicts: [{ field: "storage", aiValue: "128GB", catalogValue: "256GB" }],
+      });
+    });
+
+    it("identityQuality absent du résultat quand enrichProductIdentity échoue entièrement (exception) — repli IDENTIQUE à un enrichissement qui n'a simplement rien trouvé, jamais un crash", async () => {
+      const title = "Apple iPhone 15 Pro 128GB très bon état";
+
+      // Référence : enrichissement qui tourne normalement mais ne trouve rien (comportement par défaut du beforeEach — passthrough des champs IA).
+      const dbBaseline = new FakeSupabase();
+      dbBaseline.seed("analysis_requests", [baseRow({ category_slug: "apple", title })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, dbBaseline as never);
+      const baselineRow = dbBaseline.table("analysis_requests")[0] as { result: { product: { modelOrReference: string | null } } };
+
+      // Cas testé : l'enrichissement catalogue explose (panne réseau) au lieu de simplement ne rien trouver.
+      vi.mocked(enrichProductIdentity).mockRejectedValueOnce(new Error("panne réseau catalogue simulée"));
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "apple", title, barcode: "00194253000000" })]);
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as {
+        status: string;
+        result: { product: { modelOrReference: string | null }; identityQuality?: unknown };
+      };
+      expect(row.result.identityQuality).toBeUndefined();
+      // Le résultat d'un enrichissement en PANNE doit être identique à celui d'un enrichissement qui a simplement RIEN trouvé — jamais un comportement dégradé silencieusement différent.
+      expect(row.result.product.modelOrReference).toBe(baselineRow.result.product.modelOrReference);
+    });
+
+    it("qualityMethod='visual_only' est quand même exposé explicitement (présent, jamais omis) quand aucune source catalogue n'a rien trouvé", async () => {
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro 128GB très bon état", barcode: "00194253000000" })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as { result: { identityQuality?: { method: string } } };
+      expect(row.result.identityQuality?.method).toBe("visual_only");
+    });
+  });
+
+  describe("isolation catalogue/marché (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 10) — une source CATALOGUE ne doit JAMAIS gonfler la preuve de marché ni produire une décision à elle seule", () => {
+    it("une source catalogue résolue (identityQuality.sourcesConsulted non vide) SANS aucune preuve de marché : reste INSUFFICIENT_DATA, jamais une décision BUY produite par le catalogue seul", async () => {
+      vi.mocked(enrichProductIdentity).mockResolvedValueOnce({
+        identity: { productKey: "placeholder", categorySlug: "apple", fields: { storage: { value: "256GB", source: "wikidata", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" } }, aliases: [], conflicts: [] },
+        mergedFields: { storage: "256GB" },
+        sourcesConsulted: ["wikidata"],
+        sourcesSkipped: [],
+        qualityMethod: "barcode_confirmed",
+        hadConflict: false,
+      });
+      // buildMarketSourcesFromEnv reste [] (mock par défaut du beforeEach) — AUCUNE source de marché disponible.
+
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "apple", title: "Apple iPhone 15 Pro très bon état", barcode: "00194253000000" })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as { status: string; result: { decision: string; identityQuality?: { sourcesConsulted: string[] }; marketEvidence?: unknown } };
+      expect(row.result.identityQuality?.sourcesConsulted).toEqual(["wikidata"]);
+      expect(row.status).toBe("insufficient_data");
+      expect(row.result.decision).toBe("INSUFFICIENT_DATA");
+      // Aucune preuve de marché produite par le seul enrichissement catalogue.
+      expect(row.result.marketEvidence).toBeUndefined();
+    });
+
+    it("les sources catalogue consultées (identityQuality.sourcesConsulted) et les sources de marché (marketEvidence.sourceNames) restent des ensembles DISJOINTS, jamais un mélange qui gonflerait sourceCount", async () => {
+      vi.mocked(enrichProductIdentity).mockResolvedValueOnce({
+        identity: { productKey: "placeholder", categorySlug: "lego", fields: { bricklinkNo: { value: "75313", source: "rebrickable", confidence: 0.95, observedAt: "2026-09-21T00:00:00.000Z" } }, aliases: [], conflicts: [] },
+        mergedFields: { bricklinkNo: "75313" },
+        sourcesConsulted: ["rebrickable"],
+        sourcesSkipped: [],
+        qualityMethod: "lego_catalog_confirmed",
+        hadConflict: false,
+      });
+      vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+      vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+      vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+        sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
+        observationCount: 3,
+        liveObservationCount: 0,
+        historicalObservationCount: 3,
+        sourceNames: ["bricklink"],
+        directSourceCount: 1,
+        aggregatorSourceCount: 0,
+        evidenceTypeMix: [{ evidenceType: "historicalPrices", count: 3 }],
+        costClassesUsed: ["free"],
+        fx: { observedCurrencies: ["CHF"], ratesUsed: [], skippedForMissingRateCount: 0 },
+        skippedForCurrencyCount: 0,
+        persistedCount: 3,
+        persistenceError: null,
+        fxRatesPersistedCount: null,
+        fxPersistenceError: null,
+        coverageReport: {
+          categorySlug: "lego",
+          asOf: "2026-09-21T00:00:00.000Z",
+          sourcesQueried: 1,
+          sourcesSucceeded: 1,
+          sourcesFailed: 0,
+          perSource: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10, costClass: "free" }],
+          observationsReturned: 3,
+          observationsAfterCanonicalDedupe: 3,
+          observationsUsableAfterFx: 3,
+          observationsPersisted: 3,
+          medianLatencyMs: 10,
+        },
+        fused: {
+          status: "estimated",
+          lowCents: 17000,
+          fairCents: 18000,
+          highCents: 19000,
+          currency: "CHF",
+          confidence: 80,
+          evidenceCount: 3,
+          sourceCount: 1,
+          strongestTier: "B",
+          evidenceMix: [{ tier: "B", source: "bricklink", merchant: "bricklink", count: 3 }],
+          freshnessHours: 2,
+          reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
+          insufficiencyReason: null,
+          confidenceComponents: null,
+          qualityFlags: [],
+          historicalReferenceMedianCents: null,
+          trendDescriptor: null,
+          trendConfidence: null,
+          historyStabilizationApplied: false,
+        },
+      });
+
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ category_slug: "lego", title: "LEGO 75313 très bon état" })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as {
+        result: { identityQuality?: { sourcesConsulted: string[] }; marketEvidence?: { sourceNames: string[]; sourceCount: number } };
+      };
+      expect(row.result.identityQuality?.sourcesConsulted).toEqual(["rebrickable"]);
+      expect(row.result.marketEvidence?.sourceNames).toEqual(["bricklink"]);
+      expect(row.result.marketEvidence?.sourceCount).toBe(1); // jamais 2 — "rebrickable" (catalogue) n'est jamais compté comme une source de PRIX
+      // Ensembles disjoints : aucun nom en commun.
+      const catalogSources = new Set(row.result.identityQuality?.sourcesConsulted ?? []);
+      for (const marketSource of row.result.marketEvidence?.sourceNames ?? []) {
+        expect(catalogSources.has(marketSource)).toBe(false);
+      }
     });
   });
 });

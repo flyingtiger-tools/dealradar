@@ -21,6 +21,7 @@ import {
   type FusedValuation,
   type EvidenceQualityTier,
   type IdentityField,
+  type CanonicalProductIdentity,
 } from "@dealradar/core";
 import {
   extractProduct,
@@ -48,13 +49,16 @@ import {
   updateSourceHealthFromDiagnostics,
   persistSourceHealthState,
   toHealthLevels,
+  enrichProductIdentity,
   type SoldListingRow,
+  type IdentityHints,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
 import { buildAiExtractionConfigFromEnv } from "../ingestion/ai-provider-config";
 import { buildTcgPipelineConnectorsFromEnv } from "../ingestion/tcg-connector-config";
 import { tryBuildEbayConnectorFromEnv } from "../ingestion/connector-config";
 import { buildMarketSourcesFromEnv, computeEnvPresenceBySource } from "../ingestion/market-source-factory";
+import { buildCatalogSourcesFromEnv, createCachedCatalogLookup, sharedCatalogLookupCache } from "../ingestion/catalog-source-factory";
 import { sharedFxRateProvider } from "../ingestion/fx-provider";
 import { processTcgCardAnalysis } from "@dealradar/ingestion";
 import type { TcgCardProvidedHints } from "@dealradar/core";
@@ -140,6 +144,14 @@ interface AnalysisRequestRow {
    * un `AnalysisResult` fabriqué.
    */
   cancel_requested_at: string | null;
+  /**
+   * Code-barres EXACT déjà normalisé côté client (LOT "Live Identity
+   * Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness",
+   * section 1/2 ; migration 0027) — `null` = aucun code-barres exploitable
+   * détecté. N'a de sens que pour le chemin GÉNÉRIQUE, jamais consommé par
+   * la branche `pokemon_tcg` ci-dessous.
+   */
+  barcode: string | null;
 }
 
 interface RawSoldListingWithSource extends SoldListingRow {
@@ -244,7 +256,7 @@ export async function processAnalysis(
 ): Promise<void> {
   const { data: row } = await db
     .from("analysis_requests")
-    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type,provided_tcg_hints,cancel_requested_at")
+    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type,provided_tcg_hints,cancel_requested_at,barcode")
     .eq("id", analysisRequestId)
     .maybeSingle();
   const request = row as AnalysisRequestRow | null;
@@ -453,7 +465,58 @@ export async function processAnalysis(
   if (extraction.product.model?.value) identitySeedFields.model = extraction.product.model.value;
   if (extraction.product.capacity?.value) identitySeedFields.storage = extraction.product.capacity.value;
   if (extraction.product.color?.value) identitySeedFields.color = extraction.product.color.value;
-  const productKey = deriveProductKey(listing.categorySlug, identitySeedFields);
+
+  // Enrichissement d'identité RÉEL par sources catalogue gratuites/ouvertes
+  // (LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback +
+  // Railway Readiness", section 1) — code-barres exact -> Open Food Facts
+  // -> Open Products Facts -> Wikidata ; numéro de set LEGO exact ->
+  // Rebrickable. Fusionné avec l'extraction IA via la politique de fusion
+  // DÉJÀ testée (`enrichProductIdentity`, `@dealradar/ingestion` — voir son
+  // en-tête pour le détail exact de l'ordre catalogue-avant-IA qui fait
+  // gagner un identifiant exact sur un désaccord dur). ISOLÉ entièrement :
+  // une panne catalogue (réseau, schéma inattendu) ne doit JAMAIS empêcher
+  // l'analyse utilisateur — repli silencieux sur les champs IA seuls,
+  // exactement le comportement d'AVANT ce lot.
+  let enrichedFields: Partial<Record<IdentityField, string>> = identitySeedFields;
+  let identityQuality: AnalysisResult["identityQuality"];
+  let enrichedIdentityForSeeding: CanonicalProductIdentity | null = null;
+  try {
+    const { sources: catalogSources } = buildCatalogSourcesFromEnv();
+    // Couche de cache PARTAGÉE au niveau process (LOT "Live Identity
+    // Enrichment...", section 11) — même précédent que `sharedFxRateProvider` :
+    // survit entre analyses, jamais recréée à chaque appel.
+    const lookup = createCachedCatalogLookup(catalogSources, sharedCatalogLookupCache);
+    const hints: IdentityHints = {
+      barcode: request.barcode,
+      legoSetNumber: listing.categorySlug === "lego" ? (extraction.product.reference?.value ?? null) : null,
+      gamingTitle: listing.categorySlug === "gaming" ? productName : null,
+    };
+    const enrichResult = await enrichProductIdentity({
+      categorySlug: listing.categorySlug,
+      hints,
+      aiFields: identitySeedFields,
+      asOf: new Date().toISOString(),
+      lookup,
+    });
+    enrichedFields = enrichResult.mergedFields;
+    enrichedIdentityForSeeding = enrichResult.identity;
+    identityQuality = {
+      method: enrichResult.qualityMethod,
+      sourcesConsulted: enrichResult.sourcesConsulted,
+      conflicts: enrichResult.identity.conflicts.map((c) => ({
+        field: c.field,
+        aiValue: c.claims.find((claim) => claim.source === "ai_identification")?.value ?? null,
+        catalogValue: c.claims.find((claim) => claim.source !== "ai_identification")?.value ?? null,
+      })),
+    };
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : "erreur inconnue" },
+      "Enrichissement d'identité catalogue impossible — poursuite avec l'extraction IA seule",
+    );
+  }
+
+  const productKey = deriveProductKey(listing.categorySlug, enrichedFields);
 
   // Amorçage de cible de recherche (LOT "Historical Data Engine", section
   // 14) — un scan utilisateur identifié avec succès (catégorie confirmée,
@@ -464,21 +527,29 @@ export async function processAnalysis(
   // volontairement : un échec d'écriture ici ne doit JAMAIS faire échouer
   // la requête d'analyse de l'utilisateur.
   try {
-    const seedIdentity = mergeIdentityEvidence(
-      createCanonicalProductIdentity(listing.categorySlug, productKey),
-      {
-        source: "ai_identification",
-        confidence: 0.6,
-        observedAt: new Date().toISOString(),
-        fields: {
-          brand: extraction.product.brand?.value,
-          model: extraction.product.model?.value,
-          sku: extraction.product.reference?.value,
-          storage: extraction.product.capacity?.value,
-          color: extraction.product.color?.value,
-        },
-      },
-    ).identity;
+    // Réutilise l'identité DÉJÀ enrichie par catalogue ci-dessus (section 1)
+    // — jamais une seconde fusion divergente à partir des seuls champs IA.
+    // `productKey` corrigé ici : `enrichProductIdentity` ne le connaît pas
+    // encore au moment où elle tourne (calculé juste après, ci-dessus) —
+    // seul le `productKey` FINAL (reflétant un éventuel champ corrigé par
+    // le catalogue, ex. storage) doit être persisté. Repli sur l'ancien
+    // comportement (fusion IA seule) si l'enrichissement catalogue a
+    // échoué entièrement plus haut — jamais un amorçage bloqué pour
+    // autant.
+    const seedIdentity: CanonicalProductIdentity = enrichedIdentityForSeeding
+      ? { ...enrichedIdentityForSeeding, productKey }
+      : mergeIdentityEvidence(createCanonicalProductIdentity(listing.categorySlug, productKey), {
+          source: "ai_identification",
+          confidence: 0.6,
+          observedAt: new Date().toISOString(),
+          fields: {
+            brand: extraction.product.brand?.value,
+            model: extraction.product.model?.value,
+            sku: extraction.product.reference?.value,
+            storage: extraction.product.capacity?.value,
+            color: extraction.product.color?.value,
+          },
+        }).identity;
 
     const scheduling = decideNextSnapshotRefresh({
       asOf: new Date().toISOString(),
@@ -751,7 +822,12 @@ export async function processAnalysis(
     product: {
       name: productName,
       category: listing.categorySlug,
-      modelOrReference: extraction.product.model?.value ?? extraction.product.reference?.value ?? null,
+      // `enrichedFields.model` (LOT "Live Identity Enrichment...", section
+      // 1/12) prime sur l'extraction IA brute UNIQUEMENT si le catalogue
+      // exact a réellement corroboré/corrigé un modèle (ex. le nom OFFICIEL
+      // d'un set LEGO Rebrickable) — repli sur l'extraction IA sinon,
+      // comportement identique à avant ce lot.
+      modelOrReference: enrichedFields.model ?? extraction.product.model?.value ?? extraction.product.reference?.value ?? null,
     },
     conditionEstimated: condition,
     priceDetected: { amount: request.purchase_price, currency: listing.currency },
@@ -803,6 +879,11 @@ export async function processAnalysis(
       ? { soldTransactions: fused!.strongestTier === "A", marketGuide: marketEvidence!.usedSpecialistHistory }
       : { soldTransactions: usedSold, marketGuide: false },
     ...(marketEvidence ? { marketEvidence } : {}),
+    // Absent uniquement si l'enrichissement catalogue a levé une exception
+    // NON attrapée par son propre try/catch (ne devrait jamais arriver,
+    // filet de sécurité honnête plutôt qu'un objet fabriqué) — voir
+    // `identityQuality` plus haut.
+    ...(identityQuality ? { identityQuality } : {}),
   };
 
   const finalDecision = useFusedValuation ? fusedDecision!.decision : pipelineResult.decision;

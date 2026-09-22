@@ -158,6 +158,11 @@ export const tcgAdapter: CategoryAdapter = {
         consentVersion: CONSENT_VERSION,
         clientRequestId,
         providedTcgHints: null,
+        // Jamais consommé pour la verticale TCG (voir `process-analysis.ts` —
+        // `barcode` n'a de sens que pour le chemin générique) — transmis
+        // `null` ici plutôt qu'omis, même discipline que `providedTcgHints`
+        // côté chemin générique.
+        barcode: null,
       });
 
       // `created.id`/`signal` (trouvaille d'audit beta-readiness, section 12

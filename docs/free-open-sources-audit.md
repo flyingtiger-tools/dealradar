@@ -147,10 +147,173 @@ inchangées). Étapes AJOUTÉES pertinentes pour les nouvelles sources :
 - Confirmer par une lecture humaine indépendante la conclusion ODbL "Produced Work" de ce document (sections 1) avant tout affichage à grande échelle de données Open Food Facts/Open Prices à des utilisateurs payants — l'analyse ci-dessus est une lecture de texte de licence par l'agent, jamais un avis juridique engageant.
 - Décider explicitement si IGDB vaut la démarche `partner@igdb.com` avant d'investir davantage dans la verticale gaming, ou si elle reste un connecteur dormant (`productionAllowed: false` indéfiniment).
 
+## 7. Addendum — LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness"
+
+Ce lot WIRE enfin les sources ci-dessus dans le chemin générique réel
+(`process-analysis.ts` — voir `packages/ingestion/src/enrich-product-
+identity.ts`), et audite/implémente un repli barcode supplémentaire :
+**upc.dev**.
+
+### 7.1 upc.dev (section 3 du brief) — AUDITÉ AVANT implémentation, puis IMPLÉMENTÉ
+
+Conditions d'utilisation lues (`upc.dev/terms`, `upc.dev/pricing`,
+`upc.dev/openapi.json`) AVANT tout code :
+- **Usage commercial** : explicitement permis — *"You get a perpetual
+  license to use responses in your product. You can cache, display, and
+  derive from the data."*
+- **Restriction pertinente unique** : jamais un dump brut en masse
+  redistribué (*"You can't redistribute raw bulk dumps"*) — aucune
+  pertinence pour un lookup exact à la fois.
+- **Palier gratuit** : 100 requêtes/jour, clé en libre-service
+  (`POST /v1/auth/register`), en-tête `X-API-Key`.
+- **Appels RÉELS effectués ce lot** (accès public sans clé, palier "basic
+  data" — suffisant pour confirmer la forme de réponse) : `049000042566`
+  (Coca-Cola) → succès, **`image_url` pointe vers
+  `images.openfoodfacts.org`** — confirmation directe qu'upc.dev RÉAGRÈGE
+  des sources ouvertes déjà connectées directement par DealRadar (Open
+  Food Facts), jamais une base indépendante pour ce genre de produit.
+  `1234567890123` (fixture "Test product API" bien connue d'Open Food
+  Facts) → même conclusion. `000000000000` → `404`
+  `{"code":"INVALID_UPC"}` (PAS un code "NOT_FOUND" distinct malgré ce que
+  suggère la doc OpenAPI publique). Un appel a aussi renvoyé `503` à corps
+  TEXTE BRUT (*"upc.dev is warming this page..."*) pendant une fenêtre de
+  démarrage à froid — traité comme un `5xx` retryable ordinaire par le
+  client (`packages/connectors/src/catalogs/upcdev/client.ts`), jamais un
+  crash de parsing JSON.
+
+**Verdict : IMPLÉMENTÉ**, comme repli de **second rang uniquement**
+(`identity-source-routing.ts` : jamais consulté avant Open Food Facts/Open
+Products Facts/Wikidata, exactement parce que le chevauchement avec Open
+Food Facts est confirmé en direct — l'interroger en premier gaspillerait
+son quota quotidien limité sur des produits déjà couverts gratuitement).
+Extraction volontairement CONSERVATRICE, même discipline qu'Open Food/
+Products Facts : GTIN + capacité (motif GB/TB objectif) uniquement,
+JAMAIS de marque/modèle tirés de son `name` (texte libre agrégé de
+qualité par-enregistrement non vérifiée). Aucun prix — `priceHints`
+jamais peuplé. `UPCDEV_API_KEY` requise pour activer (aucun appel
+authentifié réel possible cette session, clé absente) — voir action
+humaine ci-dessous.
+
+### 7.2 Repli barcode supplémentaire — UPCitemdb / Go-UPC / Barcode Lookup (section 4 du brief)
+
+Audit bref, AUCUNE implémentation :
+
+- **Go-UPC** : **aucun palier gratuit** (`go-upc.com/plans` — le plan le
+  moins cher est 74,95 $/mois). Disqualifié immédiatement (le brief exige
+  "meaningful free quota").
+- **Barcode Lookup** (`barcodelookup.com/api`) : page renvoie `403
+  Forbidden` à une lecture directe — conditions non auditables proprement
+  cette session, connu par ailleurs pour nécessiter un plan payant pour un
+  usage réel.
+- **UPCitemdb** (`devs.upcitemdb.com`) : palier gratuit comparable (100
+  requêtes/jour, "Explorer", aucune inscription requise) MAIS conditions
+  d'utilisation (`upcitemdb.com/terms`) n'établissent PAS clairement
+  l'usage commercial du palier GRATUIT spécifiquement (le langage de
+  licence lie l'usage commercial aux plans PAYANTS "Dev"/"Pro"), et
+  aucune politique de cache/stockage n'y est explicite — exactement le
+  type d'ambiguïté que le brief demande de NE PAS activer ("If unclear:
+  do NOT activate"). De plus, aucun complément de couverture MATÉRIEL
+  démontré par rapport à upc.dev (déjà implémenté ce lot, même catégorie
+  d'agrégateur retail/consommateur).
+
+**Verdict : DIFFÉRÉ pour les trois** — aucun connecteur créé, aucune
+entrée `source-readiness-matrix.ts` ajoutée (précédent : les sources
+différées sans connecteur du LOT "Free/Open Sources..." — BoardGameGeek/
+MusicBrainz/Open Library — n'ont pas non plus d'entrée matrice). Décision
+purement documentaire, aucun blocage pour ce lot.
+
+### 7.3 TCGdex `priceHints` dans la valorisation TCG (section 6 du brief) — DIFFÉRÉ, blocage exact documenté
+
+`extractTcgdexPriceHints` (LOT "Free/Open Sources...", `packages/
+connectors/src/catalogs/tcgdex/normalize.ts:143`) peuple déjà
+`CatalogItem.priceHints` (agrégats Cardmarket/TCGplayer) — mais AUCUN
+consommateur n'existe dans la verticale TCG (`orchestrate-pokemon-
+pipeline.ts`, `process-tcg-card-analysis.ts` : zéro référence à
+`priceHints`, confirmé par recherche ce lot).
+
+**Blocage EXACT** : consommer ce champ dans la valorisation TCG
+nécessiterait de modifier `orchestrate-pokemon-pipeline.ts` et/ou
+`process-tcg-card-analysis.ts` — des fichiers TCG-CRITIQUES sous la
+contrainte permanente rappelée à chaque lot ("Preserve ALL existing TCG
+behavior — verified after every lot via `git diff --stat` against
+TCG-critical files, must show empty diff"). Un changement de
+COMPORTEMENT réel (nouvelle preuve de marché consommée, même en tant que
+"specialist-market evidence" additive) sur ces fichiers romprait cette
+garantie, même si le changement lui-même est prudent. **Décision : garder
+`priceHints` enrichissement-seul (déjà exposé, jamais consommé), différer
+le branchement à un LOT DÉDIÉ qui autorise explicitement de toucher aux
+fichiers de valorisation TCG.**
+
+Point d'intégration futur exact, si/quand autorisé : dans
+`orchestrate-pokemon-pipeline.ts`, après la résolution TCGdex existante
+(déjà appelée pour l'identité de la carte) — mapper
+`catalogItem.priceHints` (filtré `source ∈ {"cardmarket","tcgplayer"}`)
+en preuve de marché de tier spécialiste (jamais une vente conclue
+individuelle, jamais un doublon avec JustTCG déjà consulté séparément —
+nécessiterait une clé de dédoublonnage explicite par `source`+`variant`
+avant fusion).
+
+### 7.4 Tests de fumée live — sources ACTUELLEMENT configurées sur Railway (section 7 du brief)
+
+Distinction absolue maintenue : **présence d'un nom de variable sur
+Railway** ≠ **validité de la credential** ≠ **test réseau local (cette
+session)** ≠ **succès en environnement d'exécution Railway réel**. Cette
+session n'a accès à AUCUNE credential Railway — seules les sources SANS
+clé sont donc testables ici ; toutes les autres sont honnêtement NOT
+TESTED, jamais présentées comme validées.
+
+| Source | Credential Railway | Testable cette session ? | Résultat (appel réel, ce lot) |
+|---|---|---|---|
+| TCGdex | aucune (sans clé) | oui | **PASSED** — `GET /v2/en/cards/base1-4` → `200`, `"Charizard"` |
+| Frankfurter (FX) | aucune (sans clé) | oui | **PASSED** — `GET /v1/latest?base=USD&symbols=CHF` → `200`, `0.82141` |
+| Open Food Facts | aucune (sans clé) | oui | **PASSED** — `GET /api/v2/product/3017620422003.json` → `200`, "Nutella" |
+| Open Products Facts | aucune (sans clé) | oui | **PASSED (service up)** — `GET /api/v2/product/3760020509370.json` → `404` applicatif pour ce code précis, cohérent avec la couverture clairsemée déjà documentée (section 3 du corps de ce document) ; le SERVICE répond, jamais une panne. |
+| Wikidata | aucune (sans clé) | oui | **PASSED** — SPARQL `wdt:P3962` sur `00640520098905` → 1 résultat, "Apple iPhone 7 128GB Jet Black" |
+| Open Prices | aucune (sans clé) | oui | **PASSED** — `GET /api/v1/prices?product_code=3017620422003` → `200`, 166 prix au total |
+| upc.dev | `UPCDEV_API_KEY` (absente Railway ET ici) | partiellement — accès PUBLIC sans clé seulement | **PASSED (accès public uniquement)** — voir section 7.1 ; aucun appel AUTHENTIFIÉ testé |
+| Rebrickable | `REBRICKABLE_API_KEY` (absente Railway ET ici) | non | **NOT TESTED** — aucune credential disponible |
+| IGDB | `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` (absentes) | non, et verrouillé par politique de toute façon | **NOT TESTED** (`productionAllowed: false`) |
+| eBay | `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET`/... (Railway : présentes, ici : absentes) | non | **NOT TESTED** — présence Railway ≠ credential testable ici |
+| SerpApi / Google Shopping | `SERPAPI_KEY` (Railway : présente, ici : absente) | non | **NOT TESTED** |
+| JustTCG | `JUSTTCG_API_KEY` (Railway : présente, ici : absente) | non | **NOT TESTED** |
+| OpenAI / Anthropic | `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` (Railway : présentes, ici : absentes) | non (présence-only, jamais un appel réel de génération dans un audit de source) | **NOT TESTED** |
+
+Aucune valeur de credential imprimée nulle part dans ce document ou dans
+le code — uniquement PRÉSENT/ABSENT par nom de variable.
+
+### 7.5 Couche de cache / limitation de débit (section 11 du brief)
+
+Implémentée ce lot : `apps/workers/src/ingestion/catalog-source-factory.ts`
+(`wrapCatalogLookupWithCache`/`createCachedCatalogLookup`/
+`sharedCatalogLookupCache`) — cache PARTAGÉ au niveau processus (même
+précédent que `sharedFxRateProvider`, `fx-provider.ts`), clé par source +
+identifiant EXACT, jamais un texte flou. TTL positif réutilisé TEL QUEL
+depuis le `cachePolicy.ttlHours` déjà déclaré par chaque connecteur
+(jamais une seconde politique de durée dupliquée) :
+
+| Source | TTL positif (déjà déclaré par le connecteur) | TTL négatif ("non trouvé") |
+|---|---|---|
+| Open Food Facts | 24 h | 24 h (plafond commun) |
+| Open Products Facts | 24 h | 24 h |
+| Wikidata | 168 h (7 jours) | 24 h (plafonné, jamais 168 h — un "non trouvé" doit pouvoir redevenir vrai plus tôt) |
+| Rebrickable | 168 h (7 jours) | 24 h (plafonné) |
+| upc.dev | 720 h (30 jours, mise en cache "agressive" explicitement demandée par le brief) | 24 h (plafonné) |
+
+Taille bornée à 2000 entrées (éviction FIFO) — jamais une croissance
+mémoire illimitée sur un worker de longue durée. Une PANNE (exception)
+n'est jamais mise en cache — seul un résultat RÉEL (positif ou négatif)
+l'est. Un connecteur dont `license.allowsCaching` serait `false` (aucun
+cas aujourd'hui) ne serait jamais mis en cache, quel que soit le résultat.
+Le 429/backoff par source reste géré INDIVIDUELLEMENT par chaque client
+HTTP (déjà en place depuis le LOT F) — cette couche réduit seulement le
+VOLUME d'appels répétés pour un même identifiant, jamais une seconde
+couche de retry.
+
 ## Actions humaines EXACTES restantes (priorisées)
 
-1. **Décision de principe, aucun coût** : rien ne bloque l'activation d'Open Food Facts/Open Products Facts/Wikidata/Open Prices dès aujourd'hui — aucune credential, licence déjà audit­ée comme compatible. Reste seulement à décider de les WIRER dans un pipeline réel (voir section 11 du brief, `packages/ingestion/src/identity-source-routing.ts` — routage documenté, jamais branché dans `process-analysis.ts` ce lot).
+1. **Décision de principe, aucun coût** : rien ne bloque l'activation d'Open Food Facts/Open Products Facts/Wikidata/Open Prices dès aujourd'hui — aucune credential, licence déjà audit­ée comme compatible. Le pipeline générique réel les consulte déjà (LOT "Live Identity Enrichment...", `enrich-product-identity.ts`).
 2. **Créer un compte Rebrickable gratuit** (`REBRICKABLE_API_KEY`) pour confirmer la forme de réponse réelle et activer l'enrichissement LEGO.
-3. **Contacter `partner@igdb.com`** avant toute activation Production d'IGDB, quelle que soit la valeur perçue de la verticale gaming — ne jamais activer sur la seule base d'une credential technique valide.
-4. **Vérifier le comportement d'entraînement/journalisation des modèles `:free` OpenRouter** directement dans le tableau de bord OpenRouter avant de router du trafic photo utilisateur réel par ce chemin.
-5. **Revue de licence humaine** des conclusions ODbL de ce document avant un affichage à grande échelle — voir Stage F ci-dessus.
+3. **Créer un compte upc.dev gratuit** (`UPCDEV_API_KEY`, `POST /v1/auth/register`) pour activer le repli barcode de second rang et confirmer un appel AUTHENTIFIÉ réel (seul le palier public "basic data" a pu être testé cette session).
+4. **Contacter `partner@igdb.com`** avant toute activation Production d'IGDB, quelle que soit la valeur perçue de la verticale gaming — ne jamais activer sur la seule base d'une credential technique valide.
+5. **Vérifier le comportement d'entraînement/journalisation des modèles `:free` OpenRouter** directement dans le tableau de bord OpenRouter avant de router du trafic photo utilisateur réel par ce chemin.
+6. **Revue de licence humaine** des conclusions ODbL de ce document avant un affichage à grande échelle — voir Stage F ci-dessus.

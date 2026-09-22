@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { checkHistoricalEngineAvailability, queryDueResearchTargets } from "@dealradar/ingestion";
 import { buildMarketSourcesFromEnv } from "../ingestion/market-source-factory";
+import { buildCatalogSourcesFromEnv } from "../ingestion/catalog-source-factory";
 import { logger } from "../logger";
 
 /**
@@ -36,11 +37,37 @@ export interface MigrationsSubsystem {
   tables: { table: string; available: boolean }[] | null;
   /** Migration 0017 (colonne `analysis_requests.category_slug`) — vérifiée séparément (pas une TABLE, une colonne). */
   categorySlugColumnAvailable: boolean | null;
+  /** Migration 0025 (table `source_health_state`, LOT "Product History UX...") — vérifiée séparément, pas couverte par `checkHistoricalEngineAvailability`. */
+  sourceHealthStateTableAvailable: boolean | null;
+  /** Migration 0026 (colonne `analysis_requests.cancel_requested_at`, annulation interactive). */
+  cancelRequestedAtColumnAvailable: boolean | null;
+  /** Migration 0027 (colonne `analysis_requests.barcode`, LOT "Live Identity Enrichment...", section 2) — la PLUS RÉCENTE, ajoutée ce lot. */
+  barcodeColumnAvailable: boolean | null;
 }
 
 export interface SourceReadinessEntry {
   source: string;
   readiness: string | undefined;
+}
+
+/**
+ * Préparation du pipeline d'identité CATALOGUE gratuit/ouvert (LOT "Live
+ * Identity Enrichment + Barcode-First + upc.dev Fallback + Railway
+ * Readiness", section 13) — DISTINCT de `sourceReadiness` ci-dessus (qui
+ * ne couvre que les sources de MARCHÉ/prix, `buildMarketSourcesFromEnv`).
+ * "Enabled" reflète honnêtement que le pipeline d'ENRICHISSEMENT lui-même
+ * (`enrich-product-identity.ts`) tourne TOUJOURS pour toute analyse
+ * générique — indépendant de la présence de credentials, puisque Open
+ * Food Facts/Open Products Facts/Wikidata ne nécessitent AUCUNE clé (voir
+ * `catalogSources.sources`, toujours non-vide même sans aucun `.env`).
+ */
+export interface CatalogIdentityPipelineSubsystem {
+  /** Toujours `true` — le pipeline d'enrichissement tourne pour toute analyse générique, indépendamment des credentials (Open Food Facts/Open Products Facts/Wikidata n'en requièrent aucune). */
+  enabled: true;
+  /** Statut PAR SOURCE catalogue, `buildCatalogSourcesFromEnv().diagnostics` tel quel — jamais recalculé ici (même discipline que `sourceReadiness`). */
+  sources: SourceReadinessEntry[];
+  rebrickableCredentialPresent: boolean;
+  upcDevCredentialPresent: boolean;
 }
 
 export interface AiProviderSubsystem {
@@ -66,6 +93,7 @@ export interface ActivationPreflightReport {
   subsystems: {
     migrations: MigrationsSubsystem;
     sourceReadiness: { status: SubsystemStatus; sources: SourceReadinessEntry[] };
+    catalogIdentityPipeline: CatalogIdentityPipelineSubsystem;
     aiProvider: AiProviderSubsystem;
     dbIntegrationTests: DbIntegrationTestsSubsystem;
     dueResearchTargets: DueResearchTargetsSubsystem;
@@ -85,27 +113,56 @@ const CATEGORY_SLUG_COLUMN_CHECK_LIMIT = 0;
 
 async function checkMigrations(db: SupabaseClient | null): Promise<MigrationsSubsystem> {
   if (!db) {
-    return { status: "NOT_TESTED", detail: "Aucune connexion Supabase (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY absentes) — migrations 0017–0024 non vérifiables sans base.", tables: null, categorySlugColumnAvailable: null };
+    return {
+      status: "NOT_TESTED",
+      detail: "Aucune connexion Supabase (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY absentes) — migrations 0017–0027 non vérifiables sans base.",
+      tables: null,
+      categorySlugColumnAvailable: null,
+      sourceHealthStateTableAvailable: null,
+      cancelRequestedAtColumnAvailable: null,
+      barcodeColumnAvailable: null,
+    };
   }
 
   const historicalEngine = await checkHistoricalEngineAvailability(db);
-  const { error: categorySlugError } = await db.from("analysis_requests").select("category_slug").limit(CATEGORY_SLUG_COLUMN_CHECK_LIMIT);
+  const [{ error: categorySlugError }, { error: sourceHealthStateError }, { error: cancelRequestedAtError }, { error: barcodeError }] = await Promise.all([
+    db.from("analysis_requests").select("category_slug").limit(CATEGORY_SLUG_COLUMN_CHECK_LIMIT),
+    db.from("source_health_state").select("source").limit(CATEGORY_SLUG_COLUMN_CHECK_LIMIT),
+    db.from("analysis_requests").select("cancel_requested_at").limit(CATEGORY_SLUG_COLUMN_CHECK_LIMIT),
+    db.from("analysis_requests").select("barcode").limit(CATEGORY_SLUG_COLUMN_CHECK_LIMIT),
+  ]);
   const categorySlugColumnAvailable = !categorySlugError;
+  const sourceHealthStateTableAvailable = !sourceHealthStateError;
+  const cancelRequestedAtColumnAvailable = !cancelRequestedAtError;
+  const barcodeColumnAvailable = !barcodeError;
 
-  const allAvailable = historicalEngine.allTablesAvailable && categorySlugColumnAvailable;
+  const allAvailable = historicalEngine.allTablesAvailable && categorySlugColumnAvailable && sourceHealthStateTableAvailable && cancelRequestedAtColumnAvailable && barcodeColumnAvailable;
   return {
     status: allAvailable ? "READY" : "BLOCKED",
     detail: allAvailable
-      ? "Toutes les migrations 0017–0024 requises sont appliquées (colonne + 8 tables)."
-      : "Au moins une migration 0017–0024 requise est absente — voir `tables`/`categorySlugColumnAvailable` pour le détail exact.",
+      ? "Toutes les migrations 0017–0027 requises sont appliquées (3 colonnes + 1 table dédiées + 8 tables du moteur d'historique)."
+      : "Au moins une migration 0017–0027 requise est absente — voir `tables`/`categorySlugColumnAvailable`/`sourceHealthStateTableAvailable`/`cancelRequestedAtColumnAvailable`/`barcodeColumnAvailable` pour le détail exact.",
     tables: historicalEngine.tables,
     categorySlugColumnAvailable,
+    sourceHealthStateTableAvailable,
+    cancelRequestedAtColumnAvailable,
+    barcodeColumnAvailable,
   };
 }
 
 function checkSourceReadiness(): { status: SubsystemStatus; sources: SourceReadinessEntry[] } {
   const { diagnostics } = buildMarketSourcesFromEnv();
   return { status: "READY", sources: diagnostics.map((d) => ({ source: d.name, readiness: d.readiness })) };
+}
+
+function checkCatalogIdentityPipeline(): CatalogIdentityPipelineSubsystem {
+  const { diagnostics } = buildCatalogSourcesFromEnv();
+  return {
+    enabled: true,
+    sources: diagnostics.map((d) => ({ source: d.name, readiness: d.readiness })),
+    rebrickableCredentialPresent: Boolean(process.env.REBRICKABLE_API_KEY),
+    upcDevCredentialPresent: Boolean(process.env.UPCDEV_API_KEY),
+  };
 }
 
 function checkAiProvider(): AiProviderSubsystem {
@@ -154,6 +211,7 @@ export async function buildActivationPreflightReport(dbOverride?: SupabaseClient
 
   const [migrations, dueResearchTargets] = await Promise.all([checkMigrations(db), checkDueResearchTargets(db)]);
   const sourceReadiness = checkSourceReadiness();
+  const catalogIdentityPipeline = checkCatalogIdentityPipeline();
   const aiProvider = checkAiProvider();
   const dbIntegrationTests = checkDbIntegrationTestsEnv();
 
@@ -163,12 +221,13 @@ export async function buildActivationPreflightReport(dbOverride?: SupabaseClient
 
   return {
     generatedAt: new Date().toISOString(),
-    subsystems: { migrations, sourceReadiness, aiProvider, dbIntegrationTests, dueResearchTargets },
+    subsystems: { migrations, sourceReadiness, catalogIdentityPipeline, aiProvider, dbIntegrationTests, dueResearchTargets },
     overall,
     notes: [
       "Railway (le worker de rafraîchissement) n'a jamais besoin d'être en ligne pour ce préflight — uniquement des lectures Supabase directes et des vérifications d'environnement pur.",
       "Ce rapport ne déploie/n'active jamais rien lui-même — voir docs/market-data-activation-checklist.md (Stage A→E) pour la suite humaine décidée après lecture.",
       "'READY' sur aiProvider est optionnel : l'absence totale d'IA configurée (AI_PROVIDER absent) reste un repli déterministe valide, jamais un blocage du reste du pipeline.",
+      "catalogIdentityPipeline.enabled=true ne signifie PAS que Rebrickable/upc.dev sont activés — voir rebrickableCredentialPresent/upcDevCredentialPresent : Open Food Facts/Open Products Facts/Wikidata tournent déjà sans aucune credential.",
     ],
   };
 }

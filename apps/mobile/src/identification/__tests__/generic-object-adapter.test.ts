@@ -54,7 +54,7 @@ import type { AnalysisResult } from "@dealradar/contracts";
  * lieu de TcgCardAnalysisResult, échelle de confiance 0-100 -> 0-1).
  */
 
-function fakeCapture(): UniversalCaptureResult {
+function fakeCapture(overrides: Partial<UniversalCaptureResult> = {}): UniversalCaptureResult {
   return {
     captureType: "camera",
     normalizedImage: { uri: "file://normalized.jpg", width: 1200, height: 1600, format: "jpeg" },
@@ -71,6 +71,7 @@ function fakeCapture(): UniversalCaptureResult {
       assumedRegionCropHeight: 1200,
     },
     warnings: [],
+    ...overrides,
   };
 }
 
@@ -138,6 +139,30 @@ describe("createGenericObjectAdapter(...).analyze — flux réseau", () => {
     expect(mockPollAnalysisUntilSettled).toHaveBeenCalledTimes(1);
   });
 
+  // LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback +
+  // Railway Readiness", section 2 — le code-barres EXACT détecté pendant
+  // la capture est sélectionné/normalisé et transmis à `createAnalysis()`,
+  // JAMAIS à la place de l'image (voir la ligne `imageReferences` du même
+  // appel, toujours présente).
+  it("code-barres EAN-13 détecté pendant la capture : normalisé et transmis dans la requête, aux côtés de l'image (jamais à sa place)", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: fakeAnalysisResult() });
+
+    await adapter.analyze(fakeCapture({ barcodes: [{ format: "ean13", rawValue: "3017620422003", boundingBox: null }] }));
+
+    const [request] = mockCreateAnalysis.mock.calls[0] as [{ barcode: string | null; imageReferences: { url: string }[] }];
+    expect(request.barcode).toBe("3017620422003");
+    expect(request.imageReferences).toHaveLength(1);
+  });
+
+  it("aucun code-barres exploitable (QR seul, ou aucun détecté) : barcode transmis null, jamais une exception", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: fakeAnalysisResult() });
+
+    await adapter.analyze(fakeCapture({ barcodes: [{ format: "qr", rawValue: "https://example.com", boundingBox: null }] }));
+
+    const [request] = mockCreateAnalysis.mock.calls[0] as [{ barcode: string | null }];
+    expect(request.barcode).toBeNull();
+  });
+
   it("rapporte la progression réelle dans l'ordre", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: fakeAnalysisResult() });
     const phases: string[] = [];
@@ -200,6 +225,19 @@ describe("createGenericObjectAdapter(...).analyze — normalisation", () => {
 
     expect(result.productKey).toBe("watches:rolex-submariner");
     expect(result.marketEvidence).toEqual(marketEvidence);
+  });
+
+  it("identityQuality est reporté TEL QUEL depuis AnalysisResult (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 12 — même discipline que productKey/marketEvidence ci-dessus)", async () => {
+    const identityQuality = { method: "barcode_confirmed" as const, sourcesConsulted: ["wikidata"], conflicts: [] };
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: fakeAnalysisResult({ identityQuality }),
+    });
+
+    const result = await adapter.analyze(fakeCapture());
+
+    expect(result.identityQuality).toEqual(identityQuality);
   });
 
   it("produit non identifié (product.name absent) : insufficient_data, jamais une confiance ou une catégorie inventée", async () => {

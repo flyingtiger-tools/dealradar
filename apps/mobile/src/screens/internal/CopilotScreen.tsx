@@ -102,6 +102,7 @@ export function CopilotScreen({ onBack }: CopilotScreenProps) {
         consentVersion: "1",
         clientRequestId: Crypto.randomUUID(),
         providedTcgHints: null,
+        barcode: null,
       });
       const settled = await pollAnalysisUntilSettled(created.id);
       setAnalysis(settled);

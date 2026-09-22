@@ -1,4 +1,4 @@
-import type { CategorySlug, MarketEvidence } from "@dealradar/contracts";
+import type { CategorySlug, MarketEvidence, IdentityQuality } from "@dealradar/contracts";
 import type { UniversalCaptureResult } from "../capture/types";
 
 /**
@@ -81,6 +81,15 @@ export interface RafAnalysis {
    */
   productKey?: string | null;
   marketEvidence?: MarketEvidence;
+  /**
+   * Reporté TEL QUEL depuis `AnalysisResult.identityQuality` (LOT "Live
+   * Identity Enrichment + Barcode-First + upc.dev Fallback + Railway
+   * Readiness", section 12) par `generic-object-adapter.ts` — même
+   * discipline que `productKey`/`marketEvidence` ci-dessus, optionnel pour
+   * ne casser aucun constructeur existant. Voir `screens/result/identity-
+   * quality.ts` pour la traduction en libellé d'affichage.
+   */
+  identityQuality?: IdentityQuality;
 }
 
 /**

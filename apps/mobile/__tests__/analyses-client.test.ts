@@ -48,6 +48,7 @@ describe("createAnalysis", () => {
       consentVersion: "1",
       clientRequestId: CLIENT_REQUEST_ID,
       providedTcgHints: null,
+        barcode: null,
     });
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -78,6 +79,7 @@ describe("createAnalysis", () => {
         consentVersion: "1",
         clientRequestId: CLIENT_REQUEST_ID,
         providedTcgHints: null,
+        barcode: null,
       }),
     ).rejects.toMatchObject(new AnalysesApiError("UNAUTHENTICATED", "Aucune session active — connecte-toi avant de lancer une analyse."));
 
@@ -102,6 +104,7 @@ describe("createAnalysis", () => {
         consentVersion: "1",
         clientRequestId: CLIENT_REQUEST_ID,
         providedTcgHints: null,
+        barcode: null,
       }),
     ).rejects.toThrow();
 
@@ -125,6 +128,7 @@ describe("createAnalysis", () => {
         consentVersion: "1",
         clientRequestId: CLIENT_REQUEST_ID,
         providedTcgHints: null,
+        barcode: null,
       }),
     ).rejects.toMatchObject(new AnalysesApiError("RATE_LIMITED", "Trop de requêtes."));
   });

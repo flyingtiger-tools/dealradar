@@ -1,6 +1,7 @@
 import type { AnalysisResult, AnalysisStatus, CategorySlug } from "@dealradar/contracts";
 import type { ResultViewModel, ResultPriceRow } from "./result-view-model";
 import { buildMarketInsight } from "./market-insight";
+import { identityQualityLabel } from "./identity-quality";
 
 /**
  * Mapper `AnalysisResult` (contrat universel, `@dealradar/contracts`,
@@ -101,6 +102,7 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
       reasons: [],
       isDemo: false,
       marketInsight: null,
+      identityQualityLabel: identityQualityLabel(result?.identityQuality),
     };
   }
 
@@ -134,5 +136,6 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
       currency: result.resaleRangeConservative?.currency ?? null,
       confidencePercent: clampPercent(result.confidenceScore),
     }),
+    identityQualityLabel: identityQualityLabel(result.identityQuality),
   };
 }

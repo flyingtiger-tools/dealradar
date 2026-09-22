@@ -11,19 +11,36 @@ vi.mock("../../ingestion/market-source-factory", () => ({
   })),
 }));
 
+// LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback +
+// Railway Readiness", section 13 — `buildCatalogSourcesFromEnv` mocké de
+// la même façon que `buildMarketSourcesFromEnv` (aucune construction
+// réelle pendant les tests).
+vi.mock("../../ingestion/catalog-source-factory", () => ({
+  buildCatalogSourcesFromEnv: vi.fn(() => ({
+    sources: new Map(),
+    diagnostics: [
+      { name: "open_food_facts", enabled: true, readiness: "ready" },
+      { name: "rebrickable", enabled: false, readiness: "missing_credentials" },
+    ],
+  })),
+}));
+
 const { buildActivationPreflightReport } = await import("../activation-preflight");
 
 const AI_ENV_KEYS = ["AI_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"] as const;
 const DB_INTEGRATION_ENV_KEYS = ["ALLOW_DB_INTEGRATION_TESTS", "TEST_DATABASE_URL", "TEST_DATABASE_SUPABASE_URL", "TEST_DATABASE_SUPABASE_SERVICE_ROLE_KEY"] as const;
+const CATALOG_ENV_KEYS = ["REBRICKABLE_API_KEY", "UPCDEV_API_KEY"] as const;
 
 beforeEach(() => {
   for (const key of AI_ENV_KEYS) delete process.env[key];
   for (const key of DB_INTEGRATION_ENV_KEYS) delete process.env[key];
+  for (const key of CATALOG_ENV_KEYS) delete process.env[key];
 });
 
 afterEach(() => {
   for (const key of AI_ENV_KEYS) delete process.env[key];
   for (const key of DB_INTEGRATION_ENV_KEYS) delete process.env[key];
+  for (const key of CATALOG_ENV_KEYS) delete process.env[key];
 });
 
 describe("buildActivationPreflightReport", () => {
@@ -37,14 +54,37 @@ describe("buildActivationPreflightReport", () => {
     expect(report.overall).toBe("PARTIAL");
   });
 
-  it("base fournie, toutes les tables/colonnes disponibles : migrations READY", async () => {
+  it("base fournie, toutes les tables/colonnes disponibles : migrations READY (0017–0027)", async () => {
     const db = new FakeSupabase();
 
     const report = await buildActivationPreflightReport(db as never);
 
     expect(report.subsystems.migrations.status).toBe("READY");
     expect(report.subsystems.migrations.categorySlugColumnAvailable).toBe(true);
+    expect(report.subsystems.migrations.sourceHealthStateTableAvailable).toBe(true);
+    expect(report.subsystems.migrations.cancelRequestedAtColumnAvailable).toBe(true);
+    expect(report.subsystems.migrations.barcodeColumnAvailable).toBe(true);
     expect(report.subsystems.migrations.tables?.every((t) => t.available)).toBe(true);
+  });
+
+  it("colonne `barcode` (migration 0027, la plus récente) absente : migrations BLOCKED, jamais devinée READY", async () => {
+    const db = new FakeSupabase();
+    const originalFrom = db.from.bind(db);
+    vi.spyOn(db, "from").mockImplementation((table: string) => {
+      if (table === "analysis_requests") {
+        return {
+          select: (cols: string) => ({
+            limit: () => (cols === "barcode" ? Promise.resolve({ data: null, error: { message: "column does not exist" } }) : originalFrom(table).select().limit(0)),
+          }),
+        } as never;
+      }
+      return originalFrom(table);
+    });
+
+    const report = await buildActivationPreflightReport(db as never);
+
+    expect(report.subsystems.migrations.barcodeColumnAvailable).toBe(false);
+    expect(report.subsystems.migrations.status).toBe("BLOCKED");
   });
 
   it("une table historique manquante : migrations BLOCKED, overall BLOCKED", async () => {
@@ -144,5 +184,36 @@ describe("buildActivationPreflightReport", () => {
     const report = await buildActivationPreflightReport(db as never);
 
     expect(report.notes.some((n) => n.toLowerCase().includes("railway"))).toBe(true);
+  });
+
+  describe("catalogIdentityPipeline (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 13)", () => {
+    it("enabled=true TOUJOURS — indépendant des credentials (Open Food Facts/Open Products Facts/Wikidata n'en requièrent aucune)", async () => {
+      const db = new FakeSupabase();
+      const report = await buildActivationPreflightReport(db as never);
+      expect(report.subsystems.catalogIdentityPipeline.enabled).toBe(true);
+    });
+
+    it("sources reflète buildCatalogSourcesFromEnv().diagnostics tel quel, jamais recalculé", async () => {
+      const db = new FakeSupabase();
+      const report = await buildActivationPreflightReport(db as never);
+      expect(report.subsystems.catalogIdentityPipeline.sources).toEqual([
+        { source: "open_food_facts", readiness: "ready" },
+        { source: "rebrickable", readiness: "missing_credentials" },
+      ]);
+    });
+
+    it("rebrickableCredentialPresent/upcDevCredentialPresent reflètent honnêtement PRÉSENT/ABSENT par nom de variable, jamais une valeur", async () => {
+      const db = new FakeSupabase();
+      const reportAbsent = await buildActivationPreflightReport(db as never);
+      expect(reportAbsent.subsystems.catalogIdentityPipeline.rebrickableCredentialPresent).toBe(false);
+      expect(reportAbsent.subsystems.catalogIdentityPipeline.upcDevCredentialPresent).toBe(false);
+
+      process.env.REBRICKABLE_API_KEY = "secret-key";
+      process.env.UPCDEV_API_KEY = "another-secret-key";
+      const reportPresent = await buildActivationPreflightReport(db as never);
+      expect(reportPresent.subsystems.catalogIdentityPipeline.rebrickableCredentialPresent).toBe(true);
+      expect(reportPresent.subsystems.catalogIdentityPipeline.upcDevCredentialPresent).toBe(true);
+      expect(JSON.stringify(reportPresent)).not.toContain("secret-key");
+    });
   });
 });

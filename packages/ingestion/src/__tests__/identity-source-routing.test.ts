@@ -18,9 +18,15 @@ describe("routeIdentitySources", () => {
     expect(sources.indexOf("open_food_facts")).toBeLessThan(sources.indexOf("open_products_facts"));
   });
 
-  it("code-barres exact : Wikidata TOUJOURS en dernier (couverture GTIN clairsemée)", () => {
+  it("code-barres exact : Wikidata AVANT upc.dev, jamais l'inverse (upc.dev reste payant-par-clé, quota quotidien limité)", () => {
     const entries = routeIdentitySources({ barcode: "3017620422003" });
-    expect(entries[entries.length - 1]!.source).toBe("wikidata");
+    const sources = entries.map((e) => e.source);
+    expect(sources.indexOf("wikidata")).toBeLessThan(sources.indexOf("upcdev"));
+  });
+
+  it("code-barres exact : upc.dev TOUJOURS en TOUT dernier (repli de second rang payant-par-clé, LOT 'Live Identity Enrichment...', section 3)", () => {
+    const entries = routeIdentitySources({ barcode: "3017620422003" });
+    expect(entries[entries.length - 1]!.source).toBe("upcdev");
   });
 
   it("numéro de set LEGO exact : Rebrickable proposé, catégorie 'lego'", () => {
@@ -44,6 +50,7 @@ describe("routeIdentitySources", () => {
     expect(sources).toContain("open_products_facts");
     expect(sources).toContain("rebrickable");
     expect(sources).toContain("wikidata");
+    expect(sources).toContain("upcdev");
   });
 
   it("aucune source de PRIX (open_prices, ebay, etc.) n'apparaît jamais dans ce routage d'identité", () => {

@@ -141,6 +141,30 @@ export const marketEvidenceSchema = z.object({
 });
 export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
 
+/**
+ * Comment l'identité produit a été établie (LOT "Live Identity Enrichment
+ * + Barcode-First + upc.dev Fallback + Railway Readiness", section 1/12)
+ * — user-facing, jamais un libellé technique brut. `visual_only` reste le
+ * défaut honnête tant qu'AUCUNE source catalogue exacte n'a confirmé quoi
+ * que ce soit (voir `enrichProductIdentity`, `@dealradar/ingestion`).
+ */
+export const identityQualityMethodSchema = z.enum(["barcode_confirmed", "lego_catalog_confirmed", "visual_only"]);
+
+/** Un désaccord DUR entre l'extraction IA et une source catalogue exacte, déjà résolu en faveur du catalogue (voir `mergeIdentityEvidence`, `@dealradar/core`) — exposé pour transparence, jamais caché à l'utilisateur. */
+export const identityConflictSchema = z.object({
+  field: z.string(),
+  aiValue: z.string().nullable(),
+  catalogValue: z.string().nullable(),
+});
+
+export const identityQualitySchema = z.object({
+  method: identityQualityMethodSchema,
+  /** Sources catalogue effectivement consultées (jamais une source PRIX — voir `SOURCE_READINESS_MATRIX`, capability catalogIdentity/barcodeLookup uniquement). */
+  sourcesConsulted: z.array(z.string()),
+  conflicts: z.array(identityConflictSchema),
+});
+export type IdentityQuality = z.infer<typeof identityQualitySchema>;
+
 export const analysisResultSchema = z.object({
   /**
    * Clé produit canonique DÉJÀ RÉSOLUE (LOT "Product History UX + Source
@@ -184,6 +208,15 @@ export const analysisResultSchema = z.object({
   }),
   /** Absent = pas d'enrichissement multi-source pour ce résultat (voir `marketEvidenceSchema`). */
   marketEvidence: marketEvidenceSchema.optional(),
+  /**
+   * Absent = chemin qui n'a jamais tenté d'enrichissement d'identité
+   * catalogue (ex. résultat produit avant ce lot, ou verticale TCG qui
+   * n'utilise jamais ce champ). Présent = un `enrichProductIdentity` a
+   * réellement tourné, `method: "visual_only"` inclus si aucune source
+   * catalogue n'a confirmé quoi que ce soit — jamais omis silencieusement
+   * juste parce que l'enrichissement n'a rien trouvé.
+   */
+  identityQuality: identityQualitySchema.optional(),
 });
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 

@@ -85,6 +85,7 @@ export async function POST(request: Request) {
       image_references: body.imageReferences,
       consent_version: body.consentVersion,
       provided_tcg_hints: body.providedTcgHints,
+      barcode: body.barcode,
     })
     .select("id, status")
     .maybeSingle();

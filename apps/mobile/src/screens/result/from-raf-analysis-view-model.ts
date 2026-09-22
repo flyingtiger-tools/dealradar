@@ -3,6 +3,7 @@ import type { RafAnalysis } from "../../identification/types";
 import type { BusinessDecision } from "../../theme/raf-mapping";
 import type { ResultViewModel, ResultPriceRow } from "./result-view-model";
 import { buildMarketInsight } from "./market-insight";
+import { identityQualityLabel } from "./identity-quality";
 
 /**
  * Mapper `RafAnalysis` (contrat aplati produit par `identifyCapture()` +
@@ -70,6 +71,7 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
       reasons: [],
       isDemo: false,
       marketInsight: null,
+      identityQualityLabel: identityQualityLabel(analysis.identityQuality),
     };
   }
 
@@ -112,5 +114,6 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
       currency: analysis.valuation.currency,
       confidencePercent,
     }),
+    identityQualityLabel: identityQualityLabel(analysis.identityQuality),
   };
 }

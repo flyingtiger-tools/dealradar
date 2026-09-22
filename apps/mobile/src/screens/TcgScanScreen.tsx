@@ -116,6 +116,7 @@ export function TcgScanScreen() {
         consentVersion: CONSENT_VERSION,
         clientRequestId,
         providedTcgHints: null,
+        barcode: null, // jamais consommé pour la verticale TCG, voir process-analysis.ts.
       });
       dispatch({ type: "SUBMIT_STARTED", requestId: created.id });
       const settled = await pollAnalysisUntilSettled(created.id);
@@ -163,6 +164,7 @@ export function TcgScanScreen() {
         consentVersion: CONSENT_VERSION,
         clientRequestId: Crypto.randomUUID(),
         providedTcgHints: state.fields,
+        barcode: null,
       });
       dispatch({ type: "SUBMIT_STARTED", requestId: created.id });
       const settled = await pollAnalysisUntilSettled(created.id);

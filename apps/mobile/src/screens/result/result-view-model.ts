@@ -114,6 +114,15 @@ export interface ResultViewModel {
   isDemo: boolean;
   /** Optionnel pour ne casser aucune fixture/test existant construisant un `ResultViewModel` littéral avant ce champ — traité comme `null` quand absent. Voir `ResultMarketInsight`. */
   marketInsight?: ResultMarketInsight | null;
+  /**
+   * Libellé d'affichage DÉJÀ traduit de `AnalysisResult.identityQuality`
+   * (LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback +
+   * Railway Readiness", section 12 — voir `identity-quality.ts`). Optionnel
+   * pour ne casser aucune fixture/test existant ; `null`/absent = aucun
+   * enrichissement catalogue tenté pour ce résultat (TCG, historique, RAF,
+   * DEMO, ou résultat produit avant ce lot) — jamais un libellé deviné.
+   */
+  identityQualityLabel?: string | null;
 }
 
 export type TcgResultStatus = "completed" | "insufficient_data" | "failed";

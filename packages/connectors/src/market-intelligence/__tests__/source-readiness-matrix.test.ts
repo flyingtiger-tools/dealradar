@@ -10,9 +10,12 @@ const PRE_EXISTING_SOURCES = ["ebay", "google_shopping", "dataforseo_google_shop
 /** Ajoutées LOT "Free/Open Sources + Real Readiness + Live Smoke Tests" (section 10). */
 const NEW_IDENTITY_AND_PRICE_SOURCES = ["tcgdex", "pokemon_tcg_api", "open_food_facts", "open_products_facts", "rebrickable", "wikidata", "open_prices", "igdb"];
 
+/** Ajoutée LOT "Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness" (section 3). */
+const NEW_SOURCES_THIS_LOT = ["upcdev"];
+
 describe("SOURCE_READINESS_MATRIX", () => {
-  it("couvre les 14 sources pré-existantes ET les 8 sources ajoutées ce lot, aucun doublon", () => {
-    const expected = [...PRE_EXISTING_SOURCES, ...NEW_IDENTITY_AND_PRICE_SOURCES];
+  it("couvre les 14 sources pré-existantes, les 8 sources du lot précédent ET upc.dev, aucun doublon", () => {
+    const expected = [...PRE_EXISTING_SOURCES, ...NEW_IDENTITY_AND_PRICE_SOURCES, ...NEW_SOURCES_THIS_LOT];
     expect(SOURCE_READINESS_MATRIX.map((d) => d.source).sort()).toEqual(expected.sort());
     expect(new Set(SOURCE_READINESS_MATRIX.map((d) => d.source)).size).toBe(SOURCE_READINESS_MATRIX.length);
   });
@@ -30,7 +33,7 @@ describe("SOURCE_READINESS_MATRIX", () => {
   });
 
   it("les sources implémentées et sans blocage de politique restent productionAllowed", () => {
-    for (const source of ["ebay", "google_shopping", "dataforseo_google_shopping", "bricklink", "keepa", "zyte", "frankfurter", "tcgdex", "open_food_facts", "open_products_facts", "rebrickable", "wikidata", "open_prices"]) {
+    for (const source of ["ebay", "google_shopping", "dataforseo_google_shopping", "bricklink", "keepa", "zyte", "frankfurter", "tcgdex", "open_food_facts", "open_products_facts", "rebrickable", "wikidata", "open_prices", "upcdev"]) {
       expect(descriptorFor(source).productionAllowed).toBe(true);
     }
   });
@@ -74,6 +77,31 @@ describe("SOURCE_READINESS_MATRIX", () => {
       for (const source of NEW_IDENTITY_AND_PRICE_SOURCES) {
         expect(descriptorFor(source).freeClass).toBeDefined();
       }
+    });
+  });
+
+  describe("upc.dev (LOT 'Live Identity Enrichment + Barcode-First + upc.dev Fallback + Railway Readiness', section 3)", () => {
+    it("live-testé ce lot (appel réel public sans clé), jamais un appel authentifié réel (UPCDEV_API_KEY absente de cet environnement)", () => {
+      expect(descriptorFor("upcdev").liveTested).toBe(true);
+    });
+
+    it("freeClass free_key_required (gratuit, clé en libre-service requise, usage commercial permis) — même classe que rebrickable", () => {
+      expect(descriptorFor("upcdev").freeClass).toBe("free_key_required");
+    });
+
+    it("productionAllowed : conditions d'utilisation compatibles auditées ce lot, jamais verrouillé par politique", () => {
+      expect(descriptorFor("upcdev").productionAllowed).toBe(true);
+    });
+
+    it("capability catalogue/code-barres uniquement, jamais mélangée avec une capability de prix (upc.dev n'expose aucun prix)", () => {
+      expect(descriptorFor("upcdev").capabilities).not.toContain("retailPrices");
+      expect(descriptorFor("upcdev").capabilities).not.toContain("soldTransactions");
+      expect(descriptorFor("upcdev").capabilities).toContain("barcodeLookup");
+    });
+
+    it("requiert UPCDEV_API_KEY — jamais 'ready' sans elle", () => {
+      expect(resolveSourceReadiness(descriptorFor("upcdev"), { UPCDEV_API_KEY: false })).toBe("missing_credentials");
+      expect(resolveSourceReadiness(descriptorFor("upcdev"), { UPCDEV_API_KEY: true })).toBe("ready");
     });
   });
 });
