@@ -20,6 +20,27 @@ import type { SourceCostClass } from "./source-routing";
 
 export type ActivationStatus = "ready" | "missing_credentials" | "restricted" | "disabled_policy" | "license_required";
 
+/**
+ * Classe FREE/OPEN (LOT "Free/Open Sources + Real Readiness + Live Smoke
+ * Tests", section 1/10) — taxonomie explicite pour distinguer "public API"
+ * de "production-safe pour DealRadar", jamais confondus :
+ * - `free_open` : aucune clé, aucune restriction commerciale pertinente
+ *   (ex. Wikidata CC0, Open Food Facts ODbL "Produced Work").
+ * - `free_tier` : gratuit mais borné par un débit/quota réel (ex. Groq,
+ *   OpenRouter `:free`).
+ * - `free_key_required` : gratuit, clé en libre-service requise, usage
+ *   commercial explicitement permis par les conditions d'utilisation
+ *   (ex. Rebrickable).
+ * - `commercial_approval_required` : palier gratuit technique existe, mais
+ *   la politique du fournisseur distingue un usage commercial nécessitant
+ *   une démarche/accord séparé (ex. IGDB).
+ * - `paid` : nécessite un paiement pour un usage réel.
+ * - `policy_deferred` : statut commercial/licence non tranché avec
+ *   suffisamment de certitude pour ce lot — décision humaine explicite
+ *   requise avant activation.
+ */
+export type FreeClass = "free_open" | "free_tier" | "free_key_required" | "commercial_approval_required" | "paid" | "policy_deferred";
+
 export interface SourceReadinessDescriptor {
   source: string;
   requiredEnvVars: readonly string[];
@@ -34,6 +55,8 @@ export interface SourceReadinessDescriptor {
   /** `false` = ne jamais activer même si toutes les credentials sont présentes (ex. accès non autorisé, licence non négociée). */
   productionAllowed: boolean;
   notes: string;
+  /** Optionnel — absent pour les descripteurs antérieurs à ce lot (jamais rétroactivement deviné pour eux, voir section 10 du LOT "Free/Open Sources..."). */
+  freeClass?: FreeClass;
 }
 
 export const SOURCE_READINESS_MATRIX: readonly SourceReadinessDescriptor[] = [
@@ -204,6 +227,118 @@ export const SOURCE_READINESS_MATRIX: readonly SourceReadinessDescriptor[] = [
     costClass: "free",
     productionAllowed: true,
     notes: "Fournisseur FX gratuit, sans authentification (pré-existant), câblé avec cache TTL (Source Wave 3) dans le chemin d'analyse générique. Aucune credential requise — toujours 'ready' en pratique, jamais bloqué par ce lot.",
+    freeClass: "free_open",
+  },
+
+  // ============================================================
+  // Sources d'IDENTITÉ/CATALOGUE (LOT "Free/Open Sources + Real Readiness +
+  // Live Smoke Tests") — capability "catalogIdentity"/"barcodeLookup",
+  // JAMAIS une preuve de prix, jamais mélangées dans le calcul de diversité
+  // de source de la fusion de valeur (voir section 11 du brief).
+  // ============================================================
+  {
+    source: "tcgdex",
+    requiredEnvVars: [],
+    optionalEnvVars: [],
+    categoryCoverage: ["pokemon_tcg"],
+    capabilities: ["catalogIdentity"],
+    liveTested: true,
+    policyStatus: "missing_credentials", // aucune credential requise -> toujours "ready" en pratique, voir resolveSourceReadiness.
+    costClass: "free",
+    productionAllowed: true,
+    notes: "Catalog Connector implémenté depuis ADR 0012/LOT 7B (identité de carte), enrichi ce lot (section 2) avec les agrégats de prix tiers Cardmarket/TCGplayer déjà parsés mais jamais exposés. Licence MIT confirmée (dépôt cards-database). Ajouté RÉTROACTIVEMENT à cette matrice ce lot — jamais présent avant, malgré une implémentation antérieure.",
+    freeClass: "free_open",
+  },
+  {
+    source: "pokemon_tcg_api",
+    requiredEnvVars: [],
+    optionalEnvVars: ["POKEMONTCG_API_KEY"],
+    categoryCoverage: ["pokemon_tcg"],
+    capabilities: ["catalogIdentity"],
+    liveTested: false,
+    policyStatus: "disabled_policy",
+    costClass: "free",
+    productionAllowed: false,
+    notes: "Trouvaille d'audit RÉELLE ce lot (section 8) : docs.pokemontcg.io confirme \"New account registrations are no longer available. Existing API keys will continue to function through March 1, 2027\", et redirige vers une migration Scrydex — projet en fin de vie annoncée. Confirmé aussi par appel réel : `api.pokemontcg.io/v2/cards` répond actuellement 500. Connecteur PRÉEXISTANT dans ce dépôt (catalogs/pokemon-tcg/), jamais retiré (peut continuer à fonctionner pour une clé DÉJÀ émise jusqu'à l'échéance), mais aucun nouvel effort d'intégration ni nouvelle inscription — TCGdex couvre déjà ce rôle sans cette échéance.",
+    freeClass: "policy_deferred",
+  },
+  {
+    source: "open_food_facts",
+    requiredEnvVars: [],
+    optionalEnvVars: [],
+    categoryCoverage: ["general", "collectibles"],
+    capabilities: ["catalogIdentity", "barcodeLookup"],
+    liveTested: true,
+    policyStatus: "missing_credentials",
+    costClass: "free",
+    productionAllowed: true,
+    notes: "Catalog Connector ENRICHISSEMENT UNIQUEMENT (LOT 'Free/Open Sources...', section 3) — aucun prix. Licence ODbL, clause de partage à l'identique jamais déclenchée par un 'Produced Work' (audit confirmé : §4.5(b) ODbL). Aucune clé requise, appel réel effectué ce lot (Nutella, code 3017620422003). Attribution requise dans l'UI si affiché à l'utilisateur (mention + lien openfoodfacts.org).",
+    freeClass: "free_open",
+  },
+  {
+    source: "open_products_facts",
+    requiredEnvVars: [],
+    optionalEnvVars: [],
+    categoryCoverage: "any",
+    capabilities: ["catalogIdentity", "barcodeLookup"],
+    liveTested: true,
+    policyStatus: "missing_credentials",
+    costClass: "free",
+    productionAllowed: true,
+    notes: "Même backend/licence qu'Open Food Facts (Product Opener), hôte distinct. Couverture réelle NETTEMENT plus clairsemée (audit ce lot : plusieurs codes-barres génériques plausibles introuvables) — traiter comme un enrichissement complémentaire à faible taux de succès, jamais une source primaire.",
+    freeClass: "free_open",
+  },
+  {
+    source: "rebrickable",
+    requiredEnvVars: ["REBRICKABLE_API_KEY"],
+    optionalEnvVars: [],
+    categoryCoverage: ["lego"],
+    capabilities: ["catalogIdentity"],
+    liveTested: false,
+    policyStatus: "missing_credentials",
+    costClass: "free",
+    productionAllowed: true,
+    notes: "Usage commercial explicitement permis (conditions d'utilisation confirmées ce lot, rebrickable.com/terms/) — seules restrictions étroites (marketplace MOC, concurrence directe), aucune ne s'applique à DealRadar. ~1 req/s documentée. AUCUN appel authentifié réel possible ce lot (REBRICKABLE_API_KEY absente de cet environnement) — forme de réponse issue de la documentation publique stable, jamais confirmée en direct (voir raw-types.ts). Identité LEGO uniquement, jamais un prix (BrickLink reste la source de prix).",
+    freeClass: "free_key_required",
+  },
+  {
+    source: "wikidata",
+    requiredEnvVars: [],
+    optionalEnvVars: [],
+    categoryCoverage: "any",
+    capabilities: ["catalogIdentity"],
+    liveTested: true,
+    policyStatus: "missing_credentials",
+    costClass: "free",
+    productionAllowed: true,
+    notes: "CC0, aucune clé. Appel réel effectué ce lot : GTIN 00640520098905 -> Q29972750 'Apple iPhone 7 128GB Jet Black'. Lookup EXACT par GTIN (wdt:P3962) UNIQUEMENT, jamais de recherche SPARQL large. Couverture GTIN CLAIRSEMÉE hors grandes marques (audit confirmé) — enrichissement complémentaire, jamais un lookup barcode primaire (voir Open Food Facts pour ce rôle).",
+    freeClass: "free_open",
+  },
+  {
+    source: "open_prices",
+    requiredEnvVars: [],
+    optionalEnvVars: [],
+    categoryCoverage: "any",
+    capabilities: ["retailPrices"],
+    liveTested: true,
+    policyStatus: "missing_credentials",
+    costClass: "free",
+    productionAllowed: true,
+    notes: "MarketSource (jamais un Catalog Connector — fournit un PRIX, contrairement aux autres sources ajoutées ce lot). evidenceType TOUJOURS 'retailPrices', evidenceTier TOUJOURS 'E' (le plus bas) — un prix observé/scanné en magasin par un contributeur communautaire, JAMAIS une vente confirmée. Licence ODbL, même analyse 'Produced Work' qu'Open Food Facts (audit confirmé). Appel réel effectué ce lot (code-barres 1541513213246, 3 observations). Projet plus jeune/moins mature qu'Open Food Facts — signal complémentaire de faible confiance, jamais une source de prix primaire.",
+    freeClass: "free_open",
+  },
+  {
+    source: "igdb",
+    requiredEnvVars: ["IGDB_CLIENT_ID", "IGDB_CLIENT_SECRET"],
+    optionalEnvVars: [],
+    categoryCoverage: ["gaming"],
+    capabilities: ["catalogIdentity"],
+    liveTested: false,
+    policyStatus: "license_required",
+    costClass: "free",
+    productionAllowed: false,
+    notes: "VERROUILLÉ intentionnellement (même discipline que PriceCharting/WatchCharts — une credential valide seule ne suffit JAMAIS à activer). Audit ce lot (Twitch Developer Services Agreement + forum développeur) : palier gratuit confirmé pour usage NON-commercial ; un usage commercial en production semble nécessiter un accord distinct via partner@igdb.com — documentation primaire (api-docs.igdb.com) INACCESSIBLE pendant l'audit (403), conditions exactes (frais, part de revenu, ou simple approbation) NON confirmées. Authentification Twitch OAuth confirmée par appel réel (mécanisme uniquement, aucune donnée de jeu).",
+    freeClass: "commercial_approval_required",
   },
 ] as const;
 

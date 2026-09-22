@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { parseArgs, refuseIfPolicyLocked, SmokeTestExit, EXIT_POLICY_BLOCKED } from "../source-smoke-test";
 
 describe("parseArgs", () => {
@@ -69,5 +71,42 @@ describe("refuseIfPolicyLocked", () => {
       expect((error as SmokeTestExit).code).toBe(EXIT_POLICY_BLOCKED);
       expect(EXIT_POLICY_BLOCKED).toBe(3);
     }
+  });
+});
+
+// Régression du bug de garde-fou CLI (LOT "Free/Open Sources + Real
+// Readiness + Live Smoke Tests", section 12) — un précédent BUILDER
+// HANDOFF l'avait explicitement identifié (même défaut que
+// `activation-preflight.ts` : `import.meta.url === \`file://${process.
+// argv[1]}\`` ne matche JAMAIS sous Windows, car `process.argv[1]` porte
+// des antislash) mais l'avait laissé hors scope. `parseArgs`/
+// `refuseIfPolicyLocked` (testés ci-dessus) prouvent que la LOGIQUE est
+// correcte — mais PAS que `main()` s'exécute réellement quand ce fichier
+// est lancé directement (`tsx source-smoke-test.ts ...`), ce qui est
+// exactement ce que le bug de garde-fou cassait silencieusement. Seul un
+// VRAI sous-processus peut prouver ça.
+describe("garde-fou CLI (exécution directe via tsx)", () => {
+  it("s'exécute réellement et sort avec EXIT_POLICY_BLOCKED (3) pour une source verrouillée par politique — jamais un exit 0 silencieux dû à un garde-fou qui ne se déclenche pas", () => {
+    const scriptPath = join(__dirname, "..", "source-smoke-test.ts");
+    const workersRoot = join(__dirname, "..", "..", "..");
+    // `node <tsx/dist/cli.mjs>` directement (jamais le shim `.bin/tsx.CMD`)
+    // — le shim Windows se lance via un `.CMD` batch, que `execFileSync`
+    // ne peut pas exécuter de façon fiable sans `shell: true` (qui
+    // introduit sa propre interprétation d'échappement des arguments) ;
+    // résoudre le point d'entrée réel évite ce problème entièrement.
+    const tsxCli = join(workersRoot, "node_modules", "tsx", "dist", "cli.mjs");
+
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [tsxCli, scriptPath, "--source", "ricardo", "--category", "general", "--field", "x=1"], {
+        cwd: workersRoot,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      status = (error as { status?: number }).status ?? -1;
+    }
+
+    expect(status).toBe(3);
   });
 });

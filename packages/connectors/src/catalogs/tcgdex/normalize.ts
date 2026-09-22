@@ -1,7 +1,101 @@
-import type { CatalogItem, CatalogMatch } from "../../types";
+import type { CatalogItem, CatalogMatch, ThirdPartyPriceHint } from "../../types";
 import type { TcgCatalogHints } from "../tcg/types";
 import type { TcgdexCard } from "./raw-types";
 import { setNamesMatch } from "../../tcg-mapping/set-name-matching";
+
+/**
+ * `pricing.updated` est une chaîne ISO dans TOUS les échantillons réels
+ * capturés (`__tests__/fixtures/cards.ts`) — le schéma l'autorise aussi en
+ * nombre (`z.union([z.string(), z.number()])`) par prudence défensive
+ * uniquement, jamais confirmé par un appel réel. Un nombre est interprété
+ * comme une epoch Unix (secondes si < 10^12, sinon millisecondes) — jamais
+ * une valeur inventée si la conversion échoue (`null`).
+ */
+function toIsoStringOrNull(value: string | number | undefined): string | null {
+  if (value === undefined) return null;
+  if (typeof value === "string") return value;
+  const ms = value < 1_000_000_000_000 ? value * 1000 : value;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function isTcgplayerVariantPrice(value: unknown): value is { lowPrice?: number | null; midPrice?: number | null; highPrice?: number | null; marketPrice?: number | null } {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * Agrégats de prix tiers Cardmarket/TCGplayer DÉJÀ récupérés par le schéma
+ * (`raw-types.ts`) mais jamais exposés avant ce lot (LOT "Free/Open
+ * Sources + Real Readiness + Live Smoke Tests", section 2 — trouvaille :
+ * `pricing` était analysé puis silencieusement jeté, disponible seulement
+ * dans le blob `raw` opaque) — même contrat `ThirdPartyPriceHint` que
+ * `catalogs/pokemon-tcg/normalize.ts` (`provenance: "listing_aggregate"`,
+ * JAMAIS une vente confirmée individuelle). Cardmarket "holo" est un OBJET
+ * SÉPARÉ côté TCGdex (clés `avg-holo`/`low-holo`/`trend-holo` dans le MÊME
+ * objet que le prix non-holo, jamais un second objet `pricing.cardmarket`) —
+ * ajouté comme un second `ThirdPartyPriceHint` avec `variant: "holo"`
+ * UNIQUEMENT si au moins un de ces trois champs est renseigné (jamais les
+ * trois exigés ensemble, voir PIKACHU_BASE1_EN : `avg-holo`/`low-holo`
+ * `null` mais `trend-holo` renseigné).
+ */
+function extractTcgdexPriceHints(raw: TcgdexCard): ThirdPartyPriceHint[] {
+  const hints: ThirdPartyPriceHint[] = [];
+  const pricing = raw.pricing;
+  if (!pricing) return hints;
+
+  const cardmarket = pricing.cardmarket;
+  if (cardmarket) {
+    const currency = cardmarket.unit ?? "EUR";
+    const observedAt = toIsoStringOrNull(cardmarket.updated);
+    hints.push({
+      source: "cardmarket",
+      variant: null,
+      priceLow: cardmarket.low ?? null,
+      priceMid: cardmarket.trend ?? null,
+      priceHigh: cardmarket.avg ?? null,
+      currency,
+      observedAt,
+      provenance: "listing_aggregate",
+    });
+    const holoLow = cardmarket["low-holo"] ?? null;
+    const holoTrend = cardmarket["trend-holo"] ?? null;
+    const holoAvg = cardmarket["avg-holo"] ?? null;
+    if (holoLow !== null || holoTrend !== null || holoAvg !== null) {
+      hints.push({
+        source: "cardmarket",
+        variant: "holo",
+        priceLow: holoLow,
+        priceMid: holoTrend,
+        priceHigh: holoAvg,
+        currency,
+        observedAt,
+        provenance: "listing_aggregate",
+      });
+    }
+  }
+
+  const tcgplayer = pricing.tcgplayer;
+  if (tcgplayer) {
+    const currency = typeof tcgplayer.unit === "string" ? tcgplayer.unit : "USD";
+    const observedAt = toIsoStringOrNull(typeof tcgplayer.updated === "string" || typeof tcgplayer.updated === "number" ? tcgplayer.updated : undefined);
+    for (const [variant, value] of Object.entries(tcgplayer)) {
+      if (variant === "updated" || variant === "unit") continue;
+      if (!isTcgplayerVariantPrice(value)) continue;
+      hints.push({
+        source: "tcgplayer",
+        variant,
+        priceLow: value.lowPrice ?? null,
+        priceMid: value.midPrice ?? value.marketPrice ?? null,
+        priceHigh: value.highPrice ?? null,
+        currency,
+        observedAt,
+        provenance: "listing_aggregate",
+      });
+    }
+  }
+
+  return hints;
+}
 
 /**
  * TCGdex expose un catalogue multilingue — la langue interrogée détermine
@@ -20,6 +114,14 @@ export function resolveTcgdexLanguage(hintsLanguage: string | undefined): Tcgdex
 }
 
 export function normalizeTcgdexCard(raw: TcgdexCard, categorySlug: string, language: TcgdexLanguage): CatalogItem {
+  // Variantes RÉELLEMENT possédées par cette impression (LOT "Free/Open
+  // Sources...", section 2) — jamais un enum figé, TCGdex les modélise en
+  // booléens indépendants (`normal`/`reverse`/`holo`/`firstEdition`/
+  // `wPromo`) ; sérialisé en liste de clés vraies uniquement, même
+  // convention que `variants` côté Pokémon TCG API
+  // (`catalogs/pokemon-tcg/normalize.ts`, joint par virgule).
+  const trueVariants = raw.variants ? Object.entries(raw.variants).filter(([, present]) => present === true).map(([name]) => name) : [];
+
   return {
     source: "tcgdex",
     externalId: raw.id,
@@ -33,9 +135,12 @@ export function normalizeTcgdexCard(raw: TcgdexCard, categorySlug: string, langu
       rarity: raw.rarity ?? null,
       category: raw.category,
       language,
+      illustrator: raw.illustrator ?? null,
+      variants: trueVariants.length > 0 ? trueVariants.join(",") : null,
     },
     images: raw.image ? [raw.image] : [],
     externalUrl: null,
+    priceHints: extractTcgdexPriceHints(raw),
     raw,
   };
 }

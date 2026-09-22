@@ -10,6 +10,7 @@ import {
 } from "@dealradar/core";
 import { SOURCE_READINESS_MATRIX, resolveSourceReadiness } from "@dealradar/connectors";
 import { buildSourceSelectionPlan } from "@dealradar/ingestion";
+import { pathToFileURL } from "node:url";
 import { buildMarketSourcesFromEnv, computeEnvPresenceBySource } from "../ingestion/market-source-factory";
 import { logger } from "../logger";
 
@@ -235,7 +236,16 @@ async function run(args: ParsedArgs): Promise<number> {
 }
 
 // Ne s'exécute que lorsque ce fichier est lancé directement (tsx) — jamais au simple `import` (permet aux tests d'importer `parseArgs`/`refuseIfPolicyLocked` sans déclencher `main()`).
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `pathToFileURL` (jamais une concaténation `file://${...}` manuelle) —
+// même correctif que `activation-preflight.ts` (LOT "Interactive History +
+// Generic Result UI + Full Cancellation + Pre-Prod Activation Package") :
+// sous Windows, les antislash de `process.argv[1]` ne correspondent jamais
+// aux slashs attendus par `import.meta.url`, ce qui rendait CE garde-fou
+// systématiquement faux sur Windows — le script ne s'exécutait jamais en
+// lançant `tsx source-smoke-test.ts` directement. Identifié dans le
+// BUILDER HANDOFF précédent mais laissé hors scope ; corrigé ce lot
+// (audit beta-readiness/lot "Free/Open Sources...", section 12).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   (async () => {
     const args = parseArgs(process.argv.slice(2));
     return run(args);

@@ -40,3 +40,4 @@ export * from "./check-historical-engine-availability";
 export * from "./to-fusion-history-context";
 export * from "./source-health";
 export * from "./retention-policy";
+export * from "./identity-source-routing";

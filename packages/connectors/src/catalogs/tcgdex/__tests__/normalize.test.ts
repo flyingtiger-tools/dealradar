@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchTcgdexCard, normalizeTcgdexCard, resolveTcgdexLanguage } from "../normalize";
-import { PIKACHU_BASE1_EN, PIKACHU_BASE1_FR } from "./fixtures/cards";
+import { PIKACHU_BASE1_EN, PIKACHU_BASE1_FR, FURRET_SWSH3_SHARED_PRODUCT_ID, CARD_WITHOUT_PRICING, PIKACHU_WRONG_SET_MATCH } from "./fixtures/cards";
 
 describe("resolveTcgdexLanguage", () => {
   it("reconnaît le français sous plusieurs formes", () => {
@@ -24,6 +24,88 @@ describe("normalizeTcgdexCard", () => {
     expect(item.canonicalAttributes.language).toBe("fr");
     expect(item.canonicalAttributes.setName).toBe("Set de Base");
     expect(item.images).toEqual(["https://assets.tcgdex.net/fr/base/base1/58"]);
+  });
+
+  // LOT "Free/Open Sources + Real Readiness + Live Smoke Tests", section 2
+  // — `pricing` était analysé par le schéma Zod puis silencieusement jeté
+  // (seulement présent dans `raw`, jamais exposé) avant ce lot.
+  describe("agrégats de prix tiers (Cardmarket/TCGplayer) — jamais une vente confirmée", () => {
+    it("Cardmarket : low/trend/avg -> priceLow/priceMid/priceHigh, devise = unit, jamais EUR codé en dur si le champ diffère", () => {
+      const item = normalizeTcgdexCard(PIKACHU_BASE1_EN, "pokemon_tcg", "en");
+      const cardmarketHint = item.priceHints?.find((h) => h.source === "cardmarket" && h.variant === null);
+      expect(cardmarketHint).toEqual({
+        source: "cardmarket",
+        variant: null,
+        priceLow: 0.05,
+        priceMid: 6.57,
+        priceHigh: 5.76,
+        currency: "EUR",
+        observedAt: "2026-08-01T08:03:04.467Z",
+        provenance: "listing_aggregate",
+      });
+    });
+
+    it("Cardmarket holo : avg-holo/low-holo null mais trend-holo renseigné -> variante 'holo' quand même ajoutée (jamais les 3 champs exigés ensemble)", () => {
+      const item = normalizeTcgdexCard(PIKACHU_BASE1_EN, "pokemon_tcg", "en");
+      const holoHint = item.priceHints?.find((h) => h.source === "cardmarket" && h.variant === "holo");
+      expect(holoHint).toEqual({
+        source: "cardmarket",
+        variant: "holo",
+        priceLow: null,
+        priceMid: 36.37,
+        priceHigh: null,
+        currency: "EUR",
+        observedAt: "2026-08-01T08:03:04.467Z",
+        provenance: "listing_aggregate",
+      });
+    });
+
+    it("Cardmarket holo entièrement renseigné (Furret) : les 3 champs holo transmis tels quels", () => {
+      const item = normalizeTcgdexCard(FURRET_SWSH3_SHARED_PRODUCT_ID, "pokemon_tcg", "en");
+      const holoHint = item.priceHints?.find((h) => h.source === "cardmarket" && h.variant === "holo");
+      expect(holoHint).toMatchObject({ priceLow: 0.02, priceMid: 0.34, priceHigh: 0.29 });
+    });
+
+    it("TCGplayer : une entrée PAR VARIANTE réelle (normal/reverse-holofoil…), jamais 'updated'/'unit' traités comme une variante", () => {
+      const item = normalizeTcgdexCard(FURRET_SWSH3_SHARED_PRODUCT_ID, "pokemon_tcg", "en");
+      const tcgplayerHints = item.priceHints?.filter((h) => h.source === "tcgplayer") ?? [];
+      expect(tcgplayerHints.map((h) => h.variant).sort()).toEqual(["normal", "reverse-holofoil"]);
+      expect(tcgplayerHints.every((h) => h.currency === "USD")).toBe(true);
+      const normalHint = tcgplayerHints.find((h) => h.variant === "normal");
+      expect(normalHint).toMatchObject({ priceLow: 0.02, priceMid: 0.2, priceHigh: 25.17 });
+    });
+
+    it("carte sans aucune donnée de prix : priceHints vide, jamais une valeur inventée", () => {
+      const item = normalizeTcgdexCard(CARD_WITHOUT_PRICING, "pokemon_tcg", "en");
+      expect(item.priceHints).toEqual([]);
+    });
+
+    it("cardmarket partiel (un seul champ renseigné, ex. trend seul) : toujours exposé, les champs absents restent null", () => {
+      const item = normalizeTcgdexCard(PIKACHU_WRONG_SET_MATCH, "pokemon_tcg", "en");
+      const hint = item.priceHints?.find((h) => h.source === "cardmarket" && h.variant === null);
+      expect(hint).toEqual({
+        source: "cardmarket",
+        variant: null,
+        priceLow: null,
+        priceMid: 2.0,
+        priceHigh: null,
+        currency: "EUR",
+        observedAt: "2026-08-01T00:00:00Z",
+        provenance: "listing_aggregate",
+      });
+    });
+  });
+
+  it("variantes réellement possédées (normal/reverse/holo/firstEdition) sérialisées en liste, jamais un enum figé", () => {
+    const item = normalizeTcgdexCard(PIKACHU_BASE1_EN, "pokemon_tcg", "en");
+    expect(item.canonicalAttributes.variants).toBe("normal,firstEdition");
+  });
+
+  it("illustrateur reporté tel quel quand présent, null sinon", () => {
+    const withIllustrator = normalizeTcgdexCard(PIKACHU_BASE1_EN, "pokemon_tcg", "en");
+    expect(withIllustrator.canonicalAttributes.illustrator).toBe("Mitsuhiro Arita");
+    const withoutIllustrator = normalizeTcgdexCard(CARD_WITHOUT_PRICING, "pokemon_tcg", "en");
+    expect(withoutIllustrator.canonicalAttributes.illustrator).toBeNull();
   });
 });
 
