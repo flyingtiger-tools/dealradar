@@ -16,7 +16,16 @@ const path = require("path");
  */
 const EXTENSION_TARGET_NAME = "DealRadarShareExtension";
 const APP_GROUP = "group.com.dealradar.mobile";
-const EXTENSION_SOURCE_DIR = path.join(__dirname, "..", "ios", "ShareExtension");
+// Vit HORS de `ios/` volontairement (LOT "Beta Testable ASAP...") : `ios/`
+// est ENTIÈREMENT régénéré par `expo prebuild` (Continuous Native
+// Generation) — un checkout propre (CI, clone frais) ne contient QUE ce
+// sous-dossier `ShareExtension/` tracké par git sous `ios/`, jamais de
+// vrai projet Xcode, ce qui fait juger `ios/` "malformed" et le vide
+// ENTIÈREMENT (y compris ce sous-dossier) AVANT que ce plugin ne tente d'y
+// copier depuis lui-même — bug réel confirmé en observant un run CI/EAS
+// réel : `ENOENT ... copyfile 'ios/ShareExtension/ShareViewController.swift'`
+// (le fichier venait d'être supprimé par le nettoyage de prebuild).
+const EXTENSION_SOURCE_DIR = path.join(__dirname, "..", "ios-share-extension-src");
 
 function withShareExtensionAppGroup(config) {
   return withEntitlementsPlist(config, (config) => {

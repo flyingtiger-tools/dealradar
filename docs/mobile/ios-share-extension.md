@@ -38,14 +38,14 @@ corrigé en conséquence.
   ajoute une cible d'extension au projet Xcode généré par
   `expo prebuild` (`withXcodeProject`), déclare l'App Group, et copie les
   fichiers source de l'extension dans le projet natif généré.
-- `apps/mobile/ios/ShareExtension/ShareViewController.swift` — reçoit les
+- `apps/mobile/ios-share-extension-src/ShareViewController.swift` — reçoit les
   `NSExtensionItem`, distingue URL / texte / image via
   `NSItemProvider.hasItemConformingToTypeIdentifier`, écrit un payload JSON
   minimal dans `UserDefaults(suiteName: appGroup)`, tente un appel réseau
   direct vers `POST /v1/analyses` si un token valide est présent dans le
   keychain partagé, sinon marque la requête « en attente » pour que l'app
   principale la reprenne à l'ouverture.
-- `apps/mobile/ios/ShareExtension/Info.plist` — déclare les types
+- `apps/mobile/ios-share-extension-src/Info.plist` — déclare les types
   acceptés (`NSExtensionActivationSupportsWebURLWithMaxCount`,
   `NSExtensionActivationSupportsImageWithMaxCount`,
   `NSExtensionActivationSupportsText`) avec des maximums de 1, pour rester
