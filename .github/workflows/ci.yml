@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/reprise-ai-ingestion-foundation]
   pull_request:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
           cache: pnpm
 
       - name: Installer les dépendances
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm lint
