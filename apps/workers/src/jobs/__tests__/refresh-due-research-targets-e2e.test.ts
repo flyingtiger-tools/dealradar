@@ -146,6 +146,7 @@ function fakeOutput(snapshot: MarketSnapshotResult): { snapshot: MarketSnapshotR
       selectionOrder: snapshot.coverageReport.perSource.map((s) => s.source),
       entries: [],
       projectedCostClasses: {},
+      deprioritizedForHealth: [],
       budgetStateAfter: initialRefreshBudgetState(NOW.getTime()),
     },
   };

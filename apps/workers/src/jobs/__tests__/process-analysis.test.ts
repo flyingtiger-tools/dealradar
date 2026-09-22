@@ -585,6 +585,123 @@ describe("processAnalysis", () => {
     expect(row.result.decision).toBe("INSUFFICIENT_DATA");
   });
 
+  describe("santé par source (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 4)", () => {
+    it("un appel réussi persiste/incrémente source_health_state pour la source interrogée", async () => {
+      vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+      vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+      vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+        sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
+        observationCount: 3,
+        liveObservationCount: 0,
+        historicalObservationCount: 3,
+        sourceNames: ["bricklink"],
+        directSourceCount: 1,
+        aggregatorSourceCount: 0,
+        evidenceTypeMix: [{ evidenceType: "historicalPrices", count: 3 }],
+        costClassesUsed: ["free"],
+        fx: { observedCurrencies: ["CHF"], ratesUsed: [], skippedForMissingRateCount: 0 },
+        skippedForCurrencyCount: 0,
+        persistedCount: 3,
+        persistenceError: null,
+        fxRatesPersistedCount: null,
+        fxPersistenceError: null,
+        coverageReport: {
+          categorySlug: "lego",
+          asOf: "2026-09-21T00:00:00.000Z",
+          sourcesQueried: 1,
+          sourcesSucceeded: 1,
+          sourcesFailed: 0,
+          perSource: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10, costClass: "free" }],
+          observationsReturned: 3,
+          observationsAfterCanonicalDedupe: 3,
+          observationsUsableAfterFx: 3,
+          observationsPersisted: 3,
+          medianLatencyMs: 10,
+        },
+        fused: {
+          status: "estimated",
+          lowCents: 17000,
+          fairCents: 18000,
+          highCents: 19000,
+          currency: "CHF",
+          confidence: 80,
+          evidenceCount: 3,
+          sourceCount: 1,
+          strongestTier: "B",
+          evidenceMix: [{ tier: "B", source: "bricklink", merchant: "bricklink", count: 3 }],
+          freshnessHours: 2,
+          reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
+          insufficiencyReason: null,
+          confidenceComponents: null,
+          qualityFlags: [],
+          historicalReferenceMedianCents: null,
+          trendDescriptor: null,
+          trendConfidence: null,
+          historyStabilizationApplied: false,
+        },
+      });
+
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow()]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const rows = db.table("source_health_state") as { source: string; requests_used: number; observations_returned_total: number }[];
+      expect(rows.some((r) => r.source === "bricklink" && r.requests_used === 1 && r.observations_returned_total === 3)).toBe(true);
+    });
+  });
+
+  describe("annulation interactive (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 6/7)", () => {
+    it("cancel_requested_at posé AVANT tout traitement : status='cancelled', result=null, aucun amorçage de cible ni appel marché", async () => {
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow({ cancel_requested_at: "2026-09-21T00:00:00.000Z" })]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as { status: string; result: unknown };
+      expect(row.status).toBe("cancelled");
+      expect(row.result).toBeNull();
+      // Jamais une panne fournisseur : aucun appel réseau/marché déclenché.
+      expect(orchestrateMarketIntelligence).not.toHaveBeenCalled();
+      // Sortie AVANT l'amorçage de cible (qui a lieu plus loin dans le
+      // chemin générique) — jamais une cible amorcée pour un cycle annulé
+      // dès le départ.
+      expect(db.table("research_targets")).toHaveLength(0);
+      expect(db.table("market_products")).toHaveLength(0);
+    });
+
+    it("annulation demandée PENDANT le traitement (avant l'étape marché) : relecture fraîche détecte l'annulation, jamais d'appel à orchestrateMarketIntelligence ni de mise à jour de santé par source", async () => {
+      vi.mocked(buildMarketSourcesFromEnv).mockImplementation(() => {
+        // Simule une annulation demandée par l'utilisateur PENDANT
+        // l'extraction/le pré-traitement — la ligne `analysis_requests` est
+        // mutée directement ici, exactement comme le ferait la RPC
+        // `request_analysis_cancellation` côté Postgres pendant que ce
+        // cycle tourne déjà. Le contrôle initial (capturé plus tôt dans
+        // `processAnalysis`) est donc déjà passé — seule une RELECTURE
+        // fraîche (`isCancellationRequested`) peut la détecter.
+        const row = db.table("analysis_requests")[0] as { cancel_requested_at: string | null };
+        row.cancel_requested_at = "2026-09-21T00:05:00.000Z";
+        return { sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] };
+      });
+      vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+
+      const db = new FakeSupabase();
+      db.seed("analysis_requests", [baseRow()]);
+
+      await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+      const row = db.table("analysis_requests")[0] as { status: string; result: unknown };
+      expect(row.status).toBe("cancelled");
+      expect(row.result).toBeNull();
+      expect(orchestrateMarketIntelligence).not.toHaveBeenCalled();
+      // Aucune mise à jour de santé par source pour ce cycle annulé — la
+      // lecture initiale de santé (isolée, en amont) n'écrit jamais, et la
+      // seule écriture possible (`persistSourceHealthState`) est
+      // conditionnée à un `marketIntelligence` non-null, jamais atteint ici.
+      expect(db.table("source_health_state")).toHaveLength(0);
+    });
+  });
+
   describe("résolution de productKey (LOT Interactive History + Generic Result UI + Full Cancellation + Pre-Prod Activation Package, section 2)", () => {
     it("même capacité extraite deux fois : le même product_key est persisté sur research_targets", async () => {
       const db1 = new FakeSupabase();

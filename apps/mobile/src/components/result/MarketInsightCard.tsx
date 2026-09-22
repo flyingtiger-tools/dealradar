@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { ResultMarketInsight } from "../../screens/result/result-view-model";
 import { Card } from "../ui/Card";
 import { Icon } from "../ui/Icon";
@@ -6,6 +6,17 @@ import { colors, spacing, typography } from "../../theme/tokens";
 
 export interface MarketInsightCardProps {
   insight: ResultMarketInsight;
+  /**
+   * Action "Voir l'historique" (LOT "Product History UX + Source Health +
+   * Interactive Cancellation + Beta Readiness", section 2) — `undefined` =
+   * bouton absent (jamais affiché sans une navigation réelle fournie par
+   * l'appelant, qui décide lui-même si `productKey` est disponible — voir
+   * `ResultScreen.tsx`/`UniversalScanScreen.tsx`). Jamais affiché pour un
+   * résultat TCG : `mapTcgResultToViewModel` ne fournit jamais `insight`
+   * (`MarketInsightCard` n'est de toute façon jamais rendu, voir
+   * `ResultScreen.tsx`).
+   */
+  onViewHistory?: () => void;
 }
 
 /**
@@ -21,7 +32,7 @@ export interface MarketInsightCardProps {
  */
 const MAX_QUALITY_REASONS = 3;
 
-export function MarketInsightCard({ insight }: MarketInsightCardProps) {
+export function MarketInsightCard({ insight, onViewHistory }: MarketInsightCardProps) {
   const warningText = insight.retailOnlyWarning
     ? "Basé uniquement sur des prix neufs en boutique, jamais une vente d'occasion confirmée."
     : insight.activeListingOnlyWarning
@@ -30,7 +41,7 @@ export function MarketInsightCard({ insight }: MarketInsightCardProps) {
 
   const visibleReasons = insight.qualityReasons.slice(0, MAX_QUALITY_REASONS);
 
-  const hasAnyLine = insight.sourceCount !== null || insight.trendLabel !== null || insight.currentVsHistoryLabel !== null || warningText !== null || visibleReasons.length > 0;
+  const hasAnyLine = insight.sourceCount !== null || insight.trendLabel !== null || insight.currentVsHistoryLabel !== null || warningText !== null || visibleReasons.length > 0 || Boolean(onViewHistory);
   if (!hasAnyLine) return null;
 
   return (
@@ -55,6 +66,12 @@ export function MarketInsightCard({ insight }: MarketInsightCardProps) {
           · {reason}
         </Text>
       ))}
+      {onViewHistory && (
+        <Pressable onPress={onViewHistory} accessibilityRole="button" accessibilityLabel="Voir l'historique" style={({ pressed }) => [styles.historyRow, pressed && styles.historyRowPressed]}>
+          <Text style={styles.historyLabel}>Voir l'historique</Text>
+          <Icon name="chevron-forward" size={16} color={colors.primary} />
+        </Pressable>
+      )}
     </Card>
   );
 }
@@ -66,4 +83,7 @@ const styles = StyleSheet.create({
   warningRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: spacing.xs },
   warningText: { ...typography.body, color: colors.warning, flex: 1 },
   reason: { ...typography.caption, color: colors.textMuted },
+  historyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.sm, paddingVertical: spacing.xs },
+  historyRowPressed: { opacity: 0.6 },
+  historyLabel: { ...typography.bodyStrong, color: colors.primary },
 });

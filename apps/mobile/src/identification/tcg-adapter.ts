@@ -2,7 +2,7 @@ import type { CategorySlug } from "@dealradar/contracts";
 import type { TcgCardAnalysisResult } from "@dealradar/contracts";
 import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
-import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
+import { createAnalysis, pollAnalysisUntilSettled, AnalysisPollAbortedError } from "../api/analyses-client";
 import { analyzeTcgCard } from "../api/tcg-analyze-client";
 import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
 import type { UniversalCaptureResult } from "../capture/types";
@@ -121,7 +121,7 @@ export const tcgAdapter: CategoryAdapter = {
     return { category: null, confidence: 0, evidence: [], missingFields: ["categoryHint"] };
   },
 
-  async analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress): Promise<RafAnalysis> {
+  async analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress, signal?: AbortSignal): Promise<RafAnalysis> {
     const clientRequestId = Crypto.randomUUID();
     let uploaded = false;
     try {
@@ -160,13 +160,25 @@ export const tcgAdapter: CategoryAdapter = {
         providedTcgHints: null,
       });
 
-      onProgress?.("polling");
-      const settled = await pollAnalysisUntilSettled(created.id);
+      // `created.id`/`signal` (trouvaille d'audit beta-readiness, section 12
+      // du LOT "Product History UX...") — parité défensive avec
+      // `generic-object-adapter.ts` : AUCUN appelant ne fournit encore de
+      // bouton d'annulation pour la verticale TCG aujourd'hui
+      // (`TcgScanScreen.tsx` ne passe jamais `onCancel`/`signal`, règle
+      // produit explicite du lot), donc ceci ne change AUCUN comportement
+      // observable maintenant — mais évite qu'un futur bouton d'annulation
+      // TCG échoue SILENCIEUSEMENT à annuler quoi que ce soit faute
+      // d'`analysisId` capturé ou de `signal` honoré.
+      onProgress?.("polling", created.id);
+      const settled = await pollAnalysisUntilSettled(created.id, { signal });
       // Best-effort, jamais bloquant pour l'affichage du résultat (même règle que TcgScanScreen).
       void deleteTcgCardPhoto(clientRequestId);
 
       if (settled.status === "pending" || settled.status === "processing") {
         return failedAnalysis(CATEGORY, "Délai dépassé — l'analyse n'a pas abouti à temps.");
+      }
+      if (settled.status === "cancelled") {
+        return failedAnalysis(CATEGORY, "Analyse annulée.");
       }
       if (!settled.result || !("kind" in settled.result) || settled.result.kind !== "pokemon_tcg_card") {
         return failedAnalysis(CATEGORY, "Réponse du serveur inattendue pour une carte TCG.");
@@ -174,6 +186,7 @@ export const tcgAdapter: CategoryAdapter = {
       return fromTcgCardResult(settled.result, settled.id);
     } catch (e) {
       if (uploaded) void deleteTcgCardPhoto(clientRequestId);
+      if (e instanceof AnalysisPollAbortedError) return failedAnalysis(CATEGORY, "Analyse annulée.");
       return failedAnalysis(CATEGORY, e instanceof Error ? e.message : "Erreur inconnue lors de l'identification.");
     }
   },

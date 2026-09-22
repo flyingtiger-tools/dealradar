@@ -1,7 +1,7 @@
 import type { CategorySlug, AnalysisResult } from "@dealradar/contracts";
 import * as Crypto from "expo-crypto";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
-import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
+import { createAnalysis, pollAnalysisUntilSettled, AnalysisPollAbortedError } from "../api/analyses-client";
 import type { UniversalCaptureResult } from "../capture/types";
 import type { CategoryAdapter, IdentificationCandidate, OnAnalysisProgress, RafAnalysis } from "./types";
 import { failedAnalysis } from "./raf-analysis-helpers";
@@ -39,6 +39,8 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
       missingInformation: [],
       risks: result.warnings,
       analysisId,
+      productKey: result.productKey ?? null,
+      marketEvidence: result.marketEvidence,
     };
   }
 
@@ -61,6 +63,8 @@ function fromGenericAnalysisResult(result: AnalysisResult, category: CategorySlu
     missingInformation: [],
     risks: result.warnings,
     analysisId,
+    productKey: result.productKey ?? null,
+    marketEvidence: result.marketEvidence,
   };
 }
 
@@ -91,7 +95,7 @@ export function createGenericObjectAdapter(category: Exclude<CategorySlug, "poke
       return { category: null, confidence: 0, evidence: [], missingFields: ["categoryHint"] };
     },
 
-    async analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress): Promise<RafAnalysis> {
+    async analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress, signal?: AbortSignal): Promise<RafAnalysis> {
       const clientRequestId = Crypto.randomUUID();
       let uploaded = false;
       try {
@@ -115,12 +119,25 @@ export function createGenericObjectAdapter(category: Exclude<CategorySlug, "poke
           providedTcgHints: null,
         });
 
-        onProgress?.("polling");
-        const settled = await pollAnalysisUntilSettled(created.id);
+        // `created.id` transmis DÈS ce point (section 6/7) — c'est le premier
+        // instant où un identifiant serveur annulable existe.
+        onProgress?.("polling", created.id);
+        const settled = await pollAnalysisUntilSettled(created.id, { signal });
         void deleteTcgCardPhoto(clientRequestId);
 
         if (settled.status === "pending" || settled.status === "processing") {
           return failedAnalysis(category, "Délai dépassé — l'analyse n'a pas abouti à temps.");
+        }
+        if (settled.status === "cancelled") {
+          // État TERMINAL distinct (LOT "Product History UX...", section
+          // 6/7) — en pratique cette branche n'atteint jamais l'écran :
+          // `UniversalScanScreen.tsx` déclenche un `RESET` local synchrone
+          // dès que l'utilisateur annule, donc ce `RafAnalysis` (même s'il
+          // était `failed`) est ignoré par le réducteur (garde `isInFlight`).
+          // Reste néanmoins honnête plutôt que de tomber dans la branche
+          // générique ci-dessous, qui parlerait à tort d'une "réponse
+          // inattendue".
+          return failedAnalysis(category, "Analyse annulée.");
         }
         if (!settled.result || "kind" in settled.result) {
           return failedAnalysis(category, "Réponse du serveur inattendue pour cette catégorie.");
@@ -128,6 +145,10 @@ export function createGenericObjectAdapter(category: Exclude<CategorySlug, "poke
         return fromGenericAnalysisResult(settled.result, category, settled.id);
       } catch (e) {
         if (uploaded) void deleteTcgCardPhoto(clientRequestId);
+        // Arrêt CLIENT du polling (`signal` levé) — jamais une panne
+        // fournisseur, même principe que `settled.status === "cancelled"`
+        // ci-dessus.
+        if (e instanceof AnalysisPollAbortedError) return failedAnalysis(category, "Analyse annulée.");
         return failedAnalysis(category, e instanceof Error ? e.message : "Erreur inconnue lors de l'identification.");
       }
     },

@@ -4,7 +4,7 @@ jest.mock("../src/auth/session", () => ({
   getCurrentAccessToken: () => mockGetCurrentAccessToken(),
 }));
 
-import { createAnalysis, getAnalysis, AnalysesApiError } from "../src/api/analyses-client";
+import { createAnalysis, getAnalysis, cancelAnalysis, pollAnalysisUntilSettled, AnalysesApiError, AnalysisPollAbortedError } from "../src/api/analyses-client";
 
 /**
  * Vérifie la plomberie réelle du client mobile (ADR 0010, LOT 9) :
@@ -141,5 +141,75 @@ describe("getAnalysis", () => {
     const [url, init] = (globalThis.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain(`/api/v1/analyses/${analysisId}`);
     expect(init.headers.Authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+  });
+});
+
+// LOT "Product History UX + Source Health + Interactive Cancellation + Beta
+// Readiness", section 6/7 — `cancelAnalysis` appelle la nouvelle route
+// `POST /v1/analyses/:id/cancel` (jamais un DELETE ni une mutation directe
+// de `status` côté client) ; `pollAnalysisUntilSettled({ signal })` arrête
+// le polling CLIENT indépendamment de tout état serveur.
+describe("cancelAnalysis", () => {
+  const analysisId = "22222222-2222-2222-2222-222222222222";
+
+  it("envoie POST /api/v1/analyses/:id/cancel avec l'en-tête Authorization, retourne cancelRequested", async () => {
+    mockFetchOnce(200, { id: analysisId, cancelRequested: true });
+
+    const result = await cancelAnalysis(analysisId);
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = (globalThis.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain(`/api/v1/analyses/${analysisId}/cancel`);
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+    expect(result).toEqual({ id: analysisId, cancelRequested: true });
+  });
+
+  it("propage une erreur structurée (ex. 409 ALREADY_TERMINAL) — jamais avalée silencieusement par ce client", async () => {
+    mockFetchOnce(409, { error: { code: "ALREADY_TERMINAL", message: "Cette analyse est déjà terminée." } });
+
+    await expect(cancelAnalysis(analysisId)).rejects.toMatchObject(new AnalysesApiError("ALREADY_TERMINAL", "Cette analyse est déjà terminée."));
+  });
+
+  it("aucune session active : refuse avant tout appel réseau", async () => {
+    mockGetCurrentAccessToken.mockResolvedValue(null);
+    globalThis.fetch = jest.fn();
+
+    await expect(cancelAnalysis(analysisId)).rejects.toMatchObject(
+      new AnalysesApiError("UNAUTHENTICATED", "Aucune session active — connecte-toi avant de lancer une analyse."),
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("pollAnalysisUntilSettled — signal (arrêt CLIENT du polling)", () => {
+  const analysisId = "22222222-2222-2222-2222-222222222222";
+
+  it("signal déjà abandonné avant le premier appel : lève AnalysisPollAbortedError, jamais un premier appel réseau", async () => {
+    globalThis.fetch = jest.fn();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(pollAnalysisUntilSettled(analysisId, { signal: controller.signal })).rejects.toBeInstanceOf(AnalysisPollAbortedError);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("signal abandonné APRÈS le premier appel (toujours pending) : lève AnalysisPollAbortedError avant le prochain intervalle, jamais un second appel réseau", async () => {
+    const controller = new AbortController();
+    globalThis.fetch = jest.fn().mockImplementation(() => {
+      controller.abort();
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ id: analysisId, status: "pending", result: null }) });
+    });
+
+    await expect(pollAnalysisUntilSettled(analysisId, { signal: controller.signal, intervalMs: 5 })).rejects.toBeInstanceOf(AnalysisPollAbortedError);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("sans signal (comportement inchangé) : renvoie normalement la réponse une fois settled", async () => {
+    mockFetchOnce(200, { id: analysisId, status: "completed", result: null });
+
+    const result = await pollAnalysisUntilSettled(analysisId);
+
+    expect(result.status).toBe("completed");
   });
 });

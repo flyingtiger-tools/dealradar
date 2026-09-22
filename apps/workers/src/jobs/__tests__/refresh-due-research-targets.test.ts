@@ -143,6 +143,7 @@ function fakeSelectionPlan(inputBudgetState: RefreshBudgetState, overrides: Part
     selectionOrder: ["bricklink"],
     entries: [],
     projectedCostClasses: { bricklink: "free" },
+    deprioritizedForHealth: [],
     budgetStateAfter: { ...inputBudgetState, sourcesQueriedForCurrentTarget: inputBudgetState.sourcesQueriedForCurrentTarget + 1 },
     ...overrides,
   };
@@ -213,6 +214,32 @@ describe("runDueMarketRefreshBatch", () => {
     expect(row.consecutive_failures).toBe(0);
     expect(Date.parse(row.next_refresh_at as string)).toBeGreaterThan(NOW.getTime());
     expect(row.claimed_by).toBeNull(); // bail toujours libéré en fin de cycle.
+  });
+
+  // Trouvaille d'audit beta-readiness (section 12, LOT "Product History
+  // UX + Source Health + Interactive Cancellation + Beta Readiness") —
+  // `active_supply_count` persisté dans `market_snapshot_summaries` doit
+  // compter UNIQUEMENT les observations "live" (annonces actives/bid-ask),
+  // jamais TOUTES les observations du cycle (ventes confirmées, historique
+  // spécialiste, prix neuf inclus) — aucun test ne couvrait ce champ avant
+  // ce correctif.
+  it("active_supply_count persisté ne compte QUE les observations activeListings/bidAsk, jamais les ventes confirmées/l'historique spécialiste", async () => {
+    const mixedObservations = [
+      fakeObservation({ sourceItemId: "sold-1", evidenceType: "historicalPrices" }),
+      fakeObservation({ sourceItemId: "sold-2", evidenceType: "historicalPrices" }),
+      fakeObservation({ sourceItemId: "active-1", evidenceType: "activeListings" }),
+      fakeObservation({ sourceItemId: "bidask-1", evidenceType: "bidAsk" }),
+    ];
+    vi.mocked(takeProductSnapshot).mockImplementation(async (input) => fakeOutput(successResult({ observations: mixedObservations }), input.budgetState));
+    const db = new FakeSupabase();
+    installSimulatedResearchTargetLeaseRpcs(db, () => NOW);
+    seedIdentity(db, "lego:10300", "lego");
+    db.seed("research_targets", [researchTargetRow({ next_refresh_at: null })]);
+
+    await runDueMarketRefreshBatch({ db: db as never, leaseOwner: "worker-a", now: () => NOW });
+
+    const summaryRow = db.table("market_snapshot_summaries")[0] as Record<string, unknown>;
+    expect(summaryRow.active_supply_count).toBe(2); // 1 activeListings + 1 bidAsk, jamais les 2 historicalPrices
   });
 
   it("aucune identité connue pour la cible -> échec 'identity_too_weak', jamais une catégorie fabriquée, jamais un crash", async () => {

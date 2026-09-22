@@ -8,27 +8,40 @@ jest.mock("expo-crypto", () => ({
   randomUUID: () => `mock-uuid-${++mockRandomUuidCounter}`,
 }));
 
-class MockTcgUploadError extends Error {}
-class MockAnalysesApiError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
+// Classes définies À L'INTÉRIEUR de chaque factory `jest.mock(...)` (jamais
+// référencées depuis l'extérieur) — seule forme garantie sûre vis-à-vis du
+// hoisting de Jest (`babel-plugin-jest-hoist` hisse les appels `jest.mock`
+// au tout début du fichier ; une classe déclarée en dehors de la factory,
+// même préfixée "mock" et affectée à une `const`, s'est révélée `undefined`
+// à l'exécution — bug de hoisting réel trouvé en écrivant les tests
+// d'annulation ce lot, jamais détecté avant car ni `AnalysesApiError` ni
+// `TcgUploadError` n'étaient auparavant exercées via `instanceof` par le
+// code source réel). Les tests qui ont besoin de construire une instance
+// récupèrent la MÊME classe via `jest.requireMock(...)` plus bas — jamais
+// une classe distincte qui échouerait silencieusement le `instanceof` côté
+// source.
 jest.mock("../../api/tcg-upload-client", () => ({
   uploadTcgCardPhoto: (...args: unknown[]) => mockUploadTcgCardPhoto(...args),
   deleteTcgCardPhoto: (...args: unknown[]) => mockDeleteTcgCardPhoto(...args),
-  TcgUploadError: MockTcgUploadError,
+  TcgUploadError: class extends Error {},
 }));
 
 jest.mock("../../api/analyses-client", () => ({
   createAnalysis: (...args: unknown[]) => mockCreateAnalysis(...args),
   pollAnalysisUntilSettled: (...args: unknown[]) => mockPollAnalysisUntilSettled(...args),
-  AnalysesApiError: MockAnalysesApiError,
+  AnalysesApiError: class extends Error {
+    code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
+  AnalysisPollAbortedError: class extends Error {},
 }));
+
+const { AnalysesApiError: MockAnalysesApiError, AnalysisPollAbortedError: MockAnalysisPollAbortedError } = jest.requireMock(
+  "../../api/analyses-client",
+) as { AnalysesApiError: new (code: string, message: string) => Error; AnalysisPollAbortedError: new () => Error };
 
 import { createGenericObjectAdapter, GENERIC_CATEGORIES, genericObjectAdapters } from "../generic-object-adapter";
 import type { UniversalCaptureResult } from "../../capture/types";
@@ -165,6 +178,30 @@ describe("createGenericObjectAdapter(...).analyze — normalisation", () => {
     expect(result.analysisId).toBe("analysis-1");
   });
 
+  it("productKey et marketEvidence sont reportés TELS QUELS depuis AnalysisResult (LOT 'Product History UX...', section 1 — corrige une trouvaille d'audit : MarketInsightCard était inatteignable sans ce report)", async () => {
+    const marketEvidence = {
+      strongestTier: "B" as const,
+      sourceCount: 2,
+      observationCount: 4,
+      liveObservationCount: 0,
+      historicalObservationCount: 4,
+      sourceNames: ["bricklink"],
+      retailOnlyWarning: false,
+      activeListingsOnlyWarning: false,
+      usedSpecialistHistory: true,
+    };
+    mockPollAnalysisUntilSettled.mockResolvedValue({
+      id: "analysis-1",
+      status: "completed",
+      result: fakeAnalysisResult({ productKey: "watches:rolex-submariner", marketEvidence }),
+    });
+
+    const result = await adapter.analyze(fakeCapture());
+
+    expect(result.productKey).toBe("watches:rolex-submariner");
+    expect(result.marketEvidence).toEqual(marketEvidence);
+  });
+
   it("produit non identifié (product.name absent) : insufficient_data, jamais une confiance ou une catégorie inventée", async () => {
     mockPollAnalysisUntilSettled.mockResolvedValue({
       id: "analysis-1",
@@ -241,5 +278,51 @@ describe("createGenericObjectAdapter(...).analyze — erreurs et timeout, jamais
     expect(result.status).toBe("failed");
     expect(result.risks).toContain("Aucune session active.");
     expect(mockDeleteTcgCardPhoto).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createGenericObjectAdapter(...).analyze — annulation interactive (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 6/7)", () => {
+  const adapter = createGenericObjectAdapter("watches");
+
+  it("rapporte analysisId UNIQUEMENT au passage en phase 'polling', jamais pour 'uploading'/'submitting'", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: fakeAnalysisResult() });
+    const reported: { phase: string; analysisId?: string }[] = [];
+
+    await adapter.analyze(fakeCapture(), (phase, analysisId) => reported.push({ phase, analysisId }));
+
+    expect(reported).toEqual([
+      { phase: "uploading", analysisId: undefined },
+      { phase: "submitting", analysisId: undefined },
+      { phase: "polling", analysisId: "analysis-1" },
+    ]);
+  });
+
+  it("transmet le signal fourni à pollAnalysisUntilSettled — jamais un second canal d'annulation reconstruit", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "completed", result: fakeAnalysisResult() });
+    const controller = new AbortController();
+
+    await adapter.analyze(fakeCapture(), undefined, controller.signal);
+
+    const [, options] = mockPollAnalysisUntilSettled.mock.calls[0] as [string, { signal?: AbortSignal }];
+    expect(options.signal).toBe(controller.signal);
+  });
+
+  it("polling arrêté côté client (AnalysisPollAbortedError) : status failed avec un message honnête d'annulation, jamais une exception qui remonte, cleanup quand même déclenché", async () => {
+    mockPollAnalysisUntilSettled.mockRejectedValue(new MockAnalysisPollAbortedError());
+
+    const result = await adapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.risks).toContain("Analyse annulée.");
+    expect(mockDeleteTcgCardPhoto).toHaveBeenCalledTimes(1);
+  });
+
+  it("statut serveur 'cancelled' (RPC request_analysis_cancellation appliquée) : status failed avec le même message honnête, jamais une 'réponse inattendue'", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "cancelled", result: null });
+
+    const result = await adapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.risks).toContain("Analyse annulée.");
   });
 });

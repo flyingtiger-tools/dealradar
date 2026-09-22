@@ -44,6 +44,10 @@ import {
   buildSourceSelectionPlan,
   queryProductHistory,
   toFusionHistoryContext,
+  loadSourceHealthStates,
+  updateSourceHealthFromDiagnostics,
+  persistSourceHealthState,
+  toHealthLevels,
   type SoldListingRow,
 } from "@dealradar/ingestion";
 import { logger } from "../logger";
@@ -125,6 +129,17 @@ interface AnalysisRequestRow {
   image_references: { url: string }[] | null;
   source_type: string;
   provided_tcg_hints: TcgCardProvidedHints | null;
+  /**
+   * Annulation INTERACTIVE demandée par le propriétaire (LOT "Product
+   * History UX + Source Health + Interactive Cancellation + Beta
+   * Readiness", section 6/7 ; migration 0026, RPC
+   * `request_analysis_cancellation`). `null` -> aucune annulation
+   * demandée. Une valeur non-null AVANT toute étape coûteuse (extraction
+   * IA, orchestration multi-source) fait sortir `processAnalysis` tôt via
+   * `writeCancelled` — jamais traité comme une panne fournisseur, jamais
+   * un `AnalysisResult` fabriqué.
+   */
+  cancel_requested_at: string | null;
 }
 
 interface RawSoldListingWithSource extends SoldListingRow {
@@ -172,6 +187,37 @@ async function writeResult(
   if (error) throw new Error(`Écriture du résultat d'analyse impossible : ${error.message}`);
 }
 
+/**
+ * Écrit l'état terminal `"cancelled"` (LOT "Product History UX + Source
+ * Health + Interactive Cancellation + Beta Readiness", section 6/7) —
+ * TOUJOURS `result: null` : une annulation utilisateur n'est jamais une
+ * panne fournisseur et ne doit jamais produire un `AnalysisResult`
+ * fabriqué à partir d'un travail partiel.
+ */
+async function writeCancelled(db: SupabaseClient, analysisRequestId: string): Promise<void> {
+  const { error } = await db
+    .from("analysis_requests")
+    .update({ status: "cancelled", result: null, updated_at: new Date().toISOString() })
+    .eq("id", analysisRequestId);
+  if (error) throw new Error(`Écriture de l'annulation impossible : ${error.message}`);
+}
+
+/**
+ * Relecture FRAÎCHE de `cancel_requested_at` (jamais la valeur capturée au
+ * début de `processAnalysis` — une annulation peut être demandée PENDANT
+ * l'extraction IA, qui peut prendre plusieurs secondes) — utilisée
+ * uniquement juste avant l'étape coûteuse suivante (orchestration
+ * multi-source), jamais comme substitut du contrôle initial.
+ */
+async function isCancellationRequested(db: SupabaseClient, analysisRequestId: string): Promise<boolean> {
+  const { data } = await db
+    .from("analysis_requests")
+    .select("cancel_requested_at")
+    .eq("id", analysisRequestId)
+    .maybeSingle();
+  return Boolean((data as { cancel_requested_at: string | null } | null)?.cancel_requested_at);
+}
+
 function emptyResult(warnings: string[], reasons: string[]): AnalysisResult {
   return {
     product: { name: null, category: null, modelOrReference: null },
@@ -198,12 +244,22 @@ export async function processAnalysis(
 ): Promise<void> {
   const { data: row } = await db
     .from("analysis_requests")
-    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type,provided_tcg_hints")
+    .select("id,title,description,category_slug,purchase_price,currency,image_references,source_type,provided_tcg_hints,cancel_requested_at")
     .eq("id", analysisRequestId)
     .maybeSingle();
   const request = row as AnalysisRequestRow | null;
   if (!request) {
     logger.warn({ analysisRequestId }, "Requête d'analyse introuvable, traitement ignoré");
+    return;
+  }
+
+  // Annulation demandée AVANT tout traitement (LOT "Product History UX...",
+  // section 6/7) — contrôle initial, commun aux deux branches (TCG et
+  // générique) ci-dessous : ni extraction IA, ni orchestration multi-source
+  // ne démarrent jamais pour un cycle déjà annulé.
+  if (request.cancel_requested_at) {
+    await writeCancelled(db, analysisRequestId);
+    logger.info({ analysisRequestId }, "Analyse annulée par l'utilisateur avant traitement — aucun appel IA/marché déclenché");
     return;
   }
 
@@ -525,6 +581,18 @@ export async function processAnalysis(
   let currentVsHistoryPercentile: number | null = null;
   if (pipelineResult.decision === "INSUFFICIENT_DATA") {
     const { sources } = buildMarketSourcesFromEnv();
+
+    // Santé PAR SOURCE (LOT "Product History UX + Source Health +
+    // Interactive Cancellation + Beta Readiness", section 4/5) — même
+    // fonction que `take-product-snapshot.ts` (chemin de rafraîchissement),
+    // jamais une logique divergente. Lecture ISOLÉE : jamais bloquante.
+    let sourceHealthStates: Awaited<ReturnType<typeof loadSourceHealthStates>> = {};
+    try {
+      sourceHealthStates = await loadSourceHealthStates(db, sources.map((s) => s.source));
+    } catch (error) {
+      logger.warn({ error: error instanceof Error ? error.message : "erreur inconnue" }, "Lecture de l'état de santé des sources impossible — sélection sans signal de santé");
+    }
+
     // `SourceSelectionPlan` EXACT (LOT "Real DB Integration + Exact Budget Enforcement...", section 4) — MÊME algorithme de sélection que le rafraîchissement en arrière-plan (`take-product-snapshot.ts`), jamais une logique divergente. Aucune identité canonique résolue à ce point du chemin interactif -> `identityHealth: null` (aucune exclusion pour faiblesse d'identité), budget à cible unique par défaut (un seul appel ponctuel, pas un run multi-cibles).
     const selectionPlan = buildSourceSelectionPlan({
       categorySlug: listing.categorySlug,
@@ -532,6 +600,7 @@ export async function processAnalysis(
       identityHealth: null,
       budgetState: initialRefreshBudgetState(Date.now()),
       budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+      sourceHealth: toHealthLevels(sourceHealthStates),
     });
     const bySourceName = new Map(sources.map((s) => [s.source, s] as const));
     const resolvedSources = selectionPlan.selectedSources.flatMap((name) => {
@@ -567,6 +636,23 @@ export async function processAnalysis(
         );
       }
 
+      // Second contrôle d'annulation (section 6/7) — relecture FRAÎCHE
+      // (`isCancellationRequested`, jamais `request.cancel_requested_at`
+      // capturé au tout début) juste avant l'étape la plus coûteuse du
+      // chemin générique : l'orchestration multi-source (appels réseau vers
+      // jusqu'à 7 connecteurs). Une annulation demandée pendant l'extraction
+      // IA ci-dessus est ainsi honorée avant le premier appel marché, jamais
+      // après. Sort AVANT la mise à jour de santé par source plus bas
+      // (jamais un cycle annulé comptabilisé comme succès/échec fournisseur).
+      if (await isCancellationRequested(db, analysisRequestId)) {
+        await writeCancelled(db, analysisRequestId);
+        logger.info(
+          { analysisRequestId },
+          "Analyse annulée par l'utilisateur avant l'orchestration multi-source — aucun appel marché supplémentaire",
+        );
+        return;
+      }
+
       try {
         // Bucket canonique (LOT "Data Quality Calibration...", section 5) — même normalisation que côté observations (`map-market-observations-to-fusion.ts`), sinon `isCompatibleWithTarget` comparerait un vocabulaire cible (`ItemConditionRaw`) à un vocabulaire source distinct par égalité de chaîne stricte, produisant de fausses exclusions.
         const normalizedTargetCondition = listing.condition ? normalizeCondition({ rawCondition: listing.condition }) : null;
@@ -589,6 +675,22 @@ export async function processAnalysis(
           { error: error instanceof Error ? error.message : "erreur inconnue" },
           "Intelligence de marché multi-source : échec, poursuite avec le résultat existant",
         );
+      }
+
+      // Mise à jour de santé ISOLÉE (section 4) — jamais bloquante pour le
+      // résultat déjà calculé ci-dessus, même discipline que `take-product-
+      // snapshot.ts`. Absente si `marketIntelligence` est resté `null`
+      // (l'appel a échoué avant même de produire un `coverageReport`).
+      if (marketIntelligence) {
+        try {
+          const updated = updateSourceHealthFromDiagnostics(sourceHealthStates, marketIntelligence.coverageReport.perSource, new Date().toISOString());
+          for (const name of resolvedSources.map((s) => s.source)) {
+            const state = updated[name];
+            if (state) await persistSourceHealthState(db, state);
+          }
+        } catch (error) {
+          logger.warn({ error: error instanceof Error ? error.message : "erreur inconnue" }, "Mise à jour de l'état de santé des sources impossible — analyse non affectée");
+        }
       }
     }
   }
@@ -645,6 +747,7 @@ export async function processAnalysis(
   if (marketEvidence?.activeListingsOnlyWarning) marketWarnings.push("MARKET_EVIDENCE_ACTIVE_LISTINGS_ONLY");
 
   const analysisResult: AnalysisResult = {
+    productKey,
     product: {
       name: productName,
       category: listing.categorySlug,

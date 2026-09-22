@@ -126,6 +126,69 @@ describe("buildSourceSelectionPlan", () => {
     expect(plan.excludedByMissingCredentials.length).toBeGreaterThan(0);
   });
 
+  describe("santé par source, signal SECONDAIRE (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 5)", () => {
+    it("une source UNHEALTHY est repositionnée APRÈS une source healthy à préférence de catégorie égale, jamais exclue pour ce seul motif", () => {
+      const plan = buildSourceSelectionPlan({
+        categorySlug: "apple",
+        envPresenceBySource: { keepa: { KEEPA_API_KEY: true }, google_shopping: { SERPAPI_KEY: true } },
+        identityHealth: null,
+        budgetState: initialRefreshBudgetState(NOW_MS),
+        budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+        sourceHealth: { keepa: "unhealthy" },
+      });
+
+      expect(plan.selectedSources).toContain("keepa"); // jamais exclue.
+      expect(plan.deprioritizedForHealth).toContain("keepa");
+      const keepaIndex = plan.selectedSources.indexOf("keepa");
+      const googleIndex = plan.selectedSources.indexOf("google_shopping");
+      expect(googleIndex).toBeLessThan(keepaIndex);
+    });
+
+    it("l'exactitude d'identité prime TOUJOURS sur la santé — une source exact-searchable mais dégradée reste avant une source en repli et saine", () => {
+      const plan = buildSourceSelectionPlan({
+        categorySlug: "apple",
+        envPresenceBySource: { keepa: { KEEPA_API_KEY: true }, google_shopping: { SERPAPI_KEY: true } },
+        identityHealth: baseHealth({ exactSearchableSources: ["keepa"], fallbackOnlySources: ["google_shopping"] }),
+        budgetState: initialRefreshBudgetState(NOW_MS),
+        budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+        sourceHealth: { keepa: "unhealthy" },
+      });
+
+      const keepaIndex = plan.selectedSources.indexOf("keepa");
+      const googleIndex = plan.selectedSources.indexOf("google_shopping");
+      expect(keepaIndex).toBeLessThan(googleIndex);
+    });
+
+    it("aucune sourceHealth fournie : toutes les entrées retombent honnêtement sur 'healthy', jamais devinées mauvaises", () => {
+      const plan = buildSourceSelectionPlan({
+        categorySlug: "apple",
+        envPresenceBySource: { keepa: { KEEPA_API_KEY: true } },
+        identityHealth: null,
+        budgetState: initialRefreshBudgetState(NOW_MS),
+        budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+      });
+
+      expect(plan.entries.every((e) => e.healthState === "healthy")).toBe(true);
+      expect(plan.deprioritizedForHealth).toEqual([]);
+    });
+
+    it("healthState toujours renseigné dans chaque entrée (y compris exclue), reflète sourceHealth", () => {
+      const plan = buildSourceSelectionPlan({
+        categorySlug: "lego",
+        envPresenceBySource: { ricardo: {} },
+        identityHealth: null,
+        budgetState: initialRefreshBudgetState(NOW_MS),
+        budgetLimits: DEFAULT_REFRESH_BUDGET_LIMITS,
+        sourceHealth: { ricardo: "degraded" },
+      });
+
+      const ricardoEntry = plan.entries.find((e) => e.source === "ricardo");
+      expect(ricardoEntry?.healthState).toBe("degraded");
+      expect(ricardoEntry?.included).toBe(false); // toujours exclue par politique, la santé ne change rien à ça.
+      expect(ricardoEntry?.deprioritizedForHealth).toBe(false); // jamais "deprioritized" pour une source déjà exclue pour une autre raison.
+    });
+  });
+
   it("budgetStateAfter reflète exactement les sources sélectionnées — réutilisable comme état de départ pour la cible suivante", () => {
     const plan = buildSourceSelectionPlan({
       categorySlug: "apple",

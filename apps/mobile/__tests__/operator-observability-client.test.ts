@@ -17,7 +17,9 @@ import { fetchOperatorObservability, OperatorObservabilityError } from "../src/a
 const ACCESS_TOKEN = "test-access-token";
 
 const validSummary = {
+  generatedAt: "2026-09-21T00:00:00.000Z",
   recentRuns: [],
+  runCount: 0,
   successRate: null,
   failedTargetsByReason: [],
   sourceErrorCounts: [],
@@ -25,9 +27,14 @@ const validSummary = {
   overdueTargetCount: 0,
   budgetExhaustedRunCount: 0,
   timedOutRunCount: 0,
-  observationsOverTime: [],
-  topIdentityConflictProducts: [],
+  observationsPersistedByDay: {},
+  topUnresolvedIdentityConflictProducts: [],
   sourceReadiness: [],
+  sourceHealth: [],
+  unhealthySources: [],
+  abortedTargetCount: 0,
+  latestSuccessfulTargetAt: null,
+  sparseHistoryProductCount: 0,
 };
 
 const validHistoricalEngine = { allTablesAvailable: true, tables: [] };

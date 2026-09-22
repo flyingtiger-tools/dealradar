@@ -4,6 +4,7 @@ import {
   preferredSourceNamesForCategory,
   type ActivationStatus,
   type SourceCostClass,
+  type SourceHealthLevel,
 } from "@dealradar/connectors";
 import {
   canQuerySource,
@@ -60,6 +61,10 @@ export interface SourceSelectionEntry {
   readiness: ActivationStatus;
   included: boolean;
   reason: string;
+  /** `"healthy"` par défaut si `sourceHealth` n'a rien pour cette source (jamais devinée mauvaise en l'absence de donnée) — voir `BuildSourceSelectionPlanInput.sourceHealth`. */
+  healthState: SourceHealthLevel;
+  /** `true` UNIQUEMENT si cette source a été repositionnée PLUS TARD dans l'ordre de sélection à cause de sa santé (jamais une exclusion — voir `SourceSelectionPlan.deprioritizedForHealth`). */
+  deprioritizedForHealth: boolean;
 }
 
 export interface SourceSelectionPlan {
@@ -79,6 +84,16 @@ export interface SourceSelectionPlan {
   projectedCostClasses: Record<string, SourceCostClass>;
   /** État de budget APRÈS avoir comptabilisé la sélection — l'appelant l'utilise comme état de départ pour la cible/le run suivant. */
   budgetStateAfter: RefreshBudgetState;
+  /**
+   * Sources `"degraded"`/`"unhealthy"` (LOT "Product History UX + Source
+   * Health + Interactive Cancellation + Beta Readiness", section 5) qui ont
+   * été REPOSITIONNÉES plus tard dans `selectionOrder` à cause de leur
+   * santé — jamais exclues pour ce seul motif ("do NOT permanently disable
+   * a source from one failure"). Un sous-ensemble de `selectedSources`
+   * (une source non retenue pour une AUTRE raison — politique/credentials/
+   * budget — n'apparaît jamais ici, voir `excludedBy*` pour ces cas).
+   */
+  deprioritizedForHealth: string[];
 }
 
 export interface BuildSourceSelectionPlanInput {
@@ -89,6 +104,17 @@ export interface BuildSourceSelectionPlanInput {
   identityHealth: IdentityHealthSummary | null;
   budgetState: RefreshBudgetState;
   budgetLimits: RefreshBudgetLimits;
+  /**
+   * Santé PAR SOURCE déjà calculée par l'appelant (LOT "Product History UX
+   * + Source Health + Interactive Cancellation + Beta Readiness", section
+   * 5) — fonction PURE, ne lit/n'écrit JAMAIS cet état elle-même (voir
+   * `packages/ingestion/src/source-health.ts` pour le chargement/la
+   * persistance réels). Absent/source non répertoriée = `"healthy"` par
+   * défaut, jamais devinée mauvaise. Un signal SECONDAIRE uniquement : la
+   * pertinence de catégorie/préparation/exactitude d'identité restent
+   * évaluées AVANT (jamais une source exclue pour sa seule santé).
+   */
+  sourceHealth?: Record<string, SourceHealthLevel>;
 }
 
 function exactnessRank(source: string, identityHealth: IdentityHealthSummary | null): number {
@@ -98,6 +124,8 @@ function exactnessRank(source: string, identityHealth: IdentityHealthSummary | n
   return 1; // ni exact ni repli connu (ex. hors profils de requête connus) -> neutre, jamais pénalisé arbitrairement.
 }
 
+const HEALTH_RANK: Record<SourceHealthLevel, number> = { healthy: 0, degraded: 1, unhealthy: 2 };
+
 export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): SourceSelectionPlan {
   const candidateDescriptors = SOURCE_READINESS_MATRIX.filter(
     (d) => MARKET_SOURCE_NAMES.includes(d.source) && (d.categoryCoverage === "any" || d.categoryCoverage.includes(input.categorySlug)),
@@ -106,10 +134,18 @@ export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): 
   const preferred = preferredSourceNamesForCategory(input.categorySlug);
   const preferredIndex = new Map(preferred.map((name, i) => [name, i] as const));
 
-  // Départage déterministe : préférence de catégorie d'abord (tie-break stable), puis exactitude d'identifiant (exact avant repli), en gardant un tri STABLE pour ne jamais réordonner arbitrairement deux sources à égalité.
+  const healthStateFor = (source: string): SourceHealthLevel => input.sourceHealth?.[source] ?? "healthy";
+
+  // Départage déterministe : exactitude d'identifiant d'abord (exact avant
+  // repli), PUIS santé (secondaire — section 5 : "category relevance /
+  // readiness / exact identity still come first"), PUIS préférence de
+  // catégorie (tie-break stable) — tri STABLE pour ne jamais réordonner
+  // arbitrairement deux sources à égalité sur les trois critères.
   const orderedDescriptors = [...candidateDescriptors].sort((a, b) => {
     const exactnessDiff = exactnessRank(a.source, input.identityHealth) - exactnessRank(b.source, input.identityHealth);
     if (exactnessDiff !== 0) return exactnessDiff;
+    const healthDiff = HEALTH_RANK[healthStateFor(a.source)] - HEALTH_RANK[healthStateFor(b.source)];
+    if (healthDiff !== 0) return healthDiff;
     const prefA = preferredIndex.get(a.source) ?? Number.MAX_SAFE_INTEGER;
     const prefB = preferredIndex.get(b.source) ?? Number.MAX_SAFE_INTEGER;
     return prefA - prefB;
@@ -122,6 +158,7 @@ export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): 
   const excludedByIdentityWeakness: string[] = [];
   const excludedByCostBudget: string[] = [];
   const selectedSources: string[] = [];
+  const deprioritizedForHealth: string[] = [];
   const projectedCostClasses: Record<string, SourceCostClass> = {};
   let state = input.budgetState;
 
@@ -130,21 +167,22 @@ export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): 
     projectedCostClasses[name] = descriptor.costClass;
     const envPresence = input.envPresenceBySource[name] ?? {};
     const readiness = resolveSourceReadiness(descriptor, envPresence);
+    const healthState = healthStateFor(name);
 
     if (readiness === "restricted" || readiness === "disabled_policy" || readiness === "license_required" || !descriptor.productionAllowed) {
       excludedByPolicy.push(name);
-      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: `Verrouillé par politique ("${readiness}").` });
+      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: `Verrouillé par politique ("${readiness}").`, healthState, deprioritizedForHealth: false });
       continue;
     }
     if (readiness === "missing_credentials") {
       excludedByMissingCredentials.push(name);
-      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: "Credentials manquantes." });
+      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: "Credentials manquantes.", healthState, deprioritizedForHealth: false });
       continue;
     }
 
     if (input.identityHealth?.blockedSourcesDueToIdentity.includes(name)) {
       excludedByIdentityWeakness.push(name);
-      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: "Identité insuffisante ou conflit non résolu pour cette source — aucun plan de requête exploitable." });
+      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: "Identité insuffisante ou conflit non résolu pour cette source — aucun plan de requête exploitable.", healthState, deprioritizedForHealth: false });
       continue;
     }
 
@@ -152,12 +190,34 @@ export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): 
     const budgetCheck = canQuerySource(state, input.budgetLimits, descriptor.costClass);
     if (!budgetCheck.allowed) {
       excludedByCostBudget.push(name);
-      entries.push({ source: name, costClass: descriptor.costClass, readiness, included: false, reason: budgetCheck.reason ?? "Budget épuisé." });
+      // Un budget épuisé alors qu'une source dégradée/malsaine a été
+      // repositionnée plus tard dans l'ordre peut être LA raison réelle
+      // pour laquelle elle est coupée ici — signal informatif, jamais une
+      // seconde exclusion pour la santé seule (le budget reste la cause).
+      entries.push({
+        source: name,
+        costClass: descriptor.costClass,
+        readiness,
+        included: false,
+        reason: healthState !== "healthy" ? `${budgetCheck.reason ?? "Budget épuisé."} (repositionnée plus tard pour santé "${healthState}", coupée par le budget avant d'être atteinte).` : (budgetCheck.reason ?? "Budget épuisé."),
+        healthState,
+        deprioritizedForHealth: false,
+      });
       continue;
     }
 
+    const deprioritized = healthState !== "healthy";
+    if (deprioritized) deprioritizedForHealth.push(name);
     selectedSources.push(name);
-    entries.push({ source: name, costClass: descriptor.costClass, readiness, included: true, reason: "Sélectionné." });
+    entries.push({
+      source: name,
+      costClass: descriptor.costClass,
+      readiness,
+      included: true,
+      reason: deprioritized ? `Sélectionné (santé "${healthState}" — repositionnée plus tard dans l'ordre, jamais exclue pour ce seul motif).` : "Sélectionné.",
+      healthState,
+      deprioritizedForHealth: deprioritized,
+    });
     state = recordSourceQueried(state, descriptor.costClass);
   }
 
@@ -173,5 +233,6 @@ export function buildSourceSelectionPlan(input: BuildSourceSelectionPlanInput): 
     entries,
     projectedCostClasses,
     budgetStateAfter: state,
+    deprioritizedForHealth,
   };
 }

@@ -34,6 +34,15 @@ export interface ResultScreenProps {
    */
   historyEntryId?: string | null;
   initialFavorite?: boolean;
+  /**
+   * Navigation "Voir l'historique" (LOT "Product History UX + Source
+   * Health + Interactive Cancellation + Beta Readiness", section 2) —
+   * `undefined` = bouton jamais affiché (voir `MarketInsightCard`).
+   * L'appelant (ex. `UniversalScanScreen.tsx`) décide de la navigation
+   * réelle ; cet écran ne connaît jamais `ProductHistoryScreen`
+   * directement, seulement ce callback.
+   */
+  onOpenProductHistory?: () => void;
 }
 
 /**
@@ -47,7 +56,7 @@ export interface ResultScreenProps {
  * quel par un vrai scan, par le détail d'historique
  * (`history/to-result-view-model.ts`) ET par les fixtures DEMO.
  */
-export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = null, initialFavorite = false }: ResultScreenProps) {
+export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = null, initialFavorite = false, onOpenProductHistory }: ResultScreenProps) {
   const [favorite, setFavorite] = useState(initialFavorite);
   // Se resynchronise si l'appelant change d'id (ex. le favori devient
   // disponible juste après un scan une fois la sauvegarde en historique
@@ -160,7 +169,9 @@ export function ResultScreen({ view, onScanAnother, onExit, historyEntryId = nul
       )}
       {!view.hasPricing && <ErrorState source={{ kind: "code", code: "NO_PRICE" }} />}
 
-      {view.marketInsight && <MarketInsightCard insight={view.marketInsight} />}
+      {view.marketInsight && (
+        <MarketInsightCard insight={view.marketInsight} onViewHistory={view.productKey && onOpenProductHistory ? onOpenProductHistory : undefined} />
+      )}
 
       <WhyPanel positives={view.reasons} warnings={view.warnings} />
 

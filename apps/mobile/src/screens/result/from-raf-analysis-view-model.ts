@@ -2,6 +2,7 @@ import type { CategorySlug } from "@dealradar/contracts";
 import type { RafAnalysis } from "../../identification/types";
 import type { BusinessDecision } from "../../theme/raf-mapping";
 import type { ResultViewModel, ResultPriceRow } from "./result-view-model";
+import { buildMarketInsight } from "./market-insight";
 
 /**
  * Mapper `RafAnalysis` (contrat aplati produit par `identifyCapture()` +
@@ -57,6 +58,7 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
     return {
       identityStatus,
       category,
+      productKey: analysis.productKey ?? null,
       product: { name: null, setName: null, collectorNumber: null, language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
       confidencePercent: null,
       prices: [],
@@ -71,9 +73,12 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
     };
   }
 
+  const confidencePercent = analysis.confidence !== null ? Math.round(analysis.confidence * 100) : null;
+
   return {
     identityStatus: "identified",
     category,
+    productKey: analysis.productKey ?? null,
     product: {
       name: analysis.product.name,
       setName: analysis.product.setName,
@@ -84,7 +89,7 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
       gradingCompany: null,
       grade: null,
     },
-    confidencePercent: analysis.confidence !== null ? Math.round(analysis.confidence * 100) : null,
+    confidencePercent,
     prices: buildPriceRows(analysis),
     hasPricing: analysis.valuation.low !== null,
     warnings: analysis.risks,
@@ -93,6 +98,19 @@ export function mapRafAnalysisToViewModel(analysis: RafAnalysis, fallbackCategor
     dealScore: analysis.dealScore,
     reasons: [],
     isDemo: false,
-    marketInsight: null,
+    // Corrige une trouvaille de l'audit beta-readiness (section 12) :
+    // `generic-object-adapter.ts` appelle bien le pipeline serveur réel et
+    // reçoit `marketEvidence`, mais ce mapper ne le reportait jamais avant
+    // ce lot — `MarketInsightCard` était donc inatteignable par le VRAI
+    // flux de scan générique (`UniversalScanScreen.tsx`). Voir
+    // `market-insight.ts` pour la traduction partagée avec
+    // `from-analysis-result-view-model.ts`.
+    marketInsight: buildMarketInsight({
+      evidence: analysis.marketEvidence,
+      fairValueLowCents: analysis.valuation.low !== null ? Math.round(analysis.valuation.low * 100) : null,
+      fairValueHighCents: analysis.valuation.high !== null ? Math.round(analysis.valuation.high * 100) : null,
+      currency: analysis.valuation.currency,
+      confidencePercent,
+    }),
   };
 }

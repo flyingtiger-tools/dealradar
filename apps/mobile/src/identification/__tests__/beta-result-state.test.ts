@@ -181,4 +181,45 @@ describe("betaResultReducer — annulation et reset", () => {
     const error = { phase: "error" as const, capture: fakeCapture(), message: "x" };
     expect(betaResultReducer(error, { type: "RESET" })).toEqual({ phase: "idle" });
   });
+
+  // LOT "Product History UX + Source Health + Interactive Cancellation +
+  // Beta Readiness", section 6/7 — `UniversalScanScreen.tsx` réutilise
+  // `RESET` (jamais une nouvelle action `CANCELLED`) pour l'annulation
+  // interactive : ce bloc documente/vérifie la garantie qui rend cette
+  // annulation SÛRE, phase par phase, sans dupliquer la logique d'écran.
+  describe("annulation interactive : RESET depuis chaque phase 'en vol', jamais une entrée d'historique/erreur trompeuse pour un résultat tardif", () => {
+    it("cancel-before-processing (RESET depuis uploading) : retour à idle, capture jamais réutilisée", () => {
+      const uploading = { phase: "uploading" as const, capture: fakeCapture() };
+      expect(betaResultReducer(uploading, { type: "RESET" })).toEqual({ phase: "idle" });
+    });
+
+    it("cancel-during-market-stage (RESET depuis polling) : retour à idle", () => {
+      const polling = { phase: "polling" as const, capture: fakeCapture() };
+      expect(betaResultReducer(polling, { type: "RESET" })).toEqual({ phase: "idle" });
+    });
+
+    it("un ANALYSIS_SUCCEEDED tardif après RESET (résolution de identifyCapture() APRÈS l'annulation locale) est ignoré : jamais un résultat/historique fantôme affiché après le retour à idle", () => {
+      const polling = { phase: "polling" as const, capture: fakeCapture() };
+      const idle = betaResultReducer(polling, { type: "RESET" });
+      expect(idle).toEqual({ phase: "idle" });
+
+      // La promesse en vol (identifyCapture()) se résout APRÈS le RESET —
+      // le réducteur doit ignorer ce dispatch tardif (garde `isInFlight`).
+      const late = betaResultReducer(idle, { type: "ANALYSIS_SUCCEEDED", analysis: fakeAnalysis() });
+      expect(late).toEqual({ phase: "idle" });
+    });
+
+    it("un ANALYSIS_FAILED tardif après RESET (ex. AnalysisPollAbortedError levée par le signal côté client) est ignoré : jamais un écran d'erreur trompeur après un retour utilisateur déjà effectué", () => {
+      const submitting = { phase: "submitting" as const, capture: fakeCapture() };
+      const idle = betaResultReducer(submitting, { type: "RESET" });
+
+      const late = betaResultReducer(idle, { type: "ANALYSIS_FAILED", message: "Analyse annulée." });
+      expect(late).toEqual({ phase: "idle" });
+    });
+
+    it("cancel-after-terminal (RESET depuis result, un cycle déjà résolu) : reste un simple retour à idle, jamais une erreur", () => {
+      const result = { phase: "result" as const, analysis: fakeAnalysis() };
+      expect(betaResultReducer(result, { type: "RESET" })).toEqual({ phase: "idle" });
+    });
+  });
 });

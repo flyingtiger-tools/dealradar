@@ -60,6 +60,16 @@ function fakeFxRate(overrides: Partial<FxRate> = {}): FxRate {
 }
 
 const TARGET = { currency: "CHF" };
+/**
+ * Référence temporelle FIXE pour tout test qui dépend de la fraîcheur d'un
+ * taux FX (trouvaille d'audit beta-readiness, section 12 du LOT "Product
+ * History UX..." — un test qui laisse `asOf` par défaut sur l'horloge
+ * RÉELLE devient silencieusement flaky au fil des jours dès que
+ * `rateDate` fixe s'éloigne de plus de 48h de "maintenant", symptôme
+ * observé en pratique). Choisie proche des `rateDate` "2026-09-20"/
+ * "2026-09-21" des fixtures ci-dessous, jamais `new Date()`.
+ */
+const ASOF = "2026-09-21T12:00:00.000Z";
 
 describe("orchestrateMarketIntelligence", () => {
   it("chemin complet : agrège, persiste, convertit, fusionne — status estimated", async () => {
@@ -176,13 +186,17 @@ describe("orchestrateMarketIntelligence", () => {
       q: "x",
       sources: [source],
       target: TARGET,
+      asOf: ASOF,
       fxRateProvider: fakeFxRateProvider(getRate),
     });
 
     expect(result.skippedForCurrencyCount).toBe(0);
     expect(result.fused.status).toBe("estimated");
     expect(result.fused.fairCents).toBe(9000);
-    expect(getRate).toHaveBeenCalledWith("USD", "CHF", undefined);
+    // Avec `asOf` désormais fourni (voir ASOF ci-dessus), la résolution
+    // auto de taux transmet la date dérivée de `asOf` à `getRate` — plus
+    // déterministe que l'ancien `undefined` implicite ("aujourd'hui" réel).
+    expect(getRate).toHaveBeenCalledWith("USD", "CHF", "2026-09-21");
   });
 
   it("succès de la fusion multi-devise : USD (Keepa) + EUR + CHF contribuent ensemble à une fusion en CHF via des taux explicites horodatés", async () => {
@@ -201,6 +215,7 @@ describe("orchestrateMarketIntelligence", () => {
       q: "x",
       sources: [usdSource, eurSource, chfSource],
       target: TARGET,
+      asOf: ASOF,
       fxRateProvider: fakeFxRateProvider(getRate),
     });
 
@@ -221,6 +236,7 @@ describe("orchestrateMarketIntelligence", () => {
       q: "x",
       sources: [source],
       target: TARGET,
+      asOf: ASOF,
       fxRates: { USD: fakeFxRate({ rate: 0.9 }) },
       fxRateProvider: fakeFxRateProvider(getRate),
     });
@@ -271,6 +287,7 @@ describe("orchestrateMarketIntelligence", () => {
       q: "x",
       sources: [source],
       target: TARGET,
+      asOf: ASOF,
       fxRateProvider: fakeFxRateProvider(getRate),
       persistence: { supabase: db as never },
     });
@@ -290,6 +307,7 @@ describe("orchestrateMarketIntelligence", () => {
       q: "x",
       sources: [source],
       target: TARGET,
+      asOf: ASOF,
       fxRateProvider: fakeFxRateProvider(getRate),
       persistence: { supabase: throwingDb as never },
     });
@@ -312,7 +330,7 @@ describe("orchestrateMarketIntelligence", () => {
     const source = fakeSource("keepa", [fakeObservation({ source: "keepa", currency: "USD" })]);
     const getRate = vi.fn().mockResolvedValue(fakeFxRate());
 
-    const result = await orchestrateMarketIntelligence({ categorySlug: "gaming", q: "x", sources: [source], target: TARGET, fxRateProvider: fakeFxRateProvider(getRate) });
+    const result = await orchestrateMarketIntelligence({ categorySlug: "gaming", q: "x", sources: [source], target: TARGET, asOf: ASOF, fxRateProvider: fakeFxRateProvider(getRate) });
 
     expect(result.fxRatesPersistedCount).toBeNull();
   });

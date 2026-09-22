@@ -1,6 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { KNOWN_SOURCE_QUERY_PROFILES, DEFAULT_REFRESH_BUDGET_LIMITS, initialRefreshBudgetState, type CanonicalProductIdentity, type IdentityHealthSummary, type RefreshBudgetState, type RefreshBudgetLimits } from "@dealradar/core";
-import { takeMarketSnapshot, buildSourceSelectionPlan, type MarketSnapshotResult, type SourceSelectionPlan } from "@dealradar/ingestion";
+import {
+  takeMarketSnapshot,
+  buildSourceSelectionPlan,
+  loadSourceHealthStates,
+  updateSourceHealthFromDiagnostics,
+  persistSourceHealthState,
+  toHealthLevels,
+  type MarketSnapshotResult,
+  type SourceSelectionPlan,
+} from "@dealradar/ingestion";
 import { buildMarketSourcesFromEnv, computeEnvPresenceBySource } from "../ingestion/market-source-factory";
 import { sharedFxRateProvider } from "../ingestion/fx-provider";
 import { logger } from "../logger";
@@ -50,12 +59,25 @@ export async function takeProductSnapshot(input: TakeProductSnapshotInput): Prom
   const budgetLimits = input.budgetLimits ?? DEFAULT_REFRESH_BUDGET_LIMITS;
   const budgetState = input.budgetState ?? initialRefreshBudgetState(Date.now());
 
+  // Santé PAR SOURCE (LOT "Product History UX + Source Health +
+  // Interactive Cancellation + Beta Readiness", section 4/5) — lecture
+  // ISOLÉE : une panne/table absente ne bloque JAMAIS la sélection, chaque
+  // source retombe simplement sur "healthy" (comportement identique à
+  // avant que la santé n'existe).
+  let sourceHealthStates: Awaited<ReturnType<typeof loadSourceHealthStates>> = {};
+  try {
+    sourceHealthStates = await loadSourceHealthStates(input.db, sources.map((s) => s.source));
+  } catch (error) {
+    logger.warn({ error: error instanceof Error ? error.message : "erreur inconnue" }, "Lecture de l'état de santé des sources impossible — sélection sans signal de santé");
+  }
+
   const selectionPlan = buildSourceSelectionPlan({
     categorySlug: input.categorySlug,
     envPresenceBySource: computeEnvPresenceBySource(),
     identityHealth: input.identityHealth ?? null,
     budgetState,
     budgetLimits,
+    sourceHealth: toHealthLevels(sourceHealthStates),
   });
 
   const bySourceName = new Map(sources.map((s) => [s.source, s] as const));
@@ -78,6 +100,22 @@ export async function takeProductSnapshot(input: TakeProductSnapshotInput): Prom
     persistence: { supabase: input.db },
     signal: input.signal,
   });
+
+  // Mise à jour de santé ISOLÉE — jamais bloquante pour le résultat déjà
+  // calculé ci-dessus (même discipline que la persistance d'observations/
+  // d'identité/FX, `take-market-snapshot.ts`). `coverageReport.perSource`
+  // porte déjà `status` (y compris `"aborted"`, section 7/8 du lot
+  // précédent) — jamais recalculé ici.
+  try {
+    const asOf = snapshot.asOf;
+    const updated = updateSourceHealthFromDiagnostics(sourceHealthStates, snapshot.coverageReport.perSource, asOf);
+    for (const name of resolvedSources.map((s) => s.source)) {
+      const state = updated[name];
+      if (state) await persistSourceHealthState(input.db, state);
+    }
+  } catch (error) {
+    logger.warn({ error: error instanceof Error ? error.message : "erreur inconnue" }, "Mise à jour de l'état de santé des sources impossible — instantané non affecté");
+  }
 
   return { snapshot, selectionPlan };
 }

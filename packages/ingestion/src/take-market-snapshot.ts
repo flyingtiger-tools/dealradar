@@ -146,10 +146,16 @@ export async function takeMarketSnapshot(input: MarketSnapshotInput): Promise<Ma
     }
   }
 
+  // Même correctif d'audit que `orchestrate-market-intelligence.ts`
+  // (LOT "Product History UX...", section 12) — `now` ancré sur `asOf`
+  // (déjà résolu ci-dessus), jamais l'horloge réelle, pour que la
+  // péremption FX soit évaluée par rapport à la MÊME référence temporelle
+  // que le reste de cet instantané.
   const { fusionObservations, skipped } = mapMarketObservationsToFusionObservations(observations, {
     targetCurrency: input.desiredCurrency,
     rates: autoResolvedRates,
     maxRateAgeHours: input.maxRateAgeHours ?? 48,
+    now: () => new Date(asOf),
   });
   const normalizedRange = computeMedianRange(fusionObservations.map((o) => ({ observedAt: o.observedAt, priceCents: o.priceCents, source: o.source })));
 

@@ -166,4 +166,69 @@ describe("getOperatorObservabilitySummary", () => {
     const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW });
     expect(summary.observationsPersistedByDay).toEqual({ "2026-09-20": 5, "2026-09-21": 4 });
   });
+
+  describe("rollup de santé PAR SOURCE (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 10)", () => {
+    it("aucune ligne de santé : sourceHealth/unhealthySources vides, jamais une exception", async () => {
+      const db = new FakeSupabase();
+      const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW });
+      expect(summary.sourceHealth).toEqual([]);
+      expect(summary.unhealthySources).toEqual([]);
+    });
+
+    it("classe healthy/degraded/unhealthy — réutilise classifySourceHealth, jamais une seconde définition de seuil", async () => {
+      const db = new FakeSupabase();
+      db.seed("source_health_state", [
+        { source: "bricklink", enabled: true, last_success_at: NOW.toISOString(), last_failure_at: null, recent_latencies_ms: [100, 200], requests_used: 5, consecutive_failures: 0, aborted_count: 0, timeout_count: 0 },
+        { source: "keepa", enabled: true, last_success_at: null, last_failure_at: NOW.toISOString(), recent_latencies_ms: [], requests_used: 2, consecutive_failures: 2, aborted_count: 0, timeout_count: 1 },
+      ]);
+
+      const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW });
+      const bricklink = summary.sourceHealth.find((s) => s.source === "bricklink");
+      const keepa = summary.sourceHealth.find((s) => s.source === "keepa");
+      expect(bricklink?.healthLevel).toBe("healthy");
+      expect(bricklink?.averageLatencyMs).toBe(150);
+      expect(keepa?.healthLevel).toBe("degraded");
+      expect(summary.unhealthySources).not.toContain("bricklink");
+    });
+
+    it("abortedTargetCount compte SÉPARÉMENT run_deadline_exceeded, jamais confondu avec une vraie panne fournisseur", async () => {
+      const db = new FakeSupabase();
+      db.seed("market_refresh_runs", [runRow({ id: 1, run_key: "run-1" })]);
+      db.seed("market_refresh_run_targets", [
+        targetRow({ run_id: 1, outcome: "failed", failure_reason: "run_deadline_exceeded" }),
+        targetRow({ run_id: 1, outcome: "failed", failure_reason: "run_deadline_exceeded" }),
+        targetRow({ run_id: 1, outcome: "failed", failure_reason: "transient_source_outage" }),
+      ]);
+
+      const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW });
+      expect(summary.abortedTargetCount).toBe(2);
+      // Reste aussi présent dans failedTargetsByReason (exhaustif, jamais amputé).
+      expect(summary.failedTargetsByReason.find((r) => r.reason === "run_deadline_exceeded")?.count).toBe(2);
+    });
+
+    it("latestSuccessfulTargetAt = le plus récent finished_at parmi les cibles RÉUSSIES", async () => {
+      const db = new FakeSupabase();
+      db.seed("market_refresh_runs", [runRow({ id: 1, run_key: "run-1" })]);
+      db.seed("market_refresh_run_targets", [
+        targetRow({ run_id: 1, outcome: "succeeded", finished_at: "2026-09-19T00:00:00.000Z" }),
+        targetRow({ run_id: 1, outcome: "succeeded", finished_at: "2026-09-20T00:00:00.000Z" }),
+        targetRow({ run_id: 1, outcome: "failed", failure_reason: "transient_source_outage", finished_at: "2026-09-21T00:00:00.000Z" }),
+      ]);
+
+      const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW });
+      expect(summary.latestSuccessfulTargetAt).toBe("2026-09-20T00:00:00.000Z");
+    });
+
+    it("sparseHistoryProductCount compte les PRODUITS distincts sous le seuil d'observations, jamais un doublon par cycle", async () => {
+      const db = new FakeSupabase();
+      db.seed("market_snapshot_summaries", [
+        { product_key: "lego:10300", cycle_at: "2026-09-20T00:00:00.000Z", observation_count: 1 },
+        { product_key: "lego:10300", cycle_at: "2026-09-19T00:00:00.000Z", observation_count: 1 },
+        { product_key: "apple:iphone", cycle_at: "2026-09-20T00:00:00.000Z", observation_count: 10 },
+      ]);
+
+      const summary = await getOperatorObservabilitySummary(db as never, { now: () => NOW, sparseHistoryObservationThreshold: 3 });
+      expect(summary.sparseHistoryProductCount).toBe(1); // lego:10300 seulement, jamais compté deux fois pour ses 2 cycles.
+    });
+  });
 });

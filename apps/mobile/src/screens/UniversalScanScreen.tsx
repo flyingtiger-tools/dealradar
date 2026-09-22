@@ -9,8 +9,10 @@ import { betaResultReducer, initialBetaResultState, type BetaResultState } from 
 import { PreviewScreen } from "./scanner/PreviewScreen";
 import { AnalysisLoadingScreen } from "./scanner/AnalysisLoadingScreen";
 import { ResultScreen } from "./result/ResultScreen";
+import { ProductHistoryScreen } from "./result/ProductHistoryScreen";
 import { mapRafAnalysisToViewModel } from "./result/from-raf-analysis-view-model";
 import { saveAnalysisResultToHistory } from "../history/save-result";
+import { cancelAnalysis } from "../api/analyses-client";
 import type { HistoryEntry } from "../history/types";
 import { ErrorState } from "../components/errors/ErrorState";
 import { AppButton } from "../components/ui/AppButton";
@@ -48,6 +50,13 @@ export interface UniversalScanScreenProps {
 
 export function UniversalScanScreen({ category, onExit }: UniversalScanScreenProps) {
   const [state, setState] = useState<BetaResultState>(initialBetaResultState);
+  // Navigation locale "Voir l'historique" (LOT "Product History UX + Source
+  // Health + Interactive Cancellation + Beta Readiness", section 2) — un
+  // simple bascule d'écran, même patron que le reste de cet écran (pas de
+  // pile de navigation partagée pour ce flux). Réinitialisé à `null` dès
+  // qu'un nouveau scan démarre (`RESET`), jamais conservé d'un résultat à
+  // l'autre.
+  const [productHistoryOpen, setProductHistoryOpen] = useState(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
@@ -59,6 +68,17 @@ export function UniversalScanScreen({ category, onExit }: UniversalScanScreenPro
     if (!mountedRef.current) return;
     setState((current) => betaResultReducer(current, action));
   }, []);
+
+  // Annulation interactive (LOT "Product History UX + Source Health +
+  // Interactive Cancellation + Beta Readiness", section 6/7) —
+  // `abortControllerRef` arrête IMMÉDIATEMENT le polling côté client
+  // (`pollAnalysisUntilSettled({ signal })`), `pendingAnalysisIdRef` capture
+  // l'identifiant serveur DÈS que `identifyCapture()` le rapporte (phase
+  // "polling", voir `OnAnalysisProgress`) pour permettre un appel best-effort
+  // à `cancelAnalysis()`. Les deux sont réinitialisés à chaque nouvelle
+  // analyse — jamais réutilisés d'un cycle à l'autre.
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingAnalysisIdRef = useRef<string | null>(null);
 
   // Persistance de l'historique — même schéma que `TcgScanScreen.tsx` : une
   // seule sauvegarde par résultat, jamais bloquante pour l'affichage.
@@ -76,14 +96,41 @@ export function UniversalScanScreen({ category, onExit }: UniversalScanScreenPro
   const handleAnalyze = useCallback(async () => {
     if (state.phase !== "preview") return;
     const { capture } = state;
+    pendingAnalysisIdRef.current = null;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     dispatch({ type: "ANALYSIS_STARTED" });
     try {
-      const analysis = await identifyCapture(capture, category, genericObjectAdapters, (phase) => dispatch({ type: "PROGRESS", phase }));
+      const analysis = await identifyCapture(
+        capture,
+        category,
+        genericObjectAdapters,
+        (phase, analysisId) => {
+          if (analysisId) pendingAnalysisIdRef.current = analysisId;
+          dispatch({ type: "PROGRESS", phase });
+        },
+        controller.signal,
+      );
       dispatch({ type: "ANALYSIS_SUCCEEDED", analysis });
     } catch (e) {
       dispatch({ type: "ANALYSIS_FAILED", message: e instanceof Error ? e.message : "Erreur inconnue lors de l'identification." });
     }
   }, [state, category, dispatch]);
+
+  // Annulation demandée par l'utilisateur (section 6/7) — revient à l'état
+  // local `idle` IMMÉDIATEMENT (`RESET`, jamais une attente de confirmation
+  // serveur) : toute résolution tardive de `identifyCapture()` ci-dessus
+  // (succès, échec, ou levée par `signal`) sera ignorée par le réducteur
+  // (garde `isInFlight`, voir `beta-result-state.ts`) puisque la phase n'est
+  // déjà plus "uploading"/"submitting"/"polling". `cancelAnalysis()` est
+  // best-effort : son échec (réseau, déjà terminale côté serveur, etc.) ne
+  // doit jamais empêcher le retour local à l'état idle.
+  const handleCancelAnalysis = useCallback(() => {
+    abortControllerRef.current?.abort();
+    const idToCancel = pendingAnalysisIdRef.current;
+    if (idToCancel) void cancelAnalysis(idToCancel).catch(() => {});
+    dispatch({ type: "RESET" });
+  }, [dispatch]);
 
   if (state.phase === "idle") {
     return (
@@ -111,7 +158,7 @@ export function UniversalScanScreen({ category, onExit }: UniversalScanScreenPro
     // backend ne rapporte pas ces sous-étapes au client).
     return (
       <View style={styles.root}>
-        <AnalysisLoadingScreen phase={state.phase === "polling" ? "polling" : "uploading"} />
+        <AnalysisLoadingScreen phase={state.phase === "polling" ? "polling" : "uploading"} onCancel={handleCancelAnalysis} />
       </View>
     );
   }
@@ -126,14 +173,32 @@ export function UniversalScanScreen({ category, onExit }: UniversalScanScreenPro
   }
 
   const view = mapRafAnalysisToViewModel(state.analysis, category);
+
+  if (productHistoryOpen && view.productKey) {
+    return (
+      <View style={styles.root}>
+        <ProductHistoryScreen
+          productKey={view.productKey}
+          productName={view.product.name}
+          currentVsHistoryLabel={view.marketInsight?.currentVsHistoryLabel ?? null}
+          onBack={() => setProductHistoryOpen(false)}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <ResultScreen
         view={view}
-        onScanAnother={() => dispatch({ type: "RESET" })}
+        onScanAnother={() => {
+          setProductHistoryOpen(false);
+          dispatch({ type: "RESET" });
+        }}
         onExit={onExit}
         historyEntryId={savedEntry?.id ?? null}
         initialFavorite={savedEntry?.favorite ?? false}
+        onOpenProductHistory={() => setProductHistoryOpen(true)}
       />
     </View>
   );

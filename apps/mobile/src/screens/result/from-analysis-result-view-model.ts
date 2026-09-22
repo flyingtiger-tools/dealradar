@@ -1,5 +1,6 @@
 import type { AnalysisResult, AnalysisStatus, CategorySlug } from "@dealradar/contracts";
-import type { ResultViewModel, ResultPriceRow, ResultMarketInsight } from "./result-view-model";
+import type { ResultViewModel, ResultPriceRow } from "./result-view-model";
+import { buildMarketInsight } from "./market-insight";
 
 /**
  * Mapper `AnalysisResult` (contrat universel, `@dealradar/contracts`,
@@ -68,109 +69,6 @@ function buildPriceRows(result: AnalysisResult): ResultPriceRow[] {
 }
 
 /**
- * Traduction des `QualityFlag` (`@dealradar/core/intelligence/fuse-market-
- * observations.ts`) en libellés courts français — LOT "Data Quality
- * Calibration..." section 10, revue de copie LOT "Interactive History +
- * Generic Result UI + Full Cancellation + Pre-Prod Activation Package",
- * section 9 : français naturel et court, jamais de jargon technique
- * ("Tier"), distingue explicitement "annonces en cours" / "ventes
- * confirmées" / "historique spécialisé" / "prix neuf" plutôt qu'un vocabulaire
- * générique unique. `Record<string, string>` (pas `Record<QualityFlag,
- * string>`) car `AnalysisResult.marketEvidence.qualityFlags` reste un
- * `string[]` côté contrat (`@dealradar/contracts` ne dépend jamais de
- * `@dealradar/core`, voir `analysis-result.ts`) — un flag futur non encore
- * traduit retombe sur son code brut plutôt que de disparaître silencieusement.
- */
-const QUALITY_FLAG_LABELS: Record<string, string> = {
-  variant_conflict_filtered: "Certaines annonces ne correspondaient pas exactement (écartées)",
-  stale_evidence: "Données de marché un peu anciennes",
-  retail_only: "Basé uniquement sur des prix neufs en boutique",
-  active_only: "Basé sur des annonces en cours, aucune vente confirmée",
-  low_source_diversity: "Peu de sources différentes consultées",
-  high_dispersion: "Les prix varient beaucoup d'une source à l'autre",
-  missing_condition: "État non précisé pour certaines annonces",
-  fx_partial: "Conversion de devise partiellement fiable",
-  weak_identity: "Identification du produit encore incertaine",
-  duplicated_origin_merged: "Annonces en double regroupées",
-  specialist_only: "Basé uniquement sur un historique spécialisé",
-  sparse_history: "Peu d'historique de prix disponible",
-};
-
-/**
- * Libellés d'ordre de preuve (LOT "Interactive History...", section 9) —
- * copie minimale, PUREMENT pour l'affichage, de `EVIDENCE_TIER_LABELS`
- * (`@dealradar/connectors/market-intelligence/evidence-tiers.ts`) : mobile
- * ne dépend jamais de `@dealradar/connectors` (même discipline que
- * `CATEGORY_LABELS` ci-dessus). Jamais "Tier A/B/C/D/E" affiché — toujours
- * ce libellé, ou le code brut en dernier repli pour un palier futur non
- * encore traduit plutôt qu'un affichage vide.
- */
-const EVIDENCE_TIER_LABELS: Record<string, string> = {
-  A: "Vente confirmée",
-  B: "Historique spécialisé",
-  C: "Marché en direct (achat/vente)",
-  D: "Annonce en cours",
-  E: "Prix neuf affiché",
-};
-
-/**
- * Libellés de tendance (LOT "Interactive History...", section 9) — décrit
- * un comportement RÉCENT déjà observé, jamais une prédiction ("tendance
- * récente à la hausse", jamais "va monter" / "va baisser").
- */
-const TREND_LABELS: Record<string, string> = {
-  up: "Tendance récente à la hausse",
-  down: "Tendance récente à la baisse",
-  flat: "Tendance récente stable",
-  insufficient: "Historique insuffisant pour une tendance",
-};
-
-/**
- * Traduit `currentVsHistoryPercentile` en phrase naturelle — jamais le mot
- * "percentile" affiché à l'utilisateur (jargon statistique, LOT "Interactive
- * History...", section 9). Seuils volontairement larges (20/80) : jamais une
- * fausse précision sur une position statistique approximative.
- */
-function describeHistoryPosition(percentile: number): string {
-  if (percentile <= 20) return "Ce prix se situe parmi les plus bas observés historiquement";
-  if (percentile >= 80) return "Ce prix se situe parmi les plus élevés observés historiquement";
-  return "Ce prix se situe dans la moyenne de l'historique connu";
-}
-
-/**
- * Construit le résumé de preuve de marché affiché — `null` si
- * `marketEvidence` est absent (résultat produit avant ce lot, ou chemin qui
- * n'a jamais eu besoin d'enrichissement multi-source) : jamais un résumé
- * inventé à partir de champs partiels. `fairValueLow/HighCents` proviennent
- * de `resaleRangeConservative` (déjà la même fourchette que `buildPriceRows`
- * ci-dessus) — jamais une seconde fourchette recalculée ici.
- */
-function buildMarketInsight(result: AnalysisResult): ResultMarketInsight | null {
-  const evidence = result.marketEvidence;
-  if (!evidence) return null;
-  const qualityReasons = (evidence.qualityFlags ?? [])
-    .map((flag) => QUALITY_FLAG_LABELS[flag] ?? flag)
-    .filter((label, index, all) => all.indexOf(label) === index);
-  return {
-    fairValueLowCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.low * 100) : null,
-    fairValueHighCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.high * 100) : null,
-    currency: result.resaleRangeConservative?.currency ?? null,
-    confidencePercent: clampPercent(result.confidenceScore),
-    sourceCount: evidence.sourceCount,
-    strongestEvidenceTier: evidence.strongestTier,
-    strongestEvidenceLabel: evidence.strongestTier ? (EVIDENCE_TIER_LABELS[evidence.strongestTier] ?? evidence.strongestTier) : null,
-    trendDescriptor: evidence.trendDescriptor ?? null,
-    trendLabel: evidence.trendDescriptor ? (TREND_LABELS[evidence.trendDescriptor] ?? evidence.trendDescriptor) : null,
-    trendConfidence: evidence.trendConfidence ?? null,
-    retailOnlyWarning: evidence.retailOnlyWarning,
-    activeListingOnlyWarning: evidence.activeListingsOnlyWarning,
-    currentVsHistoryPercentile: evidence.currentVsHistoryPercentile ?? null,
-    currentVsHistoryLabel: evidence.currentVsHistoryPercentile !== undefined && evidence.currentVsHistoryPercentile !== null ? describeHistoryPosition(evidence.currentVsHistoryPercentile) : null,
-    qualityReasons,
-  };
-}
-
-/**
  * Un résultat n'est "identifié" que si le moteur d'extraction a produit un
  * nom de produit — même règle que `mapTcgResultToViewModel` (le signal de
  * vérité est l'identité elle-même, jamais `status` seul) : un objet
@@ -191,6 +89,7 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
     return {
       identityStatus: status === "failed" ? "failed" : "insufficient_data",
       category,
+      productKey: result?.productKey ?? null,
       product: { name: null, setName: null, collectorNumber: null, language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
       confidencePercent: null,
       prices: [],
@@ -208,6 +107,7 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
   return {
     identityStatus: "identified",
     category,
+    productKey: result.productKey ?? null,
     product: {
       name: result.product.name,
       setName: categoryLabel(result.product.category),
@@ -227,6 +127,12 @@ export function mapAnalysisResultToViewModel(result: AnalysisResult | null, stat
     dealScore: result.dealScore,
     reasons: result.reasons,
     isDemo: false,
-    marketInsight: buildMarketInsight(result),
+    marketInsight: buildMarketInsight({
+      evidence: result.marketEvidence,
+      fairValueLowCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.low * 100) : null,
+      fairValueHighCents: result.resaleRangeConservative ? Math.round(result.resaleRangeConservative.high * 100) : null,
+      currency: result.resaleRangeConservative?.currency ?? null,
+      confidencePercent: clampPercent(result.confidenceScore),
+    }),
   };
 }

@@ -16,6 +16,7 @@ export async function identifyCapture(
   categoryHint: CategorySlug | null,
   adapters: readonly CategoryAdapter[],
   onProgress?: OnAnalysisProgress,
+  signal?: AbortSignal,
 ): Promise<RafAnalysis> {
   const candidates = adapters
     .map((adapter) => ({ adapter, candidate: adapter.canHandle(capture, categoryHint) }))
@@ -29,7 +30,7 @@ export async function identifyCapture(
   const best = candidates.reduce((a, b) => (b.candidate.confidence > a.candidate.confidence ? b : a));
 
   try {
-    return await best.adapter.analyze(capture, onProgress);
+    return await best.adapter.analyze(capture, onProgress, signal);
   } catch (e) {
     // Filet de sécurité : un `CategoryAdapter` correct ne devrait jamais lever
     // (voir `CategoryAdapter.analyze`), mais l'orchestrateur ne doit jamais

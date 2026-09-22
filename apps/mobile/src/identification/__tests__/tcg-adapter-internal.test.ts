@@ -23,6 +23,7 @@ jest.mock("../../api/analyses-client", () => ({
   createAnalysis: jest.fn(),
   pollAnalysisUntilSettled: jest.fn(),
   AnalysesApiError: class extends Error {},
+  AnalysisPollAbortedError: class extends Error {},
 }));
 
 jest.mock("../../api/tcg-analyze-client", () => ({

@@ -1,4 +1,4 @@
-import type { CategorySlug } from "@dealradar/contracts";
+import type { CategorySlug, MarketEvidence } from "@dealradar/contracts";
 import type { UniversalCaptureResult } from "../capture/types";
 
 /**
@@ -24,7 +24,16 @@ export type RafAnalysisStatus = "identified" | "needs_confirmation" | "insuffici
  * étape (voir `tcg-adapter.ts`).
  */
 export type AnalysisProgressPhase = "uploading" | "submitting" | "polling";
-export type OnAnalysisProgress = (phase: AnalysisProgressPhase) => void;
+/**
+ * `analysisId` (LOT "Product History UX + Source Health + Interactive
+ * Cancellation + Beta Readiness", section 6/7) — transmis UNIQUEMENT à
+ * partir du passage en phase `"polling"` (c'est le premier instant où la
+ * ligne `analysis_requests` existe côté serveur, voir `createAnalysis()`) :
+ * `undefined` pour `"uploading"`/`"submitting"`. Permet à l'écran appelant
+ * de capturer l'identifiant nécessaire à `cancelAnalysis()` dès qu'il
+ * existe, sans attendre la résolution finale de `analyze()`.
+ */
+export type OnAnalysisProgress = (phase: AnalysisProgressPhase, analysisId?: string) => void;
 
 /**
  * Contrat générique minimal consommé par l'écran de résultat bêta —
@@ -58,6 +67,20 @@ export interface RafAnalysis {
   missingInformation: string[];
   risks: string[];
   analysisId: string | null;
+  /**
+   * Clé produit canonique + preuve de marché DÉJÀ RÉSOLUES côté serveur
+   * (LOT "Product History UX + Source Health + Interactive Cancellation +
+   * Beta Readiness", section 1/2) — reportées TELLES QUELLES depuis
+   * `AnalysisResult.productKey`/`marketEvidence` par `generic-object-
+   * adapter.ts` (`fromGenericAnalysisResult`), JAMAIS recalculées ici.
+   * Optionnelles pour ne casser AUCUN constructeur existant de
+   * `RafAnalysis` (`raf-analysis-helpers.ts`, `tcg-adapter.ts`, fixtures de
+   * test) — `undefined`/`null` pour tout flux qui n'en produit pas (TCG,
+   * échec, données insuffisantes). Voir `screens/result/market-insight.ts`
+   * pour la traduction en `ResultMarketInsight`.
+   */
+  productKey?: string | null;
+  marketEvidence?: MarketEvidence;
 }
 
 /**
@@ -73,6 +96,12 @@ export interface CategoryAdapter {
    * Aucun paramètre d'authentification : l'implémentation appelle des
    * fonctions qui tirent elles-mêmes le jeton/l'identifiant de la session
    * Supabase courante (`auth/session.ts`), jamais une seconde voie.
+   *
+   * `signal` (LOT "Product History UX...", section 6/7) — optionnel,
+   * purement CLIENT (contrôle uniquement `pollAnalysisUntilSettled`, jamais
+   * transmis au serveur). Un adaptateur qui n'a pas de boucle de polling
+   * interruptible (ex. chemin serverless synchrone TCG) peut l'ignorer sans
+   * violer le contrat.
    */
-  analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress): Promise<RafAnalysis>;
+  analyze(capture: UniversalCaptureResult, onProgress?: OnAnalysisProgress, signal?: AbortSignal): Promise<RafAnalysis>;
 }

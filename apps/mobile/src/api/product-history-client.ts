@@ -51,6 +51,21 @@ const recentSnapshotSummarySchema = z.object({
   confidence: z.number().nullable(),
   observationCount: z.number(),
   sourceCount: z.number(),
+  /**
+   * Trouvaille d'audit beta-readiness (section 12, LOT "Product History
+   * UX...") — absents du schéma AVANT ce correctif alors que le serveur
+   * (`RecentSnapshotSummaryEntry`, `@dealradar/ingestion`) les renvoie
+   * réellement sur CHAQUE ligne : un schéma Zod non strict les rejetait
+   * silencieusement (`safeParse` réussissait quand même), rendant ces
+   * champs invisible à tout futur écran qui voudrait les afficher, sans
+   * la moindre erreur pour l'expliquer. Non consommés par
+   * `ProductHistoryScreen` aujourd'hui (`toProductHistoryDetailViewModel`
+   * ne lit que `fairCents`/`lowCents`/`highCents`/`currency`/`cycleAt`) —
+   * simplement plus jamais perdus silencieusement.
+   */
+  strongestTier: z.string().nullable(),
+  coverageScore: z.number().nullable(),
+  activeSupplyCount: z.number(),
 });
 
 const productHistoryResponseSchema = z.object({

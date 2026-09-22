@@ -20,7 +20,9 @@ function getRequest(query = "", headers: Record<string, string> = { authorizatio
 }
 
 const emptySummary = {
+  generatedAt: "2026-09-21T00:00:00.000Z",
   recentRuns: [],
+  runCount: 0,
   successRate: null,
   failedTargetsByReason: [],
   sourceErrorCounts: [],
@@ -28,9 +30,14 @@ const emptySummary = {
   overdueTargetCount: 0,
   budgetExhaustedRunCount: 0,
   timedOutRunCount: 0,
-  observationsOverTime: [],
-  topIdentityConflictProducts: [],
+  observationsPersistedByDay: {},
+  topUnresolvedIdentityConflictProducts: [],
   sourceReadiness: [],
+  sourceHealth: [],
+  unhealthySources: [],
+  abortedTargetCount: 0,
+  latestSuccessfulTargetAt: null,
+  sparseHistoryProductCount: 0,
 };
 
 const emptyHistoricalEngine = { allTablesAvailable: true, tables: [] };

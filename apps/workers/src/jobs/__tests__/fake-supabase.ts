@@ -17,6 +17,7 @@ interface QueryState {
   table: string;
   operation: "select" | "insert" | "update" | "upsert";
   filters: { column: string; value: unknown }[];
+  inFilters: { column: string; values: unknown[] }[];
   containsFilters: { column: string; value: Row }[];
   lteFilters: { column: string; value: unknown }[];
   gteFilters: { column: string; value: unknown }[];
@@ -63,7 +64,7 @@ export class FakeSupabase {
 
   from(table: string) {
     this.tables[table] ??= [];
-    const state: QueryState = { table, operation: "select", filters: [], containsFilters: [], lteFilters: [], gteFilters: [], orFilters: [] };
+    const state: QueryState = { table, operation: "select", filters: [], inFilters: [], containsFilters: [], lteFilters: [], gteFilters: [], orFilters: [] };
     const execute = () => this.execute(state);
 
     const builder = {
@@ -88,6 +89,10 @@ export class FakeSupabase {
       },
       eq(column: string, value: unknown) {
         state.filters.push({ column, value });
+        return builder;
+      },
+      in(column: string, values: unknown[]) {
+        state.inFilters.push({ column, values });
         return builder;
       },
       contains(column: string, value: Row) {
@@ -150,6 +155,7 @@ export class FakeSupabase {
 
     const matches = (row: Row): boolean =>
       state.filters.every((f) => row[f.column] === f.value) &&
+      state.inFilters.every((f) => f.values.includes(row[f.column])) &&
       state.containsFilters.every((f) => {
         const target = row[f.column] as Row | undefined;
         return target !== undefined && Object.entries(f.value).every(([k, v]) => target[k] === v);

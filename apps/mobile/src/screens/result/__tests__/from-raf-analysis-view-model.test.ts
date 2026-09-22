@@ -147,4 +147,49 @@ describe("mapRafAnalysisToViewModel", () => {
     const analysis = baseAnalysis({ status: "identified", product: { name: "x", setName: null, collectorNumber: null, language: null } });
     expect(mapRafAnalysisToViewModel(analysis, "general").isDemo).toBe(false);
   });
+
+  describe("productKey/marketInsight (LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness', section 1 — correctif d'une trouvaille de l'audit beta-readiness)", () => {
+    it("productKey et marketEvidence transmis par generic-object-adapter.ts sont reportés, jamais recalculés ici", () => {
+      const analysis = baseAnalysis({
+        status: "identified",
+        product: { name: "Console rétro", setName: "gaming", collectorNumber: null, language: null },
+        confidence: 0.6,
+        valuation: { low: 100, high: 150, currency: "CHF" },
+        productKey: "gaming:console-retro",
+        marketEvidence: {
+          strongestTier: "D",
+          sourceCount: 2,
+          observationCount: 5,
+          liveObservationCount: 5,
+          historicalObservationCount: 0,
+          sourceNames: ["ebay"],
+          retailOnlyWarning: false,
+          activeListingsOnlyWarning: true,
+          usedSpecialistHistory: false,
+        },
+      });
+
+      const view = mapRafAnalysisToViewModel(analysis, "gaming");
+
+      expect(view.productKey).toBe("gaming:console-retro");
+      expect(view.marketInsight).not.toBeNull();
+      expect(view.marketInsight?.sourceCount).toBe(2);
+      expect(view.marketInsight?.fairValueLowCents).toBe(10000);
+      expect(view.marketInsight?.fairValueHighCents).toBe(15000);
+      expect(view.marketInsight?.activeListingOnlyWarning).toBe(true);
+      expect(view.marketInsight?.confidencePercent).toBe(60);
+    });
+
+    it("aucun marketEvidence transmis (résultat produit avant l'enrichissement, ou TCG) : marketInsight reste null, jamais un résumé inventé", () => {
+      const analysis = baseAnalysis({
+        status: "identified",
+        product: { name: "x", setName: null, collectorNumber: null, language: null },
+      });
+
+      const view = mapRafAnalysisToViewModel(analysis, "general");
+
+      expect(view.marketInsight).toBeNull();
+      expect(view.productKey).toBeNull();
+    });
+  });
 });

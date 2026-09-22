@@ -12,30 +12,40 @@ jest.mock("expo-crypto", () => ({
   randomUUID: () => `mock-uuid-${++mockRandomUuidCounter}`,
 }));
 
-// Préfixées "mock" — Jest hoiste `jest.mock()` au-dessus de toute autre
-// déclaration du fichier ; seuls les identifiants commençant par "mock"
-// (insensible à la casse) peuvent être référencés depuis une factory.
-class MockTcgUploadError extends Error {}
-class MockAnalysesApiError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
+// Classes définies À L'INTÉRIEUR de chaque factory `jest.mock(...)` (jamais
+// `class Foo {}` déclarée à l'extérieur, même préfixée "mock") — bug de
+// hoisting réel trouvé/corrigé ce lot (LOT "Product History UX + Source
+// Health + Interactive Cancellation + Beta Readiness", audit section 12) :
+// `jest.mock()` est hoisté au-dessus de TOUTE déclaration du fichier
+// (classes incluses), donc une classe déclarée hors factory y est
+// `undefined` au moment où la factory s'exécute — jamais détecté ici avant
+// car `AnalysesApiError` n'était jamais exercée via `instanceof` par le
+// code source réel (voir generic-object-adapter.test.ts pour le même
+// correctif). Les tests qui ont besoin de construire une instance
+// récupèrent la MÊME classe via `jest.requireMock(...)` plus bas.
 jest.mock("../../api/tcg-upload-client", () => ({
   uploadTcgCardPhoto: (...args: unknown[]) => mockUploadTcgCardPhoto(...args),
   deleteTcgCardPhoto: (...args: unknown[]) => mockDeleteTcgCardPhoto(...args),
-  TcgUploadError: MockTcgUploadError,
+  TcgUploadError: class extends Error {},
 }));
 
 jest.mock("../../api/analyses-client", () => ({
   createAnalysis: (...args: unknown[]) => mockCreateAnalysis(...args),
   pollAnalysisUntilSettled: (...args: unknown[]) => mockPollAnalysisUntilSettled(...args),
-  AnalysesApiError: MockAnalysesApiError,
+  AnalysesApiError: class extends Error {
+    code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
+  AnalysisPollAbortedError: class extends Error {},
 }));
+
+const { AnalysesApiError: MockAnalysesApiError, AnalysisPollAbortedError: MockAnalysisPollAbortedError } = jest.requireMock(
+  "../../api/analyses-client",
+) as { AnalysesApiError: new (code: string, message: string) => Error; AnalysisPollAbortedError: new () => Error };
+const { TcgUploadError: MockTcgUploadError } = jest.requireMock("../../api/tcg-upload-client") as { TcgUploadError: new (message?: string) => Error };
 
 // Ce fichier teste le chemin PRODUCTION (file d'attente pg-boss + worker,
 // jamais supprimé — voir tcg-adapter.ts) : force `INTERNAL_TOOLS_ENABLED`
@@ -139,7 +149,12 @@ describe("tcgAdapter.analyze — transformation de l'entrée et appel unique au 
     expect(request.imageReferences).toEqual([{ url: "https://storage/analysis-uploads/user-1/req/photo.jpg" }]);
 
     expect(mockPollAnalysisUntilSettled).toHaveBeenCalledTimes(1);
-    expect(mockPollAnalysisUntilSettled).toHaveBeenCalledWith("analysis-1");
+    // `{ signal: undefined }` (jamais juste "analysis-1" seul) depuis ce
+    // lot — `tcg-adapter.ts` transmet désormais toujours un `signal`
+    // (parité défensive avec `generic-object-adapter.ts`, voir l'audit
+    // beta-readiness section 12), `undefined` en l'absence d'appelant qui
+    // en fournit un.
+    expect(mockPollAnalysisUntilSettled).toHaveBeenCalledWith("analysis-1", { signal: undefined });
   });
 
   it("rapporte la progression réelle (uploading -> submitting -> polling) dans l'ordre, jamais une progression fabriquée", async () => {
@@ -397,5 +412,53 @@ describe("tcgAdapter.analyze — erreurs, jamais une exception qui remonte", () 
     await tcgAdapter.analyze(fakeCapture());
 
     expect(mockDeleteTcgCardPhoto).not.toHaveBeenCalled();
+  });
+});
+
+describe("tcgAdapter.analyze (chemin file d'attente) — parité annulation défensive (trouvaille d'audit beta-readiness, section 12 du LOT 'Product History UX + Source Health + Interactive Cancellation + Beta Readiness')", () => {
+  // AUCUN appelant ne fournit encore de bouton d'annulation pour la
+  // verticale TCG aujourd'hui (`TcgScanScreen.tsx` ne passe jamais
+  // `onCancel`/`signal` — règle produit explicite du lot) : ces tests
+  // vérifient seulement que `tcg-adapter.ts` ne romprait PAS silencieusement
+  // une future annulation TCG, jamais qu'un bouton existe déjà.
+  it("rapporte analysisId au passage en phase 'polling' (comme generic-object-adapter.ts), jamais pour 'uploading'/'submitting'", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "processing", result: null });
+    const reported: { phase: string; analysisId?: string }[] = [];
+
+    await tcgAdapter.analyze(fakeCapture(), (phase, analysisId) => reported.push({ phase, analysisId }));
+
+    expect(reported).toEqual([
+      { phase: "uploading", analysisId: undefined },
+      { phase: "submitting", analysisId: undefined },
+      { phase: "polling", analysisId: "analysis-1" },
+    ]);
+  });
+
+  it("transmet le signal fourni à pollAnalysisUntilSettled", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "processing", result: null });
+    const controller = new AbortController();
+
+    await tcgAdapter.analyze(fakeCapture(), undefined, controller.signal);
+
+    const [, options] = mockPollAnalysisUntilSettled.mock.calls[0] as [string, { signal?: AbortSignal }];
+    expect(options.signal).toBe(controller.signal);
+  });
+
+  it("polling arrêté côté client (AnalysisPollAbortedError) : status failed avec un message honnête d'annulation, jamais une exception qui remonte", async () => {
+    mockPollAnalysisUntilSettled.mockRejectedValue(new MockAnalysisPollAbortedError());
+
+    const result = await tcgAdapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.risks).toContain("Analyse annulée.");
+  });
+
+  it("statut serveur 'cancelled' : status failed avec le même message honnête, jamais une 'réponse inattendue'", async () => {
+    mockPollAnalysisUntilSettled.mockResolvedValue({ id: "analysis-1", status: "cancelled", result: null });
+
+    const result = await tcgAdapter.analyze(fakeCapture());
+
+    expect(result.status).toBe("failed");
+    expect(result.risks).toContain("Analyse annulée.");
   });
 });

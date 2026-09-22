@@ -164,6 +164,11 @@ describe("takeMarketSnapshot", () => {
       desiredCurrency: "CHF",
       sourceProfiles: KNOWN_SOURCE_QUERY_PROFILES,
       sources: [source],
+      // `asOf` fixé (trouvaille d'audit beta-readiness, section 12 du LOT
+      // "Product History UX...") — sans lui, la péremption du taux FX
+      // (`rateDate: "2026-09-20"` ci-dessus) était évaluée contre l'horloge
+      // RÉELLE, rendant ce test silencieusement flaky au fil des jours.
+      asOf: ASOF,
       fxRateProvider: fxProvider,
       persistence: { supabase: db as never },
     });

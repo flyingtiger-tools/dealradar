@@ -70,6 +70,19 @@ export interface ResultViewModel {
   identityStatus: ResultIdentityStatus;
   /** Catégorie réelle du résultat (LOT "Universal Object Valuation Foundation") — toujours `"pokemon_tcg"` pour `mapTcgResultToViewModel`, jamais devinée ailleurs (voir `history/from-result-view-model.ts`, qui en dépend pour ne plus historiser tout sous `pokemon_tcg`). */
   category: CategorySlug;
+  /**
+   * Clé produit canonique DÉJÀ RÉSOLUE côté serveur (LOT "Product History
+   * UX + Source Health + Interactive Cancellation + Beta Readiness",
+   * section 2) — voir `AnalysisResult.productKey` (`@dealradar/contracts`).
+   * `null` pour tout flux TCG/RAF/historique/DEMO (jamais devinée côté
+   * mobile) — seule `mapAnalysisResultToViewModel` la peuple réellement.
+   * Détermine si le bouton "Voir l'historique" (`MarketInsightCard`) peut
+   * s'afficher : jamais affiché sans une clé stable. Optionnel — même
+   * raison que `marketInsight?` (ne jamais casser une fixture/un test
+   * existant construisant un `ResultViewModel` littéral avant ce champ) ;
+   * traité comme `null` quand absent.
+   */
+  productKey?: string | null;
   product: {
     name: string | null;
     setName: string | null;
@@ -117,6 +130,7 @@ export function mapTcgResultToViewModel(result: TcgCardAnalysisResult | null, st
     return {
       identityStatus: status === "failed" ? "failed" : "insufficient_data",
       category: "pokemon_tcg",
+      productKey: null,
       product: { name: null, setName: null, collectorNumber: null, language: null, variant: null, productKind: null, gradingCompany: null, grade: null },
       confidencePercent: null,
       prices: [],
@@ -135,6 +149,7 @@ export function mapTcgResultToViewModel(result: TcgCardAnalysisResult | null, st
   return {
     identityStatus: "identified",
     category: "pokemon_tcg",
+    productKey: null,
     product: {
       name: identity.name,
       setName: identity.setName,

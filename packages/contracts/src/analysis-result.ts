@@ -40,6 +40,14 @@ export const analysisStatusSchema = z.enum([
   "completed",
   "failed",
   "insufficient_data",
+  /**
+   * Annulation INTERACTIVE demandée par l'utilisateur (LOT "Product
+   * History UX + Source Health + Interactive Cancellation + Beta
+   * Readiness", section 6/7) — état TERMINAL distinct de `"failed"` : une
+   * annulation n'est JAMAIS une panne fournisseur. Voir migration 0026
+   * (`cancel_requested_at`, RPC `request_analysis_cancellation`).
+   */
+  "cancelled",
 ]);
 export type AnalysisStatus = z.infer<typeof analysisStatusSchema>;
 
@@ -134,6 +142,18 @@ export const marketEvidenceSchema = z.object({
 export type MarketEvidence = z.infer<typeof marketEvidenceSchema>;
 
 export const analysisResultSchema = z.object({
+  /**
+   * Clé produit canonique DÉJÀ RÉSOLUE (LOT "Product History UX + Source
+   * Health + Interactive Cancellation + Beta Readiness", section 2) — voir
+   * `deriveProductKey` (`@dealradar/core`), `apps/workers/src/jobs/
+   * process-analysis.ts`. `null`/absent avant qu'une identité minimale
+   * (catégorie + état + prix confirmés) ne soit connue — jamais devinée.
+   * Permet au mobile de naviguer vers l'historique produit
+   * (`GET /api/internal/operator/product-history?productKey=...`) sans
+   * reconstruire cette clé côté client (logique métier réservée au
+   * serveur).
+   */
+  productKey: z.string().nullable().optional(),
   product: z.object({
     name: z.string().nullable(),
     category: z.string().nullable(),

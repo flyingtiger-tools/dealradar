@@ -100,10 +100,78 @@ describe("toProductHistoryDetailViewModel", () => {
     ]);
   });
 
+  // QA hardening (LOT "Product History UX + Source Health + Interactive
+  // Cancellation + Beta Readiness", section 8).
+  it("historique clairsemé (sampleSize=1) : isEmpty reste false, confidence basse transmise telle quelle, jamais surestimée", () => {
+    const response = baseResponse({
+      history: {
+        asOf: "2026-09-21T00:00:00.000Z",
+        sampleSize: 1,
+        medianCents: 18000,
+        p25Cents: 18000,
+        p75Cents: 18000,
+        minCents: 18000,
+        maxCents: 18000,
+        outlierCount: 0,
+        trends: [],
+        activeSupplyCount: 0,
+        sourceDiversityOverTime: 1,
+        historicalPercentilePosition: null,
+        confidence: 8,
+        reasons: [],
+      },
+    });
+
+    const view = toProductHistoryDetailViewModel(response);
+    expect(view.isEmpty).toBe(false);
+    expect(view.sampleSize).toBe(1);
+    expect(view.confidence).toBe(8);
+  });
+
+  it("annonces actives suivies SANS aucun échantillon de prix historique (active-only) : isEmpty reste true (aucun PRIX historique), mais activeSupplyCount reste honnêtement non-nul — l'écran doit l'afficher malgré isEmpty (voir ProductHistoryScreen.tsx)", () => {
+    const response = baseResponse({ activeSupplyCount: 4, sourceDiversity: 2 });
+
+    const view = toProductHistoryDetailViewModel(response);
+    expect(view.isEmpty).toBe(true);
+    expect(view.activeSupplyCount).toBe(4);
+    expect(view.sourceDiversity).toBe(2);
+  });
+
+  it("aucune fenêtre de tendance disponible (trends: []) : tableau vide, jamais une fenêtre inventée", () => {
+    const response = baseResponse();
+    const view = toProductHistoryDetailViewModel(response);
+    expect(view.trends).toEqual([]);
+  });
+
+  it("fourchette de prix extrême (1 centime à 50 millions de centimes) : transmise telle quelle, jamais resserrée", () => {
+    const response = baseResponse({
+      history: {
+        asOf: "2026-09-21T00:00:00.000Z",
+        sampleSize: 20,
+        medianCents: 100_000,
+        p25Cents: 1,
+        p75Cents: 50_000_000,
+        minCents: 1,
+        maxCents: 50_000_000,
+        outlierCount: 5,
+        trends: [],
+        activeSupplyCount: 0,
+        sourceDiversityOverTime: 3,
+        historicalPercentilePosition: null,
+        confidence: 70,
+        reasons: [],
+      },
+    });
+
+    const view = toProductHistoryDetailViewModel(response);
+    expect(view.lowCents).toBe(1);
+    expect(view.highCents).toBe(50_000_000);
+  });
+
   it("résumés de cycle récents transmis tels quels, jamais recalculés", () => {
     const response = baseResponse({
       recentSnapshotSummaries: [
-        { cycleAt: "2026-09-20T00:00:00.000Z", cycleKey: "k1", currency: "CHF", lowCents: 17000, fairCents: 18000, highCents: 19000, confidence: 60, observationCount: 3, sourceCount: 2 },
+        { cycleAt: "2026-09-20T00:00:00.000Z", cycleKey: "k1", currency: "CHF", lowCents: 17000, fairCents: 18000, highCents: 19000, confidence: 60, observationCount: 3, sourceCount: 2, strongestTier: "B", coverageScore: 80, activeSupplyCount: 1 },
       ],
     });
 

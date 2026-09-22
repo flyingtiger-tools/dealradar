@@ -461,7 +461,15 @@ async function refreshOneTarget(input: RefreshOneTargetInput): Promise<RefreshOn
       normalizedRange: result.summary.normalizedRange,
       observations: result.observations,
       historicalPoints,
-      activeSupplyCount: result.observations.length,
+      // Trouvaille d'audit beta-readiness (section 12, LOT "Product History
+      // UX...") — AVANT ce correctif, `activeSupplyCount` recevait
+      // `result.observations.length` (TOUTES les observations du cycle :
+      // ventes confirmées, historique spécialiste, prix neuf, etc.), alors
+      // que la colonne documente "annonces actives" — même classification
+      // "live" que `process-analysis.ts` (`evidenceType === "activeListings"
+      // || "bidAsk"`), jamais un mélange avec des preuves historiques/de
+      // vente confirmée.
+      activeSupplyCount: result.observations.filter((o) => o.evidenceType === "activeListings" || o.evidenceType === "bidAsk").length,
       coverageScore: result.coverageReport.sourcesQueried > 0 ? Math.round((result.coverageReport.sourcesSucceeded / result.coverageReport.sourcesQueried) * 100) : null,
     });
   } catch (error) {

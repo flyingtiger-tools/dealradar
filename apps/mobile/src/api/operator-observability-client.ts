@@ -18,30 +18,61 @@ import { getCurrentAccessToken } from "../auth/session";
 
 const sourceReadinessEntrySchema = z.object({ source: z.string(), readiness: z.string().optional() });
 
+/**
+ * Aligné CHAMP PAR CHAMP sur `OperatorObservabilitySummary` (`packages/
+ * ingestion/src/operator-observability.ts`) — un schéma antérieur de ce
+ * fichier divergeait silencieusement (`completedAt`/`success`/
+ * `targetsClaimed`/`observationsOverTime`/`topIdentityConflictProducts`
+ * n'existent PAS côté serveur, qui utilise `finishedAt`/`claimed`+
+ * `succeeded`+`failed`/`observationsPersistedByDay`/
+ * `topUnresolvedIdentityConflictProducts`) : corrigé lors de l'audit beta-
+ * readiness (LOT "Product History UX + Source Health + Interactive
+ * Cancellation + Beta Readiness", section 12) — ce décalage aurait fait
+ * échouer la validation Zod de TOUTE réponse réelle du serveur.
+ */
+const sourceHealthRollupEntrySchema = z.object({
+  source: z.string(),
+  healthLevel: z.enum(["healthy", "degraded", "unhealthy"]),
+  consecutiveFailures: z.number(),
+  lastSuccessAt: z.string().nullable(),
+  lastFailureAt: z.string().nullable(),
+  requestsUsed: z.number(),
+  abortedCount: z.number(),
+  timeoutCount: z.number(),
+  averageLatencyMs: z.number().nullable(),
+});
+
 const operatorObservabilitySummarySchema = z.object({
+  generatedAt: z.string(),
+  sourceReadiness: z.array(sourceReadinessEntrySchema),
   recentRuns: z.array(
     z.object({
       runKey: z.string(),
       startedAt: z.string(),
-      completedAt: z.string().nullable(),
-      success: z.boolean().nullable(),
+      finishedAt: z.string().nullable(),
+      considered: z.number(),
+      claimed: z.number(),
+      succeeded: z.number(),
+      failed: z.number(),
       timedOut: z.boolean(),
       budgetExhausted: z.boolean(),
-      targetsClaimed: z.number(),
-      targetsSucceeded: z.number(),
-      targetsFailed: z.number(),
     }),
   ),
+  runCount: z.number(),
   successRate: z.number().nullable(),
   failedTargetsByReason: z.array(z.object({ reason: z.string(), count: z.number() })),
-  sourceErrorCounts: z.array(z.object({ source: z.string(), errorCount: z.number(), timeoutCount: z.number() })),
+  sourceErrorCounts: z.array(z.object({ source: z.string(), count: z.number() })),
   dueTargetCount: z.number(),
   overdueTargetCount: z.number(),
   budgetExhaustedRunCount: z.number(),
   timedOutRunCount: z.number(),
-  observationsOverTime: z.array(z.object({ day: z.string(), count: z.number() })),
-  topIdentityConflictProducts: z.array(z.object({ productKey: z.string(), conflictCount: z.number() })),
-  sourceReadiness: z.array(sourceReadinessEntrySchema),
+  observationsPersistedByDay: z.record(z.string(), z.number()),
+  topUnresolvedIdentityConflictProducts: z.array(z.object({ productKey: z.string(), conflictCount: z.number() })),
+  sourceHealth: z.array(sourceHealthRollupEntrySchema),
+  unhealthySources: z.array(z.string()),
+  abortedTargetCount: z.number(),
+  latestSuccessfulTargetAt: z.string().nullable(),
+  sparseHistoryProductCount: z.number(),
 });
 
 const historicalEngineAvailabilitySchema = z.object({

@@ -180,14 +180,31 @@ export async function orchestrateMarketIntelligence(input: OrchestrateMarketInte
     }
   }
 
+  // Référence temporelle UNIQUE pour cette analyse (trouvaille d'audit
+  // beta-readiness, section 12 du LOT "Product History UX...") — AVANT ce
+  // correctif, `mapMarketObservationsToFusionObservations` évaluait la
+  // péremption des taux FX via l'horloge RÉELLE (`new Date()`) même quand
+  // `input.asOf` était fourni, alors que `fuseMarketObservations` juste en
+  // dessous utilisait bien `input.asOf` — deux notions de "maintenant"
+  // désynchronisées dans le MÊME appel, symptôme réel : un test avec des
+  // dates figées (`asOf` + `rateDate` proches) devenait spontanément flaky
+  // au fil des jours (le rejet "stale_rate" dépendait de la date réelle
+  // d'exécution, jamais de `asOf`). `resolvedAsOf` est calculé UNE SEULE
+  // fois et réutilisé pour LES TROIS points de cette fonction qui ont
+  // besoin d'une référence temporelle (fusion, péremption FX, et
+  // `coverageReport.asOf` plus bas) — jamais une 2e/3e évaluation
+  // indépendante de `new Date()`.
+  const resolvedAsOf = input.asOf ?? new Date().toISOString();
+
   const { fusionObservations, skipped } = mapMarketObservationsToFusionObservations(aggregated.observations, {
     targetCurrency: input.target.currency,
     rates: allRates,
     maxRateAgeHours: input.maxRateAgeHours ?? 48,
+    now: () => new Date(resolvedAsOf),
   });
 
   const fused = fuseMarketObservations(fusionObservations, {
-    asOf: input.asOf ?? new Date().toISOString(),
+    asOf: resolvedAsOf,
     target: input.target,
     ...(input.history ? { history: input.history } : {}),
   });
@@ -239,7 +256,12 @@ export async function orchestrateMarketIntelligence(input: OrchestrateMarketInte
     fxPersistenceError,
     coverageReport: buildMarketCoverageReport({
       categorySlug: input.categorySlug,
-      asOf: input.asOf ?? new Date().toISOString(),
+      // `resolvedAsOf`, jamais une 2e évaluation indépendante de `new
+      // Date()` (trouvaille d'audit beta-readiness, section 12 — ce même
+      // fichier avait déjà ce bug pour la fusion/le FX, corrigé plus haut ;
+      // ce 3e site l'avait reproduit malgré le commentaire affirmant "une
+      // seule fois, réutilisé pour les deux appels ci-dessous").
+      asOf: resolvedAsOf,
       sourceDiagnostics: aggregated.diagnostics,
       observationsReturned: aggregated.observations.length + aggregated.canonicalOriginMergedCount,
       observationsAfterCanonicalDedupe: aggregated.observations.length,

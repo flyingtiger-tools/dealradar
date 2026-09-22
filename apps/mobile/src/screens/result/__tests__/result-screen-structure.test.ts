@@ -28,7 +28,12 @@ describe("Hiérarchie de ResultScreen (Phase 10/11, LOT visual product pass)", (
   });
 
   it("MarketInsightCard (LOT Interactive History..., section 3) est conditionné à view.marketInsight, jamais rendu inconditionnellement (garantie TCG : marketInsight est toujours null pour un résultat TCG)", () => {
-    expect(content).toMatch(/\{view\.marketInsight\s*&&\s*<MarketInsightCard/);
+    expect(content).toMatch(/\{view\.marketInsight\s*&&\s*\(?\s*<MarketInsightCard/);
+  });
+
+  it("onOpenProductHistory (LOT 'Product History UX...', section 2) n'est transmis qu'à MarketInsightCard — jamais un second point d'accès à ProductHistoryScreen", () => {
+    expect(content).not.toMatch(/import.*ProductHistoryScreen/);
+    expect(content).toMatch(/onViewHistory=\{view\.productKey && onOpenProductHistory \? onOpenProductHistory : undefined\}/);
   });
 
   it("MarketInsightCard apparaît après 'Prix par source' et avant WhyPanel — jamais de fourchette de prix dupliquée avant PriceHero/ScoreConfidenceRow", () => {

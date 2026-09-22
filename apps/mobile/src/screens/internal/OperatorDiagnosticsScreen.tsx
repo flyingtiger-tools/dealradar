@@ -42,6 +42,34 @@ function readinessTone(readiness: string | undefined): StatusTone {
   return "warning";
 }
 
+/**
+ * Distinction READY / DEGRADED / BLOCKED / NOT CONFIGURED (LOT "Product
+ * History UX + Source Health + Interactive Cancellation + Beta Readiness",
+ * section 9) — appliquée de façon cohérente à CHAQUE ligne de diagnostic
+ * qui a un état binaire/gradué (santé de source, disponibilité de table).
+ */
+type ClearStatus = "READY" | "DEGRADED" | "BLOCKED" | "NOT_CONFIGURED";
+
+const CLEAR_STATUS_LABELS: Record<ClearStatus, string> = { READY: "READY", DEGRADED: "DEGRADED", BLOCKED: "BLOCKED", NOT_CONFIGURED: "NOT CONFIGURED" };
+const CLEAR_STATUS_TONES: Record<ClearStatus, StatusTone> = { READY: "success", DEGRADED: "warning", BLOCKED: "danger", NOT_CONFIGURED: "neutral" };
+
+function healthLevelToClearStatus(level: "healthy" | "degraded" | "unhealthy"): ClearStatus {
+  if (level === "healthy") return "READY";
+  if (level === "degraded") return "DEGRADED";
+  return "BLOCKED";
+}
+
+/** `null`/absent -> "jamais" — jamais une durée fabriquée à partir d'une absence de donnée. */
+function formatAgeFromNow(iso: string | null): string {
+  if (!iso) return "jamais";
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const hours = ms / (1000 * 60 * 60);
+  if (hours < 1) return `il y a ${Math.round(ms / (1000 * 60))} min`;
+  if (hours < 48) return `il y a ${Math.round(hours)} h`;
+  return `il y a ${Math.round(hours / 24)} j`;
+}
+
 export function OperatorDiagnosticsScreen({ onBack }: OperatorDiagnosticsScreenProps) {
   const [state, setState] = useState<{ status: "loading" | "loaded" | "error"; data: OperatorObservabilityResponse | null; message: string | null }>({
     status: "loading",
@@ -94,7 +122,7 @@ function OperatorDiagnosticsContent({ data }: { data: OperatorObservabilityRespo
     <>
       <Card style={styles.section}>
         <Text style={styles.sectionTitle}>Moteur d'historique</Text>
-        <Row label="Tables disponibles" value={<StatusValue tone={historicalEngine.allTablesAvailable ? "success" : "danger"} text={historicalEngine.allTablesAvailable ? "OUI" : "NON"} />} />
+        <Row label="Tables disponibles" value={<StatusValue tone={CLEAR_STATUS_TONES[historicalEngine.allTablesAvailable ? "READY" : "BLOCKED"]} text={CLEAR_STATUS_LABELS[historicalEngine.allTablesAvailable ? "READY" : "BLOCKED"]} />} />
         {!historicalEngine.allTablesAvailable && (
           <Text style={styles.hint}>
             Tables manquantes : {historicalEngine.tables.filter((t) => !t.available).map((t) => t.table).join(", ") || "—"}
@@ -106,26 +134,29 @@ function OperatorDiagnosticsContent({ data }: { data: OperatorObservabilityRespo
         <Text style={styles.sectionTitle}>Cibles de recherche</Text>
         <Row label="Dues" value={<Text style={styles.value}>{summary.dueTargetCount}</Text>} />
         <Row label="En retard" value={<Text style={styles.value}>{summary.overdueTargetCount}</Text>} />
+        <Row label="Historique clairsemé (produits)" value={<Text style={styles.value}>{summary.sparseHistoryProductCount}</Text>} />
       </Card>
 
       <Card style={styles.section}>
-        <Text style={styles.sectionTitle}>Dernier run de rafraîchissement</Text>
+        <Text style={styles.sectionTitle}>Dernier lot de rafraîchissement</Text>
         {lastRun ? (
           <>
             <Row label="Démarré" value={<Text style={styles.value}>{lastRun.startedAt}</Text>} />
-            <Row label="Réussi" value={<StatusValue tone={lastRun.success ? "success" : lastRun.success === false ? "danger" : "neutral"} text={lastRun.success === null ? "en cours" : lastRun.success ? "OUI" : "NON"} />} />
+            <Row label="Réussi" value={<StatusValue tone={lastRun.failed === 0 ? "success" : "danger"} text={lastRun.failed === 0 ? "OUI" : "NON"} />} />
             <Row label="Expiré (deadline)" value={<StatusValue tone={lastRun.timedOut ? "warning" : "success"} text={lastRun.timedOut ? "OUI" : "NON"} />} />
             <Row label="Budget épuisé" value={<StatusValue tone={lastRun.budgetExhausted ? "warning" : "success"} text={lastRun.budgetExhausted ? "OUI" : "NON"} />} />
-            <Row label="Cibles réclamées" value={<Text style={styles.value}>{lastRun.targetsClaimed}</Text>} />
-            <Row label="Cibles réussies" value={<Text style={styles.value}>{lastRun.targetsSucceeded}</Text>} />
-            <Row label="Cibles échouées" value={<Text style={styles.value}>{lastRun.targetsFailed}</Text>} />
+            <Row label="Cibles réclamées" value={<Text style={styles.value}>{lastRun.claimed}</Text>} />
+            <Row label="Cibles réussies" value={<Text style={styles.value}>{lastRun.succeeded}</Text>} />
+            <Row label="Cibles échouées" value={<Text style={styles.value}>{lastRun.failed}</Text>} />
           </>
         ) : (
-          <Text style={styles.value}>Aucun run récent</Text>
+          <Text style={styles.value}>Aucun lot récent</Text>
         )}
-        <Row label="Taux de réussite (fenêtre récente)" value={<Text style={styles.value}>{summary.successRate === null ? "—" : `${Math.round(summary.successRate)}%`}</Text>} />
-        <Row label="Runs à budget épuisé" value={<Text style={styles.value}>{summary.budgetExhaustedRunCount}</Text>} />
-        <Row label="Runs expirés" value={<Text style={styles.value}>{summary.timedOutRunCount}</Text>} />
+        <Row label="Dernier succès" value={<Text style={styles.value}>{formatAgeFromNow(summary.latestSuccessfulTargetAt)}</Text>} />
+        <Row label="Taux de réussite (fenêtre récente)" value={<Text style={styles.value}>{summary.successRate === null ? "—" : `${Math.round(summary.successRate * 100)}%`}</Text>} />
+        <Row label="Lots à budget épuisé" value={<Text style={styles.value}>{summary.budgetExhaustedRunCount}</Text>} />
+        <Row label="Lots expirés" value={<Text style={styles.value}>{summary.timedOutRunCount}</Text>} />
+        <Row label="Abandons (déadline/annulation)" value={<Text style={styles.value}>{summary.abortedTargetCount}</Text>} />
       </Card>
 
       {recentFailures.length > 0 && (
@@ -136,6 +167,19 @@ function OperatorDiagnosticsContent({ data }: { data: OperatorObservabilityRespo
           ))}
         </Card>
       )}
+
+      <Card style={styles.section}>
+        <Text style={styles.sectionTitle}>Santé des sources</Text>
+        {summary.sourceHealth.length === 0 && <Text style={styles.value}>Aucune donnée</Text>}
+        {summary.sourceHealth.map((entry) => (
+          <View key={entry.source} style={styles.sourceHealthBlock}>
+            <Row label={entry.source} value={<StatusValue tone={CLEAR_STATUS_TONES[healthLevelToClearStatus(entry.healthLevel)]} text={CLEAR_STATUS_LABELS[healthLevelToClearStatus(entry.healthLevel)]} />} />
+            <Text style={styles.hint}>
+              Dernier succès {formatAgeFromNow(entry.lastSuccessAt)} · dernier échec {formatAgeFromNow(entry.lastFailureAt)} · {entry.timeoutCount} timeout(s) · {entry.abortedCount} abandon(s) (jamais compté comme un échec)
+            </Text>
+          </View>
+        ))}
+      </Card>
 
       <Card style={styles.section}>
         <Text style={styles.sectionTitle}>Préparation des sources</Text>
@@ -176,6 +220,7 @@ const styles = StyleSheet.create({
   label: { ...typography.body, color: colors.textSecondary, flexShrink: 1 },
   value: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1, textAlign: "right" },
   hint: { ...typography.caption, color: colors.textMuted },
+  sourceHealthBlock: { gap: 2, marginBottom: spacing.xs },
   error: { ...typography.body, color: colors.danger },
   statusValue: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
 });
