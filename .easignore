@@ -6,3 +6,17 @@ node_modules/
 .git/
 .turbo/
 coverage/
+
+# apps/mobile/android and apps/mobile/ios are LOCAL, UNTRACKED prebuild
+# output (never `git add`-ed — a fresh checkout never has them). When
+# present, EAS Build treats the project as "bare workflow" and reuses this
+# native project AS-IS instead of running its own managed `expo prebuild`
+# from app.config.ts. A stale local prebuild (e.g. predating a dependency
+# added since) then fails with real but misleading Gradle/CocoaPods errors
+# ("No matching variant of project :react-native-async-storage_async-
+# storage was found" — confirmed via EAS build b869706a-47a2-4027-9218-
+# c25988c085de: the stale android/settings.gradle has zero reference to
+# async-storage, autolinking never registered it). Excluding both forces
+# EAS to always generate a fresh native project for every build.
+apps/mobile/android/
+apps/mobile/ios/
