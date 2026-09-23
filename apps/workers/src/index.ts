@@ -6,6 +6,7 @@ import { scoreListing } from "./jobs/score-listing";
 import { processAnalysis } from "./jobs/process-analysis";
 import { buildEbayConnectorFromEnv } from "./ingestion/connector-config";
 import { ingestAndAnalyze } from "./ingestion/ingest-and-analyze";
+import { startHealthServer, stopHealthServer } from "./health-server";
 
 /**
  * Point d'entrée des workers.
@@ -15,6 +16,9 @@ import { ingestAndAnalyze } from "./ingestion/ingest-and-analyze";
  * ni au service role (Lot 4, ADR 0008).
  */
 async function main() {
+  // Démarré en tout premier, indépendamment du reste — voir health-server.ts.
+  const healthServer = startHealthServer();
+
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL est requis pour démarrer les workers.");
@@ -60,6 +64,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Arrêt des workers");
     await boss.stop({ graceful: true });
+    await stopHealthServer(healthServer);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
