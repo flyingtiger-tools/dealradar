@@ -28,6 +28,9 @@ export const ingestSourcePayload = z.object({
   /** Un des 5 slugs de profil de catégorie (lego, pokemon_tcg, apple, gaming, photo). */
   categorySlug: z.string().min(1),
   q: z.string().min(1),
+  /** Optional safety bounds for a small, controlled ingestion run. */
+  maxPages: z.number().int().min(1).max(10).optional(),
+  pageSize: z.number().int().min(1).max(50).optional(),
 });
 export type IngestSourcePayload = z.infer<typeof ingestSourcePayload>;
 
