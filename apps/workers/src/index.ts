@@ -47,6 +47,8 @@ async function main() {
       sourceSlug: payload.sourceSlug,
       categorySlug: payload.categorySlug,
       q: payload.q,
+      maxPages: payload.maxPages,
+      pageSize: payload.pageSize,
     });
     logger.info(result, "Ingestion (file) terminée");
   });
