@@ -29,7 +29,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - name: Installer les dépendances
         run: pnpm install --frozen-lockfile
       - name: Configurer l'API publique du profil beta
