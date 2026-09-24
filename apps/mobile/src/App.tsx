@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { SafeAreaView, StatusBar, StyleSheet, Text } from "react-native";
+import { TcgScanScreen } from "./screens/TcgScanScreen";
 import type { Session } from "@supabase/supabase-js";
 import { getCurrentSession, onSessionChange } from "./auth/session";
 import { LoginScreen } from "./screens/LoginScreen";
@@ -33,14 +34,39 @@ import { colors, typography } from "./theme/tokens";
  * observée en QA device réel (LOT "device QA + first real scan",
  * 2026-09-15) sur CHAQUE écran avant ce correctif.
  */
+const directTcgTest = process.env.EXPO_PUBLIC_DIAGNOSTIC_APK === "true";
+
+class VisibleErrorBoundary extends Component<{ children: ReactNode }, { message: string | null }> {
+  state = { message: null as string | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { message: error?.message ?? String(error) };
+  }
+
+  render() {
+    if (this.state.message) {
+      return (
+        <SafeAreaView style={styles.loading}>
+          <Text style={styles.loadingText}>L'application a rencontré une erreur :</Text>
+          <Text selectable style={styles.loadingText}>{this.state.message}</Text>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean | undefined>(undefined);
+  const [startupError, setStartupError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getCurrentSession().then((current) => {
       if (!cancelled) setSession(current);
+    }).catch((error: unknown) => {
+      if (!cancelled) setStartupError(error instanceof Error ? error.message : String(error));
     });
     const unsubscribe = onSessionChange(setSession);
     return () => {
@@ -63,11 +89,19 @@ export default function App() {
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      {renderBody()}
+      <VisibleErrorBoundary>{renderBody()}</VisibleErrorBoundary>
     </>
   );
 
   function renderBody() {
+    if (startupError) {
+      return (
+        <SafeAreaView style={styles.loading}>
+          <Text style={styles.loadingText}>Erreur au démarrage : {startupError}</Text>
+        </SafeAreaView>
+      );
+    }
+
     if (session === undefined) {
       return (
         <SafeAreaView style={styles.loading}>
@@ -79,6 +113,10 @@ export default function App() {
     if (session === null) {
       return <LoginScreen />;
     }
+
+    // APK de diagnostic : accès direct au scan, sans passer par l'accueil ni
+    // l'introduction, pour isoler l'écran blanc observé après connexion.
+    if (directTcgTest) return <TcgScanScreen />;
 
     if (onboardingCompleted === undefined) {
       return (

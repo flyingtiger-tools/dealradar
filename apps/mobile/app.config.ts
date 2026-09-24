@@ -16,9 +16,10 @@ const isInternalBuild = process.env.EXPO_PUBLIC_INTERNAL_TOOLS === "true";
 // APK de test GitHub signé séparément : identifiant distinct pour cohabiter
 // avec les installations EAS existantes sans les désinstaller.
 const isBetaApk = process.env.EXPO_PUBLIC_BETA_APK === "true";
+const isDiagnosticApk = process.env.EXPO_PUBLIC_DIAGNOSTIC_APK === "true";
 
 const config: ExpoConfig = {
-  name: isBetaApk ? "DealRadar Test" : isInternalBuild ? "DealRadar Internal" : "DealRadar",
+  name: isDiagnosticApk ? "DealRadar TCG Test" : isBetaApk ? "DealRadar Test" : isInternalBuild ? "DealRadar Internal" : "DealRadar",
   slug: "dealradar-copilot",
   version: "0.1.0",
   scheme: "dealradar",
@@ -34,7 +35,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    package: isBetaApk ? "com.dealradar.mobile.test" : isInternalBuild ? "com.dealradar.mobile.internal" : "com.dealradar.mobile",
+    package: isDiagnosticApk ? "com.dealradar.mobile.tcgtest" : isBetaApk ? "com.dealradar.mobile.test" : isInternalBuild ? "com.dealradar.mobile.internal" : "com.dealradar.mobile",
     permissions: [
       // Ajoutées explicitement par withAndroidOverlayCopilot — listées ici
       // pour lisibilité, la valeur de vérité reste le config plugin.
