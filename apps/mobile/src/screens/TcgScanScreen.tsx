@@ -5,8 +5,6 @@ import * as Crypto from "expo-crypto";
 import { tcgScanReducer, initialTcgScanState, type TcgScanState } from "../state/tcg-scan-state";
 import { uploadTcgCardPhoto, deleteTcgCardPhoto } from "../api/tcg-upload-client";
 import { createAnalysis, pollAnalysisUntilSettled } from "../api/analyses-client";
-import { analyzeTcgCard } from "../api/tcg-analyze-client";
-import { INTERNAL_TOOLS_ENABLED } from "../config/internal-tools";
 import { CaptureGuideScreen } from "./scanner/CaptureGuideScreen";
 import { PreviewScreen } from "./scanner/PreviewScreen";
 import { AnalysisLoadingScreen } from "./scanner/AnalysisLoadingScreen";
@@ -26,13 +24,8 @@ import { colors } from "../theme/tokens";
  * de la session Supabase courante (`auth/session.ts`) — cet écran n'est
  * jamais monté sans session active (`App.tsx` affiche `LoginScreen` sinon).
  *
- * Deux chemins réseau, choisis via `INTERNAL_TOOLS_ENABLED` (lot "journée
- * autonome", Priorité 7/8) : en build interne, `analyzeTcgCard()` appelle
- * `POST /api/internal/tcg/analyze` (Vercel, synchrone, aucun worker requis)
- * — sinon `createAnalysis()` + `pollAnalysisUntilSettled()` (file d'attente
- * `pg-boss` + worker Railway, chemin de production future, JAMAIS supprimé).
- * Le worker Railway étant hors ligne (trial expiré, jamais payé), le chemin
- * interne est aujourd'hui le seul qui aboutit réellement.
+ * Les analyses passent par la file de tâches du worker. Cette voie laisse
+ * le temps à l'identification et aux fournisseurs de prix de répondre.
  */
 
 const CONSENT_VERSION = "1";
@@ -95,14 +88,6 @@ export function TcgScanScreen() {
       const { url } = await uploadTcgCardPhoto(clientRequestId, state.imageUri);
       uploaded = true;
 
-      if (INTERNAL_TOOLS_ENABLED) {
-        dispatch({ type: "SUBMIT_STARTED", requestId: clientRequestId });
-        const { status, result } = await analyzeTcgCard({ imageUrl: url });
-        void deleteTcgCardPhoto(clientRequestId);
-        dispatch({ type: "RESULT_RECEIVED", requestId: clientRequestId, result, status });
-        return;
-      }
-
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
@@ -119,7 +104,7 @@ export function TcgScanScreen() {
         barcode: null, // jamais consommé pour la verticale TCG, voir process-analysis.ts.
       });
       dispatch({ type: "SUBMIT_STARTED", requestId: created.id });
-      const settled = await pollAnalysisUntilSettled(created.id);
+      const settled = await pollAnalysisUntilSettled(created.id, { timeoutMs: 180_000 });
       void deleteTcgCardPhoto(clientRequestId);
       dispatch({
         type: "RESULT_RECEIVED",
@@ -137,20 +122,8 @@ export function TcgScanScreen() {
 
   const resubmitWithCorrections = useCallback(async () => {
     if (state.phase !== "needsConfirmation") return;
-    // Capturé avant le `dispatch` suivant : `state.requestId` reste celui de
-    // la phase "needsConfirmation" ("" pour une saisie manuelle, l'id
-    // d'origine pour une confirmation post-extraction) — c'est aussi celui
-    // que "resubmitting" porte ensuite (voir `tcg-scan-state.ts`,
-    // CONFIRMATION_SUBMITTED), donc la comparaison dans RESULT_RECEIVED reste valide.
-    const requestId = state.requestId;
     dispatch({ type: "CONFIRMATION_SUBMITTED" });
     try {
-      if (INTERNAL_TOOLS_ENABLED) {
-        const { status, result } = await analyzeTcgCard({ providedTcgHints: state.fields });
-        dispatch({ type: "RESULT_RECEIVED", requestId, result, status });
-        return;
-      }
-
       const created = await createAnalysis({
         sourceType: "mobile_camera",
         sourcePlatform: null,
@@ -167,7 +140,7 @@ export function TcgScanScreen() {
         barcode: null,
       });
       dispatch({ type: "SUBMIT_STARTED", requestId: created.id });
-      const settled = await pollAnalysisUntilSettled(created.id);
+      const settled = await pollAnalysisUntilSettled(created.id, { timeoutMs: 180_000 });
       dispatch({
         type: "RESULT_RECEIVED",
         requestId: created.id,
@@ -184,7 +157,7 @@ export function TcgScanScreen() {
   // resubmitWithCorrections/dispatch) n'est touché : cet écran délègue
   // seulement le RENDU à des composants présentationnels dédiés
   // (Phase 1/5/6/7/8, LOT "fondation produit Raf") — même state machine,
-  // mêmes appels réseau qu'avant ce lot.
+  // les appels réseau sont effectués avant le rendu.
   if (state.phase === "idle" || state.phase === "error") {
     return (
       <View style={styles.root}>
