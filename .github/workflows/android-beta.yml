@@ -1,0 +1,56 @@
+name: APK Android de test
+
+on:
+  push:
+    branches: [feat/reprise-ai-ingestion-foundation]
+    paths:
+      - "apps/mobile/**"
+      - "packages/contracts/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/android-beta.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      EXPO_PUBLIC_BETA_APK: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Installer les dépendances
+        run: pnpm install --frozen-lockfile
+      - name: Configurer l'API publique du profil beta
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const env = JSON.parse(fs.readFileSync("apps/mobile/eas.json", "utf8")).build.beta.env;
+          fs.appendFileSync(process.env.GITHUB_ENV, Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n") + "\n");
+          NODE
+      - name: Générer le projet Android
+        run: pnpm --dir apps/mobile exec expo prebuild --clean --platform android --no-install
+      - name: Configurer le bundle Expo du monorepo
+        run: node apps/mobile/scripts/patch-generated-gradle-cli.js
+      - name: Compiler l'APK autonome
+        working-directory: apps/mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease -x lint -x test -PreactNativeArchitectures=arm64-v8a --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DealRadar-Test-Android
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
