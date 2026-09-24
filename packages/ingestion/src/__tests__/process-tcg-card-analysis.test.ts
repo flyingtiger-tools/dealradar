@@ -222,6 +222,31 @@ describe("processTcgCardAnalysis", () => {
     expect(result.result.extractedFields.confidence).toBe(1);
   });
 
+  it("accepte l'appellation courante Base Set pour les deux catalogues sans changer le texte affiché", async () => {
+    orchestratePokemonPipeline.mockResolvedValueOnce({
+      stage: "catalog_no_match",
+      candidate: null,
+      warnings: [],
+      reason: "Test de normalisation des indices.",
+    });
+    const result = await processTcgCardAnalysis(
+      fakeDb(),
+      {
+        id: "req-base-set",
+        imageReferences: [],
+        providedTcgHints: {
+          cardName: "Pikachu", setName: "Base Set", cardNumber: "58", variant: null,
+          language: "English", productKind: "raw_card", gradingCompany: null, grade: null,
+        },
+      },
+      { extractionOptions, connectors },
+    );
+    expect(orchestratePokemonPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({ hints: expect.objectContaining({ setName: "Base" }) }),
+    );
+    expect(result.result.extractedFields.setName).toBe("Base Set");
+  });
+
   it("identifiée mais aucun prix exploitable (cross_match_refused avec candidat) : insufficient_data avec identity renseignée, jamais identity:null — distingue une identification réussie d'un échec total", async () => {
     orchestratePokemonPipeline.mockResolvedValueOnce({
       stage: "cross_match_refused",

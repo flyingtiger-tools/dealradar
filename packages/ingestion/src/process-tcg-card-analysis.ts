@@ -100,11 +100,17 @@ function extractionToFields(extraction: TcgCardExtraction, warnings: string[]): 
   };
 }
 
+/** Les deux catalogues nomment le set de 1999 "Base", alors que l'usage courant (et l'extraction visuelle) dit souvent "Base Set". Ne normalise que cet alias vérifié : le nom affiché à l'utilisateur reste inchangé. */
+function catalogSetName(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return value.trim().toLowerCase() === "base set" ? "Base" : value;
+}
+
 function hintsFromExtraction(extraction: TcgCardExtraction): TcgCatalogHints {
   return {
     kind: extraction.productKind.value ?? undefined,
     name: extraction.cardName.value ?? undefined,
-    setName: extraction.setName.value ?? undefined,
+    setName: catalogSetName(extraction.setName.value),
     collectorNumber: deriveCollectorNumberForCatalogQuery(extraction.cardNumber.value),
     language: extraction.language.value ?? undefined,
     gradingCompany: (extraction.gradingCompany.value as TcgCatalogHints["gradingCompany"]) ?? undefined,
@@ -117,7 +123,7 @@ function hintsFromProvided(hints: TcgCardProvidedHints): TcgCatalogHints {
   return {
     kind: hints.productKind ?? undefined,
     name: hints.cardName ?? undefined,
-    setName: hints.setName ?? undefined,
+    setName: catalogSetName(hints.setName),
     collectorNumber: deriveCollectorNumberForCatalogQuery(hints.cardNumber),
     language: hints.language ?? undefined,
     gradingCompany: (hints.gradingCompany as TcgCatalogHints["gradingCompany"]) ?? undefined,
