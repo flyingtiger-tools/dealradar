@@ -38,6 +38,8 @@ export async function ingestAndAnalyze(params: {
   sourceSlug: string;
   categorySlug: string;
   q: string;
+  maxPages?: number;
+  pageSize?: number;
 }): Promise<IngestAndAnalyzeResult> {
   const summary = await runIngestion(params);
   const asOf = new Date().toISOString();
