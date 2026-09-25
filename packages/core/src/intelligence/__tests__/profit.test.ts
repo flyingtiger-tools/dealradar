@@ -20,6 +20,7 @@ function costs(overrides: Partial<CostInputs> = {}): CostInputs {
 describe("computeNetProfit", () => {
   it("soustrait achat, livraison, frais de plateforme et réserve de risque de la revente prudente", () => {
     const result = computeNetProfit(estimate(), costs());
+    if (!result) throw new Error("attendu non-null : purchasePriceCents fourni");
     // resale 25000 ; fee 12% = 3000 ; reserve 5% = 1250
     expect(result.platformFeeCents).toBe(3000);
     expect(result.riskReserveCents).toBe(1250);
@@ -30,12 +31,19 @@ describe("computeNetProfit", () => {
   it("inclut le coût de remise en état quand il est fourni", () => {
     const withRefurb = computeNetProfit(estimate(), costs({ refurbCostCents: 4000 }));
     const withoutRefurb = computeNetProfit(estimate(), costs());
+    if (!withRefurb || !withoutRefurb) throw new Error("attendu non-null : purchasePriceCents fourni");
     expect(withRefurb.netProfitCents).toBe(withoutRefurb.netProfitCents - 4000);
   });
 
   it("calcule un ratio de marge négatif quand les coûts dépassent la revente", () => {
     const result = computeNetProfit(estimate({ conservativeCents: 10000 }), costs());
+    if (!result) throw new Error("attendu non-null : purchasePriceCents fourni");
     expect(result.netProfitCents).toBeLessThan(0);
     expect(result.marginRatio).toBeLessThan(0);
+  });
+
+  it("renvoie null quand le prix d'achat n'est pas confirmé — jamais un coût fabriqué (0)", () => {
+    const result = computeNetProfit(estimate(), costs({ purchasePriceCents: null }));
+    expect(result).toBeNull();
   });
 });

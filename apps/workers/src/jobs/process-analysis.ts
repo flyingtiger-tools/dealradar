@@ -331,6 +331,12 @@ export async function processAnalysis(
     );
     return;
   }
+  // Capturé une fois dans un `const` local : `request.category_slug` (champ
+  // d'un objet mutable) perd son étroitement typé `string` après chaque
+  // `await` ci-dessous aux yeux de TypeScript, même si sa valeur réelle ne
+  // change jamais — ce `const` porte l'étroitement typé pour tout le reste
+  // de la fonction.
+  const categorySlug = request.category_slug;
 
   // `image_references[].url` pointe vers le bucket PRIVÉ `analysis-uploads`
   // (`public: false`) — un provider IA (OpenAI, `image_url: { url }`)
@@ -365,7 +371,7 @@ export async function processAnalysis(
   const extractionInput: ExtractionInput = {
     title: request.title ?? "",
     description: request.description,
-    categorySlug: request.category_slug,
+    categorySlug,
     images,
   };
 
@@ -395,58 +401,47 @@ export async function processAnalysis(
 
   const baseWarnings = extraction.warnings.map((w) => w.code as string);
 
-  // Sans état estimé, aucune identité fiable pour Intelligence Core (même
-  // exigence que mapListingToIntelligence côté ingestion) — jamais deviné.
+  // Ni l'état ni le prix d'achat ne bloquent plus l'identité ni la preuve de
+  // marché (LOT "PRIORITÉ DEALRADAR — APK complet + premier scan universel
+  // réel", section 2) — seules la marge/le score de deal/la décision
+  // BUY-REVIEW-PASS restent conditionnés à un prix d'achat confirmé, jamais
+  // fabriqués depuis un défaut (0 CHF, une marge inventée). Un état non
+  // détecté ou un prix non confirmé sont signalés en avertissement, jamais
+  // un bucket de condition deviné ni un coût fabriqué.
   const condition = extraction.product.condition?.value ?? null;
-  if (!condition) {
-    await writeResult(
-      db,
-      analysisRequestId,
-      "insufficient_data",
-      {
-        ...emptyResult([...baseWarnings, "CONDITION_UNKNOWN"], ["État de l'article non détecté."]),
-        product: {
-          name: productName,
-          category: request.category_slug,
-          modelOrReference: extraction.product.model?.value ?? extraction.product.reference?.value ?? null,
-        },
-      },
-    );
-    return;
-  }
+  const purchasePriceCents = request.purchase_price !== null ? Math.round(request.purchase_price * 100) : null;
 
-  // Sans prix d'achat confirmé, le calcul de marge serait inventé — jamais
-  // un prix d'achat par défaut (section 12 du brief produit).
-  if (request.purchase_price === null) {
-    await writeResult(
-      db,
-      analysisRequestId,
-      "insufficient_data",
-      {
-        ...emptyResult([...baseWarnings, "PURCHASE_PRICE_REQUIRED"], ["Prix d'achat non confirmé par l'utilisateur."]),
-        product: {
-          name: productName,
-          category: request.category_slug,
-          modelOrReference: extraction.product.model?.value ?? extraction.product.reference?.value ?? null,
-        },
-        conditionEstimated: condition,
-      },
-    );
-    return;
-  }
+  const identityWarnings = [...baseWarnings];
+  if (!condition) identityWarnings.push("CONDITION_UNKNOWN");
+  if (purchasePriceCents === null) identityWarnings.push("PURCHASE_PRICE_REQUIRED");
 
-  const listing: NormalizedListing = {
-    id: analysisRequestId,
-    sourceSlug: request.source_type,
-    // Purement descriptif (jamais utilisé pour l'identification) — un
-    // repli est donc sûr si ni l'extraction ni la requête n'ont de titre.
-    title: productName ?? "Analyse mobile",
-    priceCents: Math.round(request.purchase_price * 100),
-    currency: request.currency,
-    condition,
-    categorySlug: request.category_slug,
-    attributes,
-  };
+  // `NormalizedListing.condition` (@dealradar/core) est non-nullable par
+  // conception — le chemin ventes confirmées/annonces actives
+  // (`runIntelligencePipeline`, plus bas) exige un état CONNU pour filtrer/
+  // apparier les comparables, il ne peut honnêtement tourner sans lui.
+  // `condition === null` saute directement à la fusion multi-source (plus
+  // bas), qui accepte nativement une cible sans état (voir
+  // `isConditionMismatch`, `condition-normalization.ts`) — jamais un état
+  // deviné pour satisfaire ce type.
+  const coreListing: NormalizedListing | null = condition
+    ? {
+        id: analysisRequestId,
+        sourceSlug: request.source_type,
+        // Purement descriptif (jamais utilisé pour l'identification) — un
+        // repli est donc sûr si ni l'extraction ni la requête n'ont de titre.
+        title: productName ?? "Analyse mobile",
+        // Jamais lu par la logique pure de `@dealradar/core` (identify/
+        // comparables/estimate n'y touchent pas, vérifié) — seul
+        // `costs.purchasePriceCents` (plus bas, nullable) porte le vrai prix
+        // d'achat pour le calcul de marge. `0` ici n'est donc jamais un prix
+        // fabriqué exposé nulle part.
+        priceCents: purchasePriceCents ?? 0,
+        currency: request.currency,
+        condition,
+        categorySlug,
+        attributes,
+      }
+    : null;
 
   // Résolution de `productKey` (LOT "Interactive History + Generic Result
   // UI + Full Cancellation + Pre-Prod Activation Package", section 2) —
@@ -488,11 +483,11 @@ export async function processAnalysis(
     const lookup = createCachedCatalogLookup(catalogSources, sharedCatalogLookupCache);
     const hints: IdentityHints = {
       barcode: request.barcode,
-      legoSetNumber: listing.categorySlug === "lego" ? (extraction.product.reference?.value ?? null) : null,
-      gamingTitle: listing.categorySlug === "gaming" ? productName : null,
+      legoSetNumber: categorySlug === "lego" ? (extraction.product.reference?.value ?? null) : null,
+      gamingTitle: categorySlug === "gaming" ? productName : null,
     };
     const enrichResult = await enrichProductIdentity({
-      categorySlug: listing.categorySlug,
+      categorySlug,
       hints,
       aiFields: identitySeedFields,
       asOf: new Date().toISOString(),
@@ -516,7 +511,7 @@ export async function processAnalysis(
     );
   }
 
-  const productKey = deriveProductKey(listing.categorySlug, enrichedFields);
+  const productKey = deriveProductKey(categorySlug, enrichedFields);
 
   // Amorçage de cible de recherche (LOT "Historical Data Engine", section
   // 14) — un scan utilisateur identifié avec succès (catégorie confirmée,
@@ -538,7 +533,7 @@ export async function processAnalysis(
     // autant.
     const seedIdentity: CanonicalProductIdentity = enrichedIdentityForSeeding
       ? { ...enrichedIdentityForSeeding, productKey }
-      : mergeIdentityEvidence(createCanonicalProductIdentity(listing.categorySlug, productKey), {
+      : mergeIdentityEvidence(createCanonicalProductIdentity(categorySlug, productKey), {
           source: "ai_identification",
           confidence: 0.6,
           observedAt: new Date().toISOString(),
@@ -564,7 +559,7 @@ export async function processAnalysis(
       productKey: seedIdentity.productKey,
       reason: "user_scan",
       priority: scheduling.priority,
-      desiredCurrency: listing.currency,
+      desiredCurrency: request.currency,
       enabled: true,
       nextRefreshAt: scheduling.nextRefreshAt,
     });
@@ -575,19 +570,22 @@ export async function processAnalysis(
     );
   }
 
-  const identityFilter = buildIdentityFilter(listing.categorySlug, listing.attributes);
-  const { data: candidateRows } = await db
-    .from("listings")
-    .select("id,title,price_cents,currency,condition,attributes,sold_at,sources(slug)")
-    .eq("status", "sold")
-    .eq("currency", listing.currency)
-    .eq("condition", listing.condition)
-    .contains("attributes", identityFilter)
-    .limit(DEFAULT_CANDIDATE_POOL_LIMIT);
+  let soldCandidates: NormalizedComparable[] = [];
+  if (coreListing) {
+    const identityFilter = buildIdentityFilter(categorySlug, attributes);
+    const { data: candidateRows } = await db
+      .from("listings")
+      .select("id,title,price_cents,currency,condition,attributes,sold_at,sources(slug)")
+      .eq("status", "sold")
+      .eq("currency", request.currency)
+      .eq("condition", coreListing.condition)
+      .contains("attributes", identityFilter)
+      .limit(DEFAULT_CANDIDATE_POOL_LIMIT);
 
-  const soldCandidates = ((candidateRows ?? []) as RawSoldListingWithSource[])
-    .map((r) => mapSoldRowToComparable(r, extractSourceSlug(r.sources), listing.categorySlug))
-    .filter((c): c is NormalizedComparable => c !== null);
+    soldCandidates = ((candidateRows ?? []) as RawSoldListingWithSource[])
+      .map((r) => mapSoldRowToComparable(r, extractSourceSlug(r.sources), categorySlug))
+      .filter((c): c is NormalizedComparable => c !== null);
+  }
 
   // Repli annonces actives (LOT "Universal Object Valuation Foundation") —
   // uniquement quand la base ne fournit aucune vente confirmée pour cette
@@ -607,13 +605,13 @@ export async function processAnalysis(
   });
 
   let activeCandidates: NormalizedComparable[] = [];
-  if (soldCandidates.length === 0) {
+  if (coreListing && soldCandidates.length === 0) {
     const ebayConnector = tryBuildEbayConnectorFromEnv();
     if (ebayConnector) {
       try {
         activeCandidates = await gatherActiveListingEvidence({
           connector: ebayConnector,
-          categorySlug: listing.categorySlug,
+          categorySlug,
           queries,
         });
       } catch (error) {
@@ -625,15 +623,21 @@ export async function processAnalysis(
     }
   }
 
-  const pipelineResult = runIntelligencePipeline({
-    listing,
-    candidates: [...soldCandidates, ...activeCandidates],
-    costs: { purchasePriceCents: listing.priceCents, ...DEFAULT_COST_ASSUMPTIONS },
-    asOf: new Date().toISOString(),
-  });
+  // `null` quand l'état est inconnu (`coreListing` absent) — le chemin
+  // ventes confirmées/annonces actives ne peut honnêtement pas tourner sans
+  // état pour filtrer/apparier (voir `coreListing` plus haut). La fusion
+  // multi-source ci-dessous prend le relais dans ce cas.
+  const pipelineResult = coreListing
+    ? runIntelligencePipeline({
+        listing: coreListing,
+        candidates: [...soldCandidates, ...activeCandidates],
+        costs: { purchasePriceCents, ...DEFAULT_COST_ASSUMPTIONS },
+        asOf: new Date().toISOString(),
+      })
+    : null;
 
-  const usedSold = pipelineResult.comparables.used.length > 0;
-  const usedActiveListings = pipelineResult.estimate?.evidenceTier === "active_listing";
+  const usedSold = (pipelineResult?.comparables.used.length ?? 0) > 0;
+  const usedActiveListings = pipelineResult?.estimate?.evidenceTier === "active_listing";
 
   // Enrichissement multi-source (LOT "Source Wave 2", section 6) —
   // UNIQUEMENT quand le chemin existant (ventes confirmées en base + repli
@@ -644,13 +648,13 @@ export async function processAnalysis(
   // résultat existant — voir `orchestrateMarketIntelligence`, qui isole
   // déjà la persistance, et le `try/catch` ici qui isole tout le reste.
   let marketIntelligence: Awaited<ReturnType<typeof orchestrateMarketIntelligence>> | null = null;
-  // Position du prix d'achat CONFIRMÉ (`listing.priceCents`) dans la
+  // Position du prix d'achat CONFIRMÉ (`purchasePriceCents`) dans la
   // distribution historique connue — répond à "ce prix est-il bon par
   // rapport à l'historique", jamais une position de la valeur juste fusionnée
   // (qui n'existe pas encore à ce point, la fusion n'a pas encore tourné).
   // `null` tant qu'aucun historique exploitable n'a été lu.
   let currentVsHistoryPercentile: number | null = null;
-  if (pipelineResult.decision === "INSUFFICIENT_DATA") {
+  if (!pipelineResult || pipelineResult.decision === "INSUFFICIENT_DATA") {
     const { sources } = buildMarketSourcesFromEnv();
 
     // Santé PAR SOURCE (LOT "Product History UX + Source Health +
@@ -666,7 +670,7 @@ export async function processAnalysis(
 
     // `SourceSelectionPlan` EXACT (LOT "Real DB Integration + Exact Budget Enforcement...", section 4) — MÊME algorithme de sélection que le rafraîchissement en arrière-plan (`take-product-snapshot.ts`), jamais une logique divergente. Aucune identité canonique résolue à ce point du chemin interactif -> `identityHealth: null` (aucune exclusion pour faiblesse d'identité), budget à cible unique par défaut (un seul appel ponctuel, pas un run multi-cibles).
     const selectionPlan = buildSourceSelectionPlan({
-      categorySlug: listing.categorySlug,
+      categorySlug,
       envPresenceBySource: computeEnvPresenceBySource(),
       identityHealth: null,
       budgetState: initialRefreshBudgetState(Date.now()),
@@ -680,7 +684,7 @@ export async function processAnalysis(
     });
     if (resolvedSources.length > 0) {
       const targetAttributes: Record<string, string | number> = {};
-      for (const [key, value] of Object.entries(listing.attributes)) {
+      for (const [key, value] of Object.entries(attributes)) {
         if (typeof value === "string" || typeof value === "number") targetAttributes[key] = value;
       }
       // Contexte d'historique (LOT "Interactive History + Generic Result UI
@@ -696,7 +700,7 @@ export async function processAnalysis(
       try {
         const productHistory = await queryProductHistory(db, productKey, {
           asOf: new Date().toISOString(),
-          currentPriceCents: listing.priceCents,
+          currentPriceCents: purchasePriceCents,
         });
         historyContext = toFusionHistoryContext(productHistory.history, productHistory.freshnessHours);
         currentVsHistoryPercentile = productHistory.history.historicalPercentilePosition;
@@ -726,12 +730,12 @@ export async function processAnalysis(
 
       try {
         // Bucket canonique (LOT "Data Quality Calibration...", section 5) — même normalisation que côté observations (`map-market-observations-to-fusion.ts`), sinon `isCompatibleWithTarget` comparerait un vocabulaire cible (`ItemConditionRaw`) à un vocabulaire source distinct par égalité de chaîne stricte, produisant de fausses exclusions.
-        const normalizedTargetCondition = listing.condition ? normalizeCondition({ rawCondition: listing.condition }) : null;
+        const normalizedTargetCondition = condition ? normalizeCondition({ rawCondition: condition }) : null;
         marketIntelligence = await orchestrateMarketIntelligence({
-          categorySlug: listing.categorySlug,
-          q: queries.exact || productName || listing.title,
+          categorySlug,
+          q: queries.exact || productName || coreListing?.title || "Analyse mobile",
           sources: resolvedSources,
-          target: { currency: listing.currency, condition: normalizedTargetCondition === "unknown" ? null : normalizedTargetCondition, attributes: targetAttributes },
+          target: { currency: request.currency, condition: normalizedTargetCondition === "unknown" ? null : normalizedTargetCondition, attributes: targetAttributes },
           // Résout automatiquement un taux pour chaque devise étrangère
           // réellement observée (LOT "Source Wave 3", section 1) — Frankfurter,
           // gratuit, mis en cache au niveau module (voir plus haut). Une
@@ -769,13 +773,20 @@ export async function processAnalysis(
   const fused = marketIntelligence?.fused;
   const useFusedValuation = fused !== undefined && fused.status === "estimated";
 
+  // `computeNetProfit` (@dealradar/core) renvoie `null` quand
+  // `purchasePriceCents` est `null` (prix d'achat non confirmé) plutôt que de
+  // calculer un profit sur un coût fabriqué — voir `profit.ts`.
   const netProfitFromFusion = useFusedValuation
     ? computeNetProfit(
         { sampleSize: fused.evidenceCount, medianCents: fused.fairCents!, p25Cents: fused.lowCents!, p75Cents: fused.highCents!, conservativeCents: fused.lowCents! },
-        { purchasePriceCents: listing.priceCents, ...DEFAULT_COST_ASSUMPTIONS },
+        { purchasePriceCents, ...DEFAULT_COST_ASSUMPTIONS },
       )
     : null;
-  const dealScoreFromFusion = useFusedValuation ? computeDealScore(netProfitFromFusion) : null;
+  // `computeDealScore(null)` renvoie `0` (voir `scores.ts`, pensé pour "pas
+  // assez de comparables") — jamais appelé directement ici sans ce garde,
+  // sinon un prix d'achat non confirmé produirait un score de deal fabriqué
+  // (0) au lieu d'un `null` honnête.
+  const dealScoreFromFusion = useFusedValuation && netProfitFromFusion ? computeDealScore(netProfitFromFusion) : null;
   const fusedDecision = useFusedValuation ? decideFromFusedValuation(fused!, dealScoreFromFusion) : null;
 
   const marketEvidence = marketIntelligence
@@ -817,11 +828,37 @@ export async function processAnalysis(
   if (marketEvidence?.retailOnlyWarning) marketWarnings.push("MARKET_EVIDENCE_RETAIL_ONLY");
   if (marketEvidence?.activeListingsOnlyWarning) marketWarnings.push("MARKET_EVIDENCE_ACTIVE_LISTINGS_ONLY");
 
+  // Marge/frais/net à partir d'une SEULE source de `netProfit`, quel que
+  // soit le chemin (fusion vs pipeline ventes confirmées) — jamais deux
+  // calculs divergents. `null` chaque fois que le prix d'achat n'est pas
+  // confirmé (voir les gardes `computeNetProfit`/`computeDealScore`
+  // ci-dessus), jamais un profit/marge fabriqué.
+  const netProfit = useFusedValuation ? netProfitFromFusion : (pipelineResult?.netProfit ?? null);
+
+  // Décision d'achat (BUY/REVIEW/PASS) STRICTEMENT hors de portée sans prix
+  // d'achat confirmé (brief produit, section 12 : "décision si un prix
+  // d'achat est connu") — même quand la preuve de marché suffirait par
+  // ailleurs à statuer (ex. palier C/D/E de `decideFromFusedValuation`, qui
+  // peut renvoyer REVIEW sur la seule qualité de preuve, sans regarder le
+  // score de deal). `INSUFFICIENT_DATA` reste honnête ici : il n'y a
+  // réellement pas assez de données pour une décision d'ACHAT, même si
+  // l'identité et la valeur de marché, elles, le sont.
+  const marketDecision = useFusedValuation ? fusedDecision!.decision : (pipelineResult?.decision ?? "INSUFFICIENT_DATA");
+  const decision = purchasePriceCents === null ? "INSUFFICIENT_DATA" : marketDecision;
+
+  const marketReasons = useFusedValuation
+    ? [fusedDecision!.reason, ...fused!.reasons]
+    : (pipelineResult?.whyPanel.factors.map((f) => f.detail) ?? []);
+  const reasons =
+    purchasePriceCents === null
+      ? ["Prix d'achat non confirmé : décision d'achat (BUY/REVIEW/PASS) non calculée. Valeur de marché fournie à titre informatif.", ...marketReasons]
+      : marketReasons;
+
   const analysisResult: AnalysisResult = {
     productKey,
     product: {
       name: productName,
-      category: listing.categorySlug,
+      category: categorySlug,
       // `enrichedFields.model` (LOT "Live Identity Enrichment...", section
       // 1/12) prime sur l'extraction IA brute UNIQUEMENT si le catalogue
       // exact a réellement corroboré/corrigé un modèle (ex. le nom OFFICIEL
@@ -830,13 +867,13 @@ export async function processAnalysis(
       modelOrReference: enrichedFields.model ?? extraction.product.model?.value ?? extraction.product.reference?.value ?? null,
     },
     conditionEstimated: condition,
-    priceDetected: { amount: request.purchase_price, currency: listing.currency },
+    priceDetected: request.purchase_price !== null ? { amount: request.purchase_price, currency: request.currency } : null,
     marketValueEstimate: useFusedValuation
       ? { amount: fused!.fairCents! / 100, currency: fused!.currency, provenance: provenanceForEvidenceTier(fused!.strongestTier) }
-      : pipelineResult.estimate
+      : pipelineResult?.estimate
         ? {
             amount: pipelineResult.estimate.conservativeCents / 100,
-            currency: listing.currency,
+            currency: request.currency,
             // Reflète honnêtement `evidenceTier` (LOT "Universal Object
             // Valuation Foundation") — jamais "sold_transaction" pour une
             // estimation qui repose en réalité sur des annonces actives.
@@ -845,36 +882,20 @@ export async function processAnalysis(
         : null,
     resaleRangeConservative: useFusedValuation
       ? { low: fused!.lowCents! / 100, high: fused!.highCents! / 100, currency: fused!.currency }
-      : pipelineResult.estimate
-        ? { low: pipelineResult.estimate.p25Cents / 100, high: pipelineResult.estimate.p75Cents / 100, currency: listing.currency }
+      : pipelineResult?.estimate
+        ? { low: pipelineResult.estimate.p25Cents / 100, high: pipelineResult.estimate.p75Cents / 100, currency: request.currency }
         : null,
-    grossMargin: useFusedValuation
-      ? netProfitFromFusion
-        ? (netProfitFromFusion.resaleBasisCents - listing.priceCents) / 100
-        : null
-      : pipelineResult.netProfit
-        ? (pipelineResult.netProfit.resaleBasisCents - listing.priceCents) / 100
-        : null,
-    estimatedFees: useFusedValuation
-      ? netProfitFromFusion
-        ? (netProfitFromFusion.platformFeeCents + netProfitFromFusion.riskReserveCents) / 100
-        : null
-      : pipelineResult.netProfit
-        ? (pipelineResult.netProfit.platformFeeCents + pipelineResult.netProfit.riskReserveCents) / 100
-        : null,
-    netMargin: useFusedValuation
-      ? netProfitFromFusion
-        ? netProfitFromFusion.netProfitCents / 100
-        : null
-      : pipelineResult.netProfit
-        ? pipelineResult.netProfit.netProfitCents / 100
-        : null,
-    confidenceScore: useFusedValuation ? fused!.confidence : pipelineResult.scores.confidence,
-    liquidityScore: useFusedValuation ? estimateLiquidityFromFusedValuation(fused!) : pipelineResult.scores.liquidity,
-    dealScore: useFusedValuation ? dealScoreFromFusion : pipelineResult.scores.deal,
-    decision: useFusedValuation ? fusedDecision!.decision : pipelineResult.decision,
-    warnings: [...baseWarnings, ...marketWarnings],
-    reasons: useFusedValuation ? [fusedDecision!.reason, ...fused!.reasons] : pipelineResult.whyPanel.factors.map((f) => f.detail),
+    // Prix d'achat garanti confirmé ici : `netProfit` n'est jamais non-null
+    // sans lui (voir les gardes `computeNetProfit`/Core ci-dessus).
+    grossMargin: netProfit ? (netProfit.resaleBasisCents - purchasePriceCents!) / 100 : null,
+    estimatedFees: netProfit ? (netProfit.platformFeeCents + netProfit.riskReserveCents) / 100 : null,
+    netMargin: netProfit ? netProfit.netProfitCents / 100 : null,
+    confidenceScore: useFusedValuation ? fused!.confidence : (pipelineResult?.scores.confidence ?? 0),
+    liquidityScore: useFusedValuation ? estimateLiquidityFromFusedValuation(fused!) : (pipelineResult?.scores.liquidity ?? 0),
+    dealScore: useFusedValuation ? dealScoreFromFusion : (pipelineResult?.scores.deal ?? null),
+    decision,
+    warnings: [...identityWarnings, ...marketWarnings],
+    reasons,
     dataAvailability: useFusedValuation
       ? { soldTransactions: fused!.strongestTier === "A", marketGuide: marketEvidence!.usedSpecialistHistory }
       : { soldTransactions: usedSold, marketGuide: false },
@@ -886,6 +907,5 @@ export async function processAnalysis(
     ...(identityQuality ? { identityQuality } : {}),
   };
 
-  const finalDecision = useFusedValuation ? fusedDecision!.decision : pipelineResult.decision;
-  await writeResult(db, analysisRequestId, finalDecision === "INSUFFICIENT_DATA" ? "insufficient_data" : "completed", analysisResult);
+  await writeResult(db, analysisRequestId, decision === "INSUFFICIENT_DATA" ? "insufficient_data" : "completed", analysisResult);
 }

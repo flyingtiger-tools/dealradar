@@ -125,7 +125,7 @@ describe("processAnalysis", () => {
     expect(row.result.product.modelOrReference).toBe("75313");
   });
 
-  it("insufficient_data + PURCHASE_PRICE_REQUIRED quand le prix d'achat n'est pas confirmé", async () => {
+  it("prix absent + aucune preuve de marché disponible : insufficient_data, PURCHASE_PRICE_REQUIRED, identité préservée, jamais une valeur de marché inventée", async () => {
     const db = new FakeSupabase();
     db.seed("analysis_requests", [baseRow({ purchase_price: null })]);
 
@@ -133,11 +133,113 @@ describe("processAnalysis", () => {
 
     const row = db.table("analysis_requests")[0] as {
       status: string;
-      result: { warnings: string[]; conditionEstimated: string | null };
+      result: {
+        warnings: string[];
+        conditionEstimated: string | null;
+        product: { name: string | null };
+        marketValueEstimate: unknown;
+        dealScore: number | null;
+        decision: string;
+      };
     };
     expect(row.status).toBe("insufficient_data");
     expect(row.result.warnings).toContain("PURCHASE_PRICE_REQUIRED");
     expect(row.result.conditionEstimated).toBe("very_good");
+    expect(row.result.product.name).not.toBeNull();
+    expect(row.result.marketValueEstimate).toBeNull();
+    expect(row.result.dealScore).toBeNull();
+    expect(row.result.decision).toBe("INSUFFICIENT_DATA");
+  });
+
+  it("prix absent + preuve de marché multi-source disponible (LOT 'PRIORITÉ DEALRADAR', section 2) : la valeur de marché est fournie, mais la décision d'achat et la marge restent hors de portée — jamais un score de deal ou une marge fabriqués sans prix confirmé", async () => {
+    vi.mocked(buildMarketSourcesFromEnv).mockReturnValue({ sources: [fakeMarketSource("bricklink")], diagnostics: [{ name: "bricklink", enabled: true }] });
+    vi.mocked(computeEnvPresenceBySource).mockReturnValue({ bricklink: { BRICKLINK_CONSUMER_KEY: true, BRICKLINK_CONSUMER_SECRET: true, BRICKLINK_TOKEN_VALUE: true, BRICKLINK_TOKEN_SECRET: true } });
+    vi.mocked(orchestrateMarketIntelligence).mockResolvedValue({
+      sourceDiagnostics: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10 }],
+      observationCount: 3,
+      liveObservationCount: 0,
+      historicalObservationCount: 3,
+      sourceNames: ["bricklink"],
+      directSourceCount: 1,
+      aggregatorSourceCount: 0,
+      evidenceTypeMix: [{ evidenceType: "historicalPrices", count: 3 }],
+      costClassesUsed: ["free"],
+      fx: { observedCurrencies: ["CHF"], ratesUsed: [], skippedForMissingRateCount: 0 },
+      skippedForCurrencyCount: 0,
+      persistedCount: 3,
+      persistenceError: null,
+      fxRatesPersistedCount: null,
+      fxPersistenceError: null,
+      coverageReport: {
+        categorySlug: "lego",
+        asOf: "2026-09-21T00:00:00.000Z",
+        sourcesQueried: 1,
+        sourcesSucceeded: 1,
+        sourcesFailed: 0,
+        perSource: [{ source: "bricklink", status: "success", observationCount: 3, latencyMs: 10, costClass: "free" }],
+        observationsReturned: 3,
+        observationsAfterCanonicalDedupe: 3,
+        observationsUsableAfterFx: 3,
+        observationsPersisted: 3,
+        medianLatencyMs: 10,
+      },
+      fused: {
+        status: "estimated",
+        lowCents: 17000,
+        fairCents: 18000,
+        highCents: 19000,
+        currency: "CHF",
+        confidence: 80,
+        evidenceCount: 3,
+        sourceCount: 1,
+        strongestTier: "B",
+        evidenceMix: [{ tier: "B", source: "bricklink", merchant: "bricklink", count: 3 }],
+        freshnessHours: 2,
+        reasons: ["3 observation(s) retenue(s), palier le plus fort : B."],
+        insufficiencyReason: null,
+        confidenceComponents: null,
+        qualityFlags: ["specialist_only"],
+        historicalReferenceMedianCents: null,
+        trendDescriptor: null,
+        trendConfidence: null,
+        historyStabilizationApplied: false,
+      },
+    });
+
+    const db = new FakeSupabase();
+    db.seed("analysis_requests", [baseRow({ purchase_price: null })]);
+
+    await processAnalysis({ analysisRequestId: ANALYSIS_ID }, db as never);
+
+    const row = db.table("analysis_requests")[0] as {
+      status: string;
+      result: {
+        warnings: string[];
+        decision: string;
+        product: { name: string | null };
+        marketValueEstimate: { amount: number; currency: string; provenance: string } | null;
+        resaleRangeConservative: { low: number; high: number; currency: string } | null;
+        dealScore: number | null;
+        grossMargin: number | null;
+        estimatedFees: number | null;
+        netMargin: number | null;
+      };
+    };
+    expect(row.result.warnings).toContain("PURCHASE_PRICE_REQUIRED");
+    // La preuve de marché, elle, est bien exploitée — jamais effacée par
+    // l'absence de prix d'achat.
+    expect(row.result.product.name).not.toBeNull();
+    expect(row.result.marketValueEstimate).toEqual({ amount: 180, currency: "CHF", provenance: "market_guide" });
+    expect(row.result.resaleRangeConservative).toEqual({ low: 170, high: 190, currency: "CHF" });
+    // Jamais une décision d'achat ni un score de deal/une marge fabriqués
+    // sans prix d'achat confirmé, même si le palier de preuve (B) aurait
+    // normalement suffi à statuer REVIEW.
+    expect(row.result.decision).toBe("INSUFFICIENT_DATA");
+    expect(row.status).toBe("insufficient_data");
+    expect(row.result.dealScore).toBeNull();
+    expect(row.result.grossMargin).toBeNull();
+    expect(row.result.estimatedFees).toBeNull();
+    expect(row.result.netMargin).toBeNull();
   });
 
   it("insufficient_data quand aucun comparable vendu ne correspond (identification correcte malgré tout)", async () => {

@@ -142,7 +142,8 @@ export interface PriceEstimate {
 }
 
 export interface CostInputs {
-  purchasePriceCents: number;
+  /** `null` = prix d'achat non confirmé par l'utilisateur — `computeNetProfit` renvoie alors `null` plutôt que de fabriquer un coût (jamais 0). */
+  purchasePriceCents: number | null;
   shippingCostCents: number;
   /** Fraction du prix de revente, ex. 0.12 pour 12 %. */
   platformFeeRate: number;
