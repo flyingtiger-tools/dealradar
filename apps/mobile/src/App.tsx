@@ -1,5 +1,7 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { SafeAreaView, StatusBar, StyleSheet, Text } from "react-native";
+import { useFonts } from "expo-font";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { TcgScanScreen } from "./screens/TcgScanScreen";
 import type { Session } from "@supabase/supabase-js";
 import { getCurrentSession, onSessionChange } from "./auth/session";
@@ -57,6 +59,18 @@ class VisibleErrorBoundary extends Component<{ children: ReactNode }, { message:
 }
 
 export default function App() {
+  // Chargement EXPLICITE de la fonte Ionicons avant le premier rendu d'une
+  // icône — voir `components/ui/Icon.tsx` (point d'accès unique). Sans ce
+  // préchargement, le composant `Icon` d'`@expo/vector-icons` gère lui-même
+  // l'attente asynchrone (`Font.loadAsync` interne, `componentDidMount`),
+  // mais un crash "Objects are not valid as a React child" a été observé de
+  // façon 100% reproductible sur build RELEASE réel (S24 Ultra, jamais en
+  // debug local) à l'ouverture de l'accueil — précisément à l'endroit où ce
+  // composant bascule de son rendu "police non chargée" (`<Text />`) vers le
+  // rendu de la vraie icône, juste après le montage. `useFonts` ici gate
+  // TOUT rendu de l'app derrière un état de chargement déjà existant
+  // (écran "Chargement…"), éliminant cette transition intra-composant.
+  const [fontsLoaded] = useFonts(Ionicons.font);
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean | undefined>(undefined);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -94,6 +108,14 @@ export default function App() {
   );
 
   function renderBody() {
+    if (!fontsLoaded) {
+      return (
+        <SafeAreaView style={styles.loading}>
+          <Text style={styles.loadingText}>Chargement…</Text>
+        </SafeAreaView>
+      );
+    }
+
     if (startupError) {
       return (
         <SafeAreaView style={styles.loading}>
