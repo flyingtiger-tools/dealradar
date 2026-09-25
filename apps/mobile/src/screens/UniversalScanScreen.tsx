@@ -113,6 +113,11 @@ export function UniversalScanScreen({ category, onExit }: UniversalScanScreenPro
       );
       dispatch({ type: "ANALYSIS_SUCCEEDED", analysis });
     } catch (e) {
+      // Message TECHNIQUE brut en log seulement (jamais affiché tel quel à
+      // l'écran, voir `cleanUserMessage`/`ErrorState`) — sans ce log, une
+      // cause imprévue (bug, pas un cas réseau/serveur connu) n'est
+      // observable nulle part, y compris sur un build de release.
+      console.error("GENERIC_SCAN_FAILED", e instanceof Error ? e.message : String(e));
       dispatch({ type: "ANALYSIS_FAILED", message: e instanceof Error ? e.message : "Erreur inconnue lors de l'identification." });
     }
   }, [state, category, dispatch]);

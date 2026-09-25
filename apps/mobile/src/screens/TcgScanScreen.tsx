@@ -116,6 +116,11 @@ export function TcgScanScreen() {
       // Best-effort : un échec de suppression n'empêche jamais d'afficher
       // l'erreur réelle à l'utilisateur (voir `deleteTcgCardPhoto`).
       if (uploaded) void deleteTcgCardPhoto(clientRequestId);
+      // Message TECHNIQUE brut en log seulement (jamais affiché tel quel à
+      // l'écran, voir `cleanUserMessage`/`ErrorState`) — sans ce log, une
+      // cause imprévue (bug, pas un cas réseau/serveur connu) n'est
+      // observable nulle part, y compris sur un build de release.
+      console.error("TCG_SCAN_FAILED", e instanceof Error ? e.message : String(e));
       dispatch({ type: "FAILED", message: e instanceof Error ? e.message : "Erreur inconnue lors de l'envoi." });
     }
   }, [state, dispatch]);
@@ -148,6 +153,7 @@ export function TcgScanScreen() {
         status: settled.status === "completed" || settled.status === "insufficient_data" || settled.status === "failed" ? settled.status : "failed",
       });
     } catch (e) {
+      console.error("TCG_SCAN_RESUBMIT_FAILED", e instanceof Error ? e.message : String(e));
       dispatch({ type: "FAILED", message: e instanceof Error ? e.message : "Erreur inconnue lors de l'envoi." });
     }
   }, [state, dispatch]);
